@@ -1,0 +1,416 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 5 — User Capabilities
+
+---
+
+# Purpose
+
+This section defines every capability available within DigiSwasthya.
+
+A capability describes something a user should be able to accomplish.
+
+Capabilities define the product.
+
+They do not define user interface, implementation, workflows, or technical architecture.
+
+Every feature, page, button, API, and workflow exists only to support one or more capabilities defined in this document.
+
+If the application cannot perform a capability described here, the application is incomplete.
+
+If the application performs actions not described here, the product definition should be updated before implementation.
+
+---
+
+# Capability Principles
+
+Every capability should satisfy the following principles.
+
+- Solve a real business problem.
+- Produce a measurable business outcome.
+- Belong to one or more user roles.
+- Follow business rules.
+- Preserve data integrity.
+- Leave an audit trail where applicable.
+- Integrate with existing business entities.
+- Never duplicate another capability.
+
+---
+
+# Capability Structure
+
+Every capability should define:
+
+- Purpose
+- Applicable User Roles
+- Business Outcome
+- Dependencies
+- Restrictions
+- Success Criteria
+
+Implementation details are intentionally excluded.
+
+---
+
+# Pharmacy Capabilities
+
+## Business Management
+
+A pharmacy user should be able to:
+
+- Register a pharmacy business.
+- Submit business verification documents.
+- Update business information.
+- View verification status.
+- Respond to verification requests.
+- Manage pharmacy profile.
+- Manage business settings.
+- Manage delivery addresses.
+- Configure business preferences.
+- Manage pharmacy staff.
+- Invite staff members.
+- Remove staff members.
+- Assign staff permissions.
+- View business activity.
+
+---
+
+## Stockist Discovery
+
+A pharmacy user should be able to:
+
+- Search for stockists.
+- Browse available stockists.
+- View stockist business information.
+- View stockist catalogue availability.
+- Request a business connection.
+- View pending connection requests.
+- Cancel a connection request before approval.
+- View connected stockists.
+- Disconnect from a stockist if business rules permit.
+
+---
+
+## Purchasing
+
+A pharmacy user should be able to:
+
+- Browse product catalogues.
+- Search products.
+- Filter products.
+- Compare products.
+- View product details.
+- View pricing.
+- View available inventory.
+- Add products to cart.
+- Modify cart quantities.
+- Remove products from cart.
+- Save products for later.
+- Place purchase orders.
+- Review orders before submission.
+- Duplicate previous orders.
+- Reorder previously purchased products.
+
+---
+
+## Order Management
+
+A pharmacy user should be able to:
+
+- View all orders.
+- Search orders.
+- Filter orders.
+- View order details.
+- Track order progress.
+- View expected delivery information.
+- Cancel eligible orders.
+- Receive deliveries.
+- Record received quantities.
+- Report shortages.
+- Report damaged products.
+- View completed orders.
+
+---
+
+## Inventory
+
+A pharmacy user should be able to:
+
+- View inventory.
+- Search inventory.
+- Filter inventory.
+- Add inventory manually.
+- Update inventory.
+- Remove inventory.
+- View low stock.
+- View expiry information.
+- View inventory history.
+- Track inventory movements.
+
+---
+
+## Payments
+
+A pharmacy user should be able to:
+
+- View outstanding invoices.
+- View payment history.
+- Make payments.
+- Upload payment proof.
+- View payment status.
+- View credit notes.
+- Apply available credit.
+- View financial summaries.
+
+---
+
+## Returns
+
+A pharmacy user should be able to:
+
+- View eligible return items.
+- Initiate returns.
+- Select products for return.
+- Specify return quantities.
+- Provide return reasons.
+- View return status.
+- View approved returns.
+- View rejected returns.
+- View issued credit notes.
+
+---
+
+## Communication
+
+A pharmacy user should be able to:
+
+- Receive notifications.
+- View notification history.
+- Send messages.
+- Receive messages.
+- Contact stockists.
+- Contact support.
+- Create support tickets.
+- View ticket status.
+
+---
+
+## Analytics
+
+A pharmacy user should be able to:
+
+- View purchasing analytics.
+- View spending trends.
+- View supplier performance.
+- View inventory analytics.
+- View payment analytics.
+- Export reports.
+
+---
+
+# Stockist Capabilities
+
+## Business Management
+
+A stockist user should be able to:
+
+- Register business.
+- Complete verification.
+- Manage profile.
+- Manage documents.
+- Manage staff.
+- Configure business settings.
+- Configure delivery settings.
+- Manage service areas.
+- Manage business users.
+
+---
+
+## Pharmacy Management
+
+A stockist user should be able to:
+
+- View pharmacy requests.
+- Search pharmacies.
+- Review pharmacy details.
+- Approve pharmacy connections.
+- Reject pharmacy connections.
+- Manage connected pharmacies.
+- Configure customer-specific settings.
+- Maintain business relationships.
+
+---
+
+## Product Catalogue
+
+A stockist user should be able to:
+
+- Add products.
+- Edit products.
+- Remove products.
+- Import catalogues.
+- Export catalogues.
+- Search products.
+- Categorise products.
+- Configure pricing.
+- Configure availability.
+- Configure discounts.
+
+---
+
+## Inventory Management
+
+A stockist user should be able to:
+
+- View inventory.
+- Add inventory.
+- Remove inventory.
+- Update inventory.
+- Track inventory.
+- Manage batches.
+- Manage expiry.
+- Perform stock adjustments.
+- Perform stock transfers.
+- View inventory history.
+
+---
+
+## Order Fulfilment
+
+A stockist user should be able to:
+
+- View incoming orders.
+- Review order details.
+- Accept orders.
+- Reject orders.
+- Modify fulfilment where permitted.
+- Allocate inventory.
+- Prepare orders.
+- Generate invoices.
+- Dispatch orders.
+- Complete deliveries.
+- View completed fulfilments.
+
+---
+
+## Financial Management
+
+A stockist user should be able to:
+
+- View invoices.
+- Create invoices.
+- View outstanding balances.
+- Review incoming payments.
+- Approve payments.
+- Reject payments.
+- Place payments on hold.
+- Issue credit notes.
+- View financial analytics.
+
+---
+
+## Returns
+
+A stockist user should be able to:
+
+- View return requests.
+- Review returned products.
+- Approve returns.
+- Reject returns.
+- Record inventory adjustments.
+- Issue credit notes.
+- Track return history.
+
+---
+
+## Delivery
+
+A stockist user should be able to:
+
+- Manage delivery routes.
+- Manage delivery staff.
+- Assign deliveries.
+- Track deliveries.
+- Complete deliveries.
+- View delivery history.
+
+---
+
+## Analytics
+
+A stockist user should be able to:
+
+- View sales analytics.
+- View inventory analytics.
+- View customer analytics.
+- View payment analytics.
+- View operational analytics.
+- Export business reports.
+
+---
+
+# Platform Administrator Capabilities
+
+A platform administrator should be able to:
+
+- Review registrations.
+- Approve businesses.
+- Reject businesses.
+- Request additional documents.
+- Suspend businesses.
+- Reactivate businesses.
+- View all businesses.
+- View platform analytics.
+- View transactions.
+- View orders.
+- View payments.
+- View returns.
+- View support tickets.
+- Respond to support tickets.
+- Manage platform announcements.
+- Manage banners.
+- Configure platform settings.
+- Review audit logs.
+- Investigate suspicious activity.
+
+---
+
+# Shared Capabilities
+
+Regardless of role, authorised users should be able to:
+
+- Log in.
+- Log out.
+- Reset passwords.
+- Update passwords.
+- Manage profile.
+- Receive notifications.
+- View activity history.
+- Search relevant data.
+- Export authorised information.
+- Contact support.
+
+---
+
+# Capability Rules
+
+Every capability defined in this document must eventually have:
+
+- One or more business rules.
+- One or more workflows.
+- One or more acceptance criteria.
+- Defined permissions.
+- Defined dependencies.
+- Defined edge cases.
+
+Capabilities should never directly describe implementation.
+
+Implementation belongs to later sections of the Product Definition Document.
+
+---
+
+# Completion Criteria
+
+This section is considered complete only when every meaningful action that every user can perform within DigiSwasthya has been explicitly defined.
+
+Future sections will describe exactly how each capability behaves under every possible business condition.

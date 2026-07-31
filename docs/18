@@ -1,0 +1,253 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 17 — Non-Functional Requirements
+
+---
+
+# Purpose
+
+This section defines product-quality requirements that are not features themselves but constrain how DigiSwasthya must behave in use.
+
+These are product requirements, not implementation prescriptions.
+
+---
+
+# 1. Performance
+
+## Expectations
+
+- Common list pages (orders, invoices, products) should feel responsive under normal business volumes.
+- Search/filter on a business’s own dataset should return quickly enough for daily operations.
+- Dashboard KPI cards for a single business should load without obstructing the primary work queue.
+- Accept/reject/approve actions should confirm outcome promptly after commit.
+
+## Volume Assumptions (Current Product Intent)
+
+The product should comfortably support day-to-day pharmaceutical B2B activity for pharmacies and stockists with:
+
+- Thousands of products per stockist catalogue
+- Thousands of historical orders/invoices per business over time
+- Concurrent staff users per business in small operational teams
+
+Exact infrastructure sizing is out of scope here; the product must remain operable at realistic distributor/pharmacy scale.
+
+## Degradation
+
+When datasets are very large, the product may require filters/pagination/async export rather than failing or freezing.
+
+---
+
+# 2. Availability
+
+- Core trading workflows (order, fulfilment status, invoicing, payment recording) are critical.
+- Planned maintenance should be communicated via announcement/banner when possible.
+- Temporary unavailability should surface clear unavailable state, not partial corrupted commits.
+- After recovery, entity states must remain consistent with State Machines and Calculations.
+
+---
+
+# 3. Offline / Connectivity
+
+## Current Product Position
+
+DigiSwasthya is primarily online.
+
+## Required Behaviour under Poor Connectivity
+
+- Users must be able to recognise when an action did not complete.
+- Critical create/approve actions must be retry-safe (no duplicate orders/payments on repeat submit).
+- Users should be guided to verify whether an order/payment already exists after uncertain failure.
+- Full offline ordering/inventory mode is out of current scope unless later explicitly added.
+
+---
+
+# 4. Security
+
+## Access Security
+
+- Authentication required for all business actions.
+- Authorisation enforced by Permissions Matrix.
+- Cross-business data isolation is mandatory.
+- Admin access is read/governance oriented and must not enable silent financial manipulation.
+
+## Credential Security
+
+- Password reset and change flows must be protected.
+- Suspended/removed users cannot authenticate into operational access.
+- Security events (password change, suspension) generate mandatory notifications.
+
+## Data Exposure
+
+- Notifications, search, and errors must not leak another business’s private data.
+- Verification documents visible only to owning business and platform admins.
+- Customer-specific pricing visible only under Active connection rules.
+
+---
+
+# 5. Audit & Traceability
+
+- Every significant business action records who, when, what changed, and why when required.
+- Financial documents are immutable in substance after issue.
+- Staff removal does not erase attribution.
+- Admin governance actions are auditable.
+- Exports of sensitive datasets are auditable.
+
+---
+
+# 6. Data Integrity & Consistency
+
+- Single source of truth per entity.
+- Inventory never negative.
+- Outstanding never negative.
+- Analytics cannot override source documents.
+- Concurrent actions resolve to valid states, never hybrid illegal states.
+- Historical readability preserved after discontinuations/disconnects/suspensions.
+
+---
+
+# 7. Reliability of Business Events vs Side Effects
+
+- Primary business commit succeeds independently of notification delivery (default).
+- Notification/analytics failures are secondary and recoverable.
+- Settlement and inventory movements are atomic with respect to their own invariants.
+
+---
+
+# 8. Usability / Operational Simplicity
+
+- Common tasks require minimum steps while preserving correctness.
+- Error messages communicate business impact.
+- Empty states guide next action (connect, add product, review pending).
+- Role-specific homes prioritise queues over decorative metrics.
+
+---
+
+# 9. Accessibility
+
+- Core flows usable with clear labels, readable contrast, and non-color-only status meaning.
+- Status must not be communicated by color alone (text/status labels required).
+- Touch targets and forms usable on mobile devices for operational roles.
+- Exact WCAG target can be set by company standard; product must not depend on inaccessible-only cues.
+
+---
+
+# 10. Mobile
+
+## Priority Mobile Users
+
+- Delivery Boy execution
+- Pharmacy receiving confirmations
+- Quick order status / payment status checks
+- Notifications triage
+
+## Expectation
+
+Operational journeys used in the field must be fully completable on mobile.
+
+Heavy catalogue imports, complex bulk pricing, and large admin configuration may remain desktop-primary.
+
+---
+
+# 11. Scalability (Product Intent)
+
+The domain model should extend toward:
+
+- More businesses
+- Larger catalogues
+- Longer financial history
+- More concurrent staff
+
+without redesigning core entity meanings.
+
+Future warehouses/branches must extend, not redefine, Order/Invoice/Payment meanings.
+
+---
+
+# 12. Localization & Time
+
+- Money display consistent with INR business norms unless multi-currency later added.
+- Date/time displayed in a consistent business timezone policy.
+- Analytics period boundaries use the same timezone rules everywhere.
+- Multilingual support may be phased; terminology must follow Product Glossary even if UI language expands.
+
+---
+
+# 13. Compliance Readiness (Product-Level)
+
+Without claiming full legal certification in this document:
+
+- Retain drug license / GST identity evidence for verification.
+- Retain invoices, payments, credit notes, returns history.
+- Do not supply expired batches as sellable goods.
+- Support recall blocking for batches.
+- Provide audit trails for significant actions.
+
+Specific statutory formats/provisions should be added as explicit compliance features when required.
+
+---
+
+# 14. Privacy
+
+- Personal staff contact data visible on need-to-know basis.
+- Support access limited to ticket/governance needs.
+- Message content visible to participants and authorised admins for safety/disputes only.
+- Data retention/deletion requests cannot destroy statutory financial records.
+
+---
+
+# 15. Observability (Product Expectation)
+
+Platform operators should be able to answer:
+
+- What is pending verification?
+- Where are settlement anomalies?
+- Which businesses are suspended and why?
+- What actions led to a disputed order/payment?
+
+Via admin queues, audit logs, and support tools defined in capabilities.
+
+---
+
+# 16. Backup / Recovery (Product Expectation)
+
+After recovery from outage:
+
+- No loss of issued financial documents
+- No loss of approved payments
+- No inventory negative artefacts
+- Users can reconcile by entity numbers (Order/Invoice/Payment numbers)
+
+---
+
+# 17. Future Integration Readiness
+
+Architecture/product definitions should anticipate later integrations without implementing them now:
+
+- Accounting exports
+- Logistics partners
+- Manufacturer feeds
+- ABDM / health network hooks
+- Payment gateway automation
+- SMS/email providers
+
+Integrations must not bypass Permissions, State Machines, or Calculations.
+
+---
+
+# 18. Quality Bars for Release Readiness (Product)
+
+A release is product-incomplete if:
+
+- Core journeys in Parts 8 lack corresponding acceptance criteria for critical paths
+- Any forbidden state machine transition is possible
+- Outstanding/inventory can go negative
+- Cross-business data is visible illegally
+- Expired batches can be delivered as sellable
+
+---
+
+# Completion Criteria
+
+NFR expectations for performance intent, availability, security, audit, integrity, mobile ops, accessibility basics, and future-readiness are explicit.
+
+Next document: **Acceptance Criteria / Audit Specification**.

@@ -1,0 +1,77 @@
+export interface NotificationTemplate {
+  code: string;
+  title: string;
+  body: (vars: Record<string, string>) => string;
+}
+
+function t(code: string, title: string, body: string): NotificationTemplate {
+  return {
+    code,
+    title,
+    body: (vars) => body.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`),
+  };
+}
+
+/** Core notification templates N-001…N-060 (subset fully wired; all codes registered) */
+export const NOTIFICATION_CATALOG: Record<string, NotificationTemplate> = {
+  'N-001': t('N-001', 'Welcome to DigiSwasthya', 'Your {businessType} account for {businessName} is ready.'),
+  'N-002': t('N-002', 'Verification submitted', 'Verification for {businessName} was submitted and is awaiting review.'),
+  'N-003': t('N-003', 'Documents requested', 'Additional documents are required for {businessName}: {note}'),
+  'N-004': t('N-004', 'Business verified', '{businessName} is now verified and can trade on DigiSwasthya.'),
+  'N-005': t('N-005', 'Business suspended', '{businessName} has been suspended. Reason: {reason}'),
+  'N-006': t('N-006', 'Business reactivated', '{businessName} has been reactivated.'),
+  'N-007': t('N-007', 'Staff invite', 'You were invited as {role} at {businessName}.'),
+  'N-008': t('N-008', 'Role updated', 'Your role at {businessName} is now {role}.'),
+  'N-009': t('N-009', 'Staff removed', 'Your access to {businessName} was removed.'),
+  'N-010': t('N-010', 'Connection requested', '{pharmacy} requested a connection with {stockist}.'),
+  'N-011': t('N-011', 'Connection approved', 'Connection between {pharmacy} and {stockist} is now Active.'),
+  'N-012': t('N-012', 'Connection rejected', 'Connection request was rejected. Reason: {reason}'),
+  'N-013': t('N-013', 'Connection cancelled', 'Connection request was cancelled by the pharmacy.'),
+  'N-014': t('N-014', 'Connection disconnected', 'Trading connection was disconnected.'),
+  'N-015': t('N-015', 'Connection blocked', 'Connection was blocked. Reason: {reason}'),
+  'N-016': t('N-016', 'New order received', 'Order {orderNo} received from {pharmacy}.'),
+  'N-017': t('N-017', 'Order accepted', 'Order {orderNo} was accepted by {stockist}.'),
+  'N-018': t('N-018', 'Order rejected', 'Order {orderNo} was rejected. Reason: {reason}'),
+  'N-019': t('N-019', 'Order cancelled', 'Order {orderNo} was cancelled.'),
+  'N-020': t('N-020', 'Order allocated', 'Inventory allocated for order {orderNo}.'),
+  'N-021': t('N-021', 'Order packed', 'Order {orderNo} is packed and ready.'),
+  'N-022': t('N-022', 'Order dispatched', 'Order {orderNo} has been dispatched.'),
+  'N-023': t('N-023', 'Delivery assigned', 'Delivery {deliveryNo} assigned to you.'),
+  'N-024': t('N-024', 'Out for delivery', 'Delivery {deliveryNo} is out for delivery.'),
+  'N-025': t('N-025', 'Delivered', 'Order {orderNo} was delivered.'),
+  'N-026': t('N-026', 'Shortage reported', 'Shortage/discrepancy reported on order {orderNo}.'),
+  'N-027': t('N-027', 'Invoice issued', 'Invoice {invoiceNo} issued for order {orderNo}.'),
+  'N-028': t('N-028', 'Invoice overdue', 'Invoice {invoiceNo} is overdue. Outstanding: {amount}.'),
+  'N-029': t('N-029', 'Invoice voided', 'Invoice {invoiceNo} was voided. Reason: {reason}'),
+  'N-030': t('N-030', 'Payment submitted', 'Payment {paymentNo} submitted for review.'),
+  'N-031': t('N-031', 'Payment approved', 'Payment {paymentNo} approved. Outstanding updated.'),
+  'N-032': t('N-032', 'Payment rejected', 'Payment {paymentNo} rejected. Reason: {reason}'),
+  'N-033': t('N-033', 'Payment on hold', 'Payment {paymentNo} placed on hold. Reason: {reason}'),
+  'N-034': t('N-034', 'Return submitted', 'Return {returnNo} submitted for review.'),
+  'N-035': t('N-035', 'Return approved', 'Return {returnNo} approved.'),
+  'N-036': t('N-036', 'Return rejected', 'Return {returnNo} rejected. Reason: {reason}'),
+  'N-037': t('N-037', 'Credit note issued', 'Credit note {creditNoteNo} issued for {amount}.'),
+  'N-038': t('N-038', 'Credit applied', 'Credit {amount} applied to invoice {invoiceNo}.'),
+  'N-039': t('N-039', 'Low stock', 'Low stock for {productName}. Available: {qty}.'),
+  'N-040': t('N-040', 'Batch near expiry', 'Batch {batchNumber} for {productName} expires on {expiryDate}.'),
+  'N-041': t('N-041', 'Batch expired', 'Batch {batchNumber} marked expired.'),
+  'N-042': t('N-042', 'New message', 'New message regarding {subject}.'),
+  'N-043': t('N-043', 'Support ticket created', 'Ticket {ticketNo}: {subject}'),
+  'N-044': t('N-044', 'Support ticket updated', 'Ticket {ticketNo} was updated.'),
+  'N-045': t('N-045', 'Announcement', '{title}'),
+  'N-046': t('N-046', 'Catalogue updated', 'Catalogue changes published by {stockist}.'),
+  'N-047': t('N-047', 'Price change', 'Price updated for {productName}.'),
+  'N-048': t('N-048', 'SLA reminder', 'Pending action on {entity}: {detail}'),
+  'N-049': t('N-049', 'Ownership transferred', 'Ownership of {businessName} transferred.'),
+  'N-050': t('N-050', 'Invite expired', 'Staff invite for {email} expired.'),
+  'N-051': t('N-051', 'Password reset', 'Your DigiSwasthya password was reset successfully.'),
+  'N-052': t('N-052', 'Failed delivery', 'Delivery {deliveryNo} failed. Reason: {reason}'),
+  'N-053': t('N-053', 'Partial delivery', 'Order {orderNo} partially delivered.'),
+  'N-054': t('N-054', 'GRN recorded', 'Goods receipt recorded for order {orderNo}.'),
+  'N-055': t('N-055', 'Duplicate payment flag', 'Possible duplicate payment reference {reference}.'),
+  'N-056': t('N-056', 'Documents rejected', 'Verification rejected. Reason: {reason}'),
+  'N-057': t('N-057', 'Reactivation requested', '{businessName} requested reactivation.'),
+  'N-058': t('N-058', 'Export ready', 'Your export of {dataset} is ready.'),
+  'N-059': t('N-059', 'Policy clock run', 'Platform policy jobs completed at {at}.'),
+  'N-060': t('N-060', 'System notice', '{message}'),
+};

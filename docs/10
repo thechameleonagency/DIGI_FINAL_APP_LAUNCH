@@ -1,0 +1,881 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 9 — State Machines
+
+---
+
+# Purpose
+
+This section defines the official state machines for every stateful entity in DigiSwasthya.
+
+For each entity it specifies:
+
+- Valid states
+- Allowed transitions
+- Forbidden transitions
+- Recovery transitions
+- Timeout / system transitions
+- Transition owners
+- Side effects
+
+No journey may move an entity through a transition that is not defined here.
+
+If the application allows a forbidden transition, the application is incorrect.
+
+---
+
+# State Machine Principles
+
+1. Every state change has an actor (user role or system).
+2. Every transition has preconditions.
+3. Side effects are explicit.
+4. Historical states remain reconstructable through audit.
+5. Messages never cause state transitions by themselves.
+6. Timeouts are first-class transitions where defined.
+7. Recovery transitions are controlled and auditable.
+
+---
+
+# Transition Record Format
+
+```
+From → To
+Actor
+Preconditions
+Guards
+Side Effects
+Forbidden If
+```
+
+---
+
+# 1. Business State Machine
+
+## States
+
+- Draft Registration
+- Pending Verification
+- Documents Requested
+- Verification Rejected
+- Verified
+- Suspended
+- Reactivation Pending
+- Deactivated
+
+## Primary Flow
+
+```
+Draft Registration
+        ↓
+Pending Verification
+        ↓
+Documents Requested ←→ Pending Verification
+        ↓
+Verification Rejected → Pending Verification (resubmit)
+        ↓
+Verified ←→ Suspended → Reactivation Pending → Verified
+        ↓
+Deactivated
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Draft Registration | Pending Verification | Business |
+| Pending Verification | Documents Requested | Admin |
+| Pending Verification | Verified | Admin |
+| Pending Verification | Verification Rejected | Admin |
+| Documents Requested | Pending Verification | Business |
+| Verification Rejected | Pending Verification | Business |
+| Verified | Suspended | Admin |
+| Suspended | Reactivation Pending | Business / Admin |
+| Reactivation Pending | Verified | Admin |
+| Reactivation Pending | Suspended | Admin |
+| Verified / Suspended | Deactivated | Admin |
+
+## Forbidden Transitions
+
+- Draft Registration → Verified (skip review)
+- Verification Rejected → Verified (without resubmission/review)
+- Suspended → Verified without admin reactivation decision
+- Any state → Draft Registration
+- Self-approval by business into Verified
+
+## Timeout Transitions
+
+- Pending Verification aged beyond SLA → system flag/reminder (status may remain Pending Verification)
+- Reactivation Pending aged beyond SLA → admin escalation flag
+
+## Side Effects
+
+- Entering Verified enables trading capabilities.
+- Entering Suspended blocks new trade.
+- Deactivated revokes operational access; history retained.
+
+---
+
+# 2. Business Verification State Machine
+
+## States
+
+- Not Started
+- Submitted
+- Under Review
+- Documents Requested
+- Approved
+- Rejected
+
+## Flow
+
+```
+Not Started → Submitted → Under Review
+                              ↓
+                    Documents Requested → Submitted
+                              ↓
+                         Approved / Rejected
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Not Started | Submitted | Business |
+| Submitted | Under Review | Admin / System |
+| Under Review | Documents Requested | Admin |
+| Under Review | Approved | Admin |
+| Under Review | Rejected | Admin |
+| Documents Requested | Submitted | Business |
+| Rejected | Submitted | Business (if reapply allowed) |
+
+## Forbidden
+
+- Business → Approved
+- Approved → Not Started
+- Rejected → Approved directly
+
+## Side Effects
+
+- Approved updates Business toward Verified.
+- Rejected/Documents Requested block trade.
+
+---
+
+# 3. User State Machine
+
+## States
+
+- Invited
+- Active
+- Suspended
+- Removed
+
+## Flow
+
+```
+Invited → Active ←→ Suspended → Removed
+           ↓
+        Removed
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Invited | Active | Invited User (+ system validation) |
+| Active | Suspended | Owner/Manager/Admin |
+| Suspended | Active | Owner/Manager/Admin |
+| Active | Removed | Owner/Manager/Admin |
+| Suspended | Removed | Owner/Manager/Admin |
+| Invited | Removed | Owner/Manager/Admin (revoke invite) |
+
+## Forbidden
+
+- Removed → Active without new invite/rehire process
+- User suspending themselves as sole owner without transfer
+- Active → Invited
+
+## Timeout
+
+- Invited expires after invite TTL → Removed/Expired invite (terminal for that invite)
+
+## Side Effects
+
+- Suspended/Removed revoke access immediately.
+- Attribution on historical records remains.
+
+---
+
+# 4. Connection State Machine
+
+## States
+
+- Requested
+- Active
+- Rejected
+- Disconnected
+- Blocked
+
+## Flow
+
+```
+Requested → Active → Disconnected
+     ↓          ↓
+  Rejected    Blocked
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| (none) | Requested | Pharmacy |
+| Requested | Active | Stockist |
+| Requested | Rejected | Stockist |
+| Requested | Cancelled/Closed | Pharmacy cancel request (terminal of request) |
+| Active | Disconnected | Pharmacy or Stockist (permitted) |
+| Active | Blocked | Stockist / Admin (policy) |
+| Blocked | Active | Stockist / Admin (unblock) |
+| Disconnected | Requested | Pharmacy (new request) |
+
+## Forbidden
+
+- Rejected → Active without new request
+- Requested → Disconnected
+- Self-connection
+- Duplicate Active connection for same pair
+
+## Side Effects
+
+- Active enables catalogue trade and ordering.
+- Non-Active blocks new orders.
+- Historical documents unaffected by disconnect/block.
+
+## Timeout
+
+- Requested aged beyond SLA → reminder; optional auto-expire to closed request if policy enabled
+
+---
+
+# 5. Product State Machine
+
+## States
+
+- Draft
+- Active
+- Inactive
+- Out of Stock
+- Discontinued
+
+## Flow
+
+```
+Draft → Active ←→ Inactive
+          ↓
+     Out of Stock ←→ Active
+          ↓
+     Discontinued
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Draft | Active | Stockist |
+| Active | Inactive | Stockist |
+| Inactive | Active | Stockist |
+| Active | Out of Stock | System / Stockist |
+| Out of Stock | Active | System / Stockist |
+| Active/Inactive/Out of Stock | Discontinued | Stockist |
+| Draft | Discontinued | Stockist |
+
+## Forbidden
+
+- Discontinued → Active without controlled reactivation policy
+- Pharmacy changing stockist product state
+- Active → Draft
+
+## System Transitions
+
+- Available sellable qty = 0 → Out of Stock
+- Sellable qty > 0 and product sellable → Active (from Out of Stock)
+
+---
+
+# 6. Batch State Machine
+
+## States
+
+- Active
+- Quarantined
+- Recalled
+- Expired
+- Consumed / Closed
+
+## Flow
+
+```
+Active → Quarantined → Active (release)
+   ↓
+Recalled
+   ↓
+Expired
+   ↓
+Consumed / Closed
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Active | Quarantined | Business |
+| Quarantined | Active | Business (if safe) |
+| Active/Quarantined | Recalled | Business / Admin |
+| Active | Expired | System (date) |
+| Any non-closed | Consumed / Closed | System when qty 0 and closed |
+
+## Forbidden
+
+- Expired → Active
+- Recalled → Active without formal clearance policy
+- Allocate sellable fulfilment from Expired/Recalled/Quarantined
+
+## Timeout / System
+
+- At expiry date boundary → Expired automatically
+
+---
+
+# 7. Inventory Availability States (Derived)
+
+## States
+
+- Available
+- Reserved
+- Low Stock
+- Zero
+- Expired
+- Quarantined
+
+These are primarily derived from quantities + batch state.
+
+## System Transitions
+
+- On Hand − Reserved > 0 → Available
+- Reserved > 0 → Reserved presence
+- On Hand = 0 → Zero
+- On Hand > 0 and ≤ reorder level → Low Stock
+- Batch Expired/Quarantined dominates sellability
+
+No manual jump that bypasses movements is allowed.
+
+---
+
+# 8. Order State Machine
+
+## States
+
+- Draft
+- Pending
+- Accepted
+- Rejected
+- Cancelled
+- Packed
+- Dispatched
+- Partially Delivered
+- Delivered
+- Closed
+
+## Primary Flow
+
+```
+Draft
+  ↓
+Pending
+  ↓
+Accepted / Rejected / Cancelled
+  ↓
+Packed
+  ↓
+Dispatched
+  ↓
+Partially Delivered → Delivered
+  ↓
+Closed
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Draft | Pending | Pharmacy |
+| Draft | Cancelled | Pharmacy (discard/cancel draft) |
+| Pending | Accepted | Stockist |
+| Pending | Rejected | Stockist |
+| Pending | Cancelled | Pharmacy (if allowed) / Stockist (if allowed) |
+| Accepted | Packed | Stockist |
+| Accepted | Cancelled | Stockist/Pharmacy per rules |
+| Packed | Dispatched | Stockist |
+| Packed | Cancelled | Stockist before dispatch if allowed |
+| Dispatched | Partially Delivered | Delivery / Stockist / Pharmacy receipt |
+| Dispatched | Delivered | Delivery / Stockist / Pharmacy receipt |
+| Partially Delivered | Delivered | Delivery completion of remainder |
+| Partially Delivered | Cancelled (remainder) | Controlled remainder cancel |
+| Delivered | Closed | System / authorised user when closure rules met |
+| Rejected | Closed | System |
+| Cancelled | Closed | System |
+
+## Forbidden Transitions
+
+- Draft → Accepted
+- Pending → Delivered
+- Rejected → Accepted
+- Rejected → Packed
+- Cancelled → Dispatched
+- Delivered → Pending
+- Closed → any operational state
+- Pharmacy: Pending → Accepted
+- Order skip from Accepted → Delivered without dispatch/delivery records (unless explicitly future-authorised)
+
+## Recovery Transitions
+
+- Dispatched → Failed delivery handling does not return Order to Accepted silently; uses delivery failure path and then retry dispatch or controlled cancel/return-to-stock path
+- Partially Delivered → Dispatched (retry remaining) if multi-trip allowed
+
+## Timeout Transitions
+
+- Pending aged beyond SLA → reminder to stockist; optional auto-reject/cancel if policy enabled
+- Draft aged beyond TTL → auto-cancel/discard
+
+## Side Effects
+
+- Pending: notify stockist
+- Accepted: optional inventory reservation
+- Rejected/Cancelled: release reservation
+- Packed: fulfilment lock on lines begins
+- Dispatched: delivery entity active
+- Delivered: return eligibility may begin
+- Closed: no further operational mutation except audit-safe financial follow-ups already linked
+
+---
+
+# 9. Delivery State Machine
+
+## States
+
+- Pending Assignment
+- Assigned
+- Out for Delivery
+- Partially Delivered
+- Delivered
+- Failed
+- Cancelled
+- Returned to Stockist
+
+## Flow
+
+```
+Pending Assignment → Assigned → Out for Delivery
+                                    ↓
+                     Partially Delivered / Delivered / Failed
+                                    ↓
+                            Returned to Stockist
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Pending Assignment | Assigned | Stockist |
+| Assigned | Out for Delivery | Stockist / Delivery Boy |
+| Assigned | Cancelled | Stockist |
+| Out for Delivery | Delivered | Delivery Boy / Stockist / Pharmacy confirm |
+| Out for Delivery | Partially Delivered | Delivery Boy / Stockist |
+| Out for Delivery | Failed | Delivery Boy / Stockist |
+| Failed | Assigned | Stockist (retry) |
+| Failed | Returned to Stockist | Stockist / Delivery Boy |
+| Partially Delivered | Out for Delivery | Stockist (remaining trip) |
+| Partially Delivered | Delivered | Completion of remainder |
+
+## Forbidden
+
+- Pending Assignment → Delivered
+- Delivered → Out for Delivery
+- Cancelled → Delivered
+- Failed → Delivered without a new successful delivery attempt record
+
+## Side Effects
+
+- Delivered updates Order toward Delivered/Partially Delivered
+- Failed prevents false completion
+- Returned to Stockist may release goods back to inventory per rules
+
+---
+
+# 10. Invoice State Machine
+
+## States
+
+- Draft
+- Issued
+- Partially Paid
+- Paid
+- Overdue
+- Void
+- Locked
+
+## Flow
+
+```
+Draft → Issued → Partially Paid → Paid → Locked
+           ↓
+        Overdue → Partially Paid / Paid
+           ↓
+          Void (controlled)
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Draft | Issued | Stockist |
+| Draft | Void/Discard | Stockist |
+| Issued | Partially Paid | System on approved payment/credit |
+| Issued | Paid | System when outstanding = 0 |
+| Issued | Overdue | System on due date |
+| Issued | Void | Stockist/Admin controlled |
+| Partially Paid | Paid | System |
+| Partially Paid | Overdue | System |
+| Overdue | Partially Paid | System |
+| Overdue | Paid | System |
+| Paid | Locked | System / policy |
+| Partially Paid | Void | Forbidden generally |
+
+## Forbidden
+
+- Paid → Issued
+- Void → Paid
+- Pharmacy editing Issued totals
+- Issued → Draft
+- Delete transition
+
+## Timeout
+
+- Issued/Partially Paid past due date → Overdue
+
+## Side Effects
+
+- Issued creates outstanding liability
+- Paid/Partially Paid recalculated from payments + credits
+- Void requires reason and no improper settlement residue
+
+---
+
+# 11. Payment State Machine
+
+## States
+
+- Draft
+- Submitted
+- Under Review
+- Approved
+- Rejected
+- On Hold
+- Cancelled
+
+## Flow
+
+```
+Draft → Submitted → Under Review → Approved
+                        ↓    ↓
+                   Rejected  On Hold ←→ Under Review
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Draft | Submitted | Pharmacy |
+| Draft | Cancelled | Pharmacy |
+| Submitted | Under Review | Stockist / System |
+| Under Review | Approved | Stockist |
+| Under Review | Rejected | Stockist |
+| Under Review | On Hold | Stockist |
+| On Hold | Under Review | Stockist |
+| On Hold | Approved | Stockist |
+| On Hold | Rejected | Stockist |
+| Submitted | Cancelled | Pharmacy before review lock |
+
+## Forbidden
+
+- Pharmacy → Approved
+- Approved → Rejected silent reversal without controlled reversal policy
+- Rejected → Approved without new payment
+- Approved → Draft
+
+## Side Effects
+
+- Approved allocates settlement and reduces invoice outstanding
+- Rejected/Cancelled have no settlement effect
+- On Hold pauses settlement
+
+## Timeout
+
+- Submitted/Under Review aged → reminder to stockist
+
+---
+
+# 12. Return State Machine
+
+## States
+
+- Draft
+- Submitted
+- Under Review
+- Approved
+- Partially Approved
+- Rejected
+- Goods Received Back
+- Closed
+
+## Flow
+
+```
+Draft → Submitted → Under Review → Approved / Partially Approved / Rejected
+                                      ↓
+                             Goods Received Back
+                                      ↓
+                                   Closed
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Draft | Submitted | Pharmacy |
+| Draft | Cancelled/Discard | Pharmacy |
+| Submitted | Under Review | Stockist / System |
+| Under Review | Approved | Stockist |
+| Under Review | Partially Approved | Stockist |
+| Under Review | Rejected | Stockist |
+| Approved / Partially Approved | Goods Received Back | Stockist (if physical return required) |
+| Approved / Partially Approved | Closed | Stockist/System if no goods return needed |
+| Goods Received Back | Closed | Stockist / System |
+| Rejected | Closed | System |
+
+## Forbidden
+
+- Pharmacy → Approved
+- Rejected → Approved
+- Submitted from undelivered goods
+- Closed → Under Review without formal reopen policy
+
+## Side Effects
+
+- Approved enables credit note issuance
+- Goods Received Back may create inventory movements by disposition
+- Rejected creates no credit
+
+---
+
+# 13. Credit Note State Machine
+
+## States
+
+- Draft
+- Issued
+- Partially Applied
+- Fully Applied
+- Void
+- Expired
+
+## Flow
+
+```
+Draft → Issued → Partially Applied → Fully Applied
+           ↓
+         Void
+           ↓
+        Expired
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Draft | Issued | Stockist |
+| Draft | Discard | Stockist |
+| Issued | Partially Applied | System/authorised apply |
+| Issued | Fully Applied | System/authorised apply |
+| Partially Applied | Fully Applied | System |
+| Issued (unapplied) | Void | Stockist/Admin controlled |
+| Issued / Partially Applied | Expired | System if credit expiry policy exists |
+
+## Forbidden
+
+- Fully Applied → Void
+- Pharmacy issuing credit
+- Issued amount increased after issue
+- Negative remaining
+
+## Side Effects
+
+- Application reduces invoice outstanding and credit remaining
+- Void only when application rules allow clean reversal/non-use
+
+---
+
+# 14. Notification State Machine
+
+## States
+
+- Unread
+- Read
+- Archived
+- Dismissed
+- Expired
+
+## Flow
+
+```
+Unread → Read → Archived
+   ↓       ↓
+Dismissed Expired
+```
+
+## Allowed
+
+| From | To | Actor |
+|---|---|---|
+| Unread | Read | Recipient / System on open |
+| Unread | Dismissed | Recipient |
+| Unread | Archived | Recipient |
+| Read | Archived | Recipient |
+| Any active | Expired | System |
+
+## Forbidden
+
+- Notification state change mutating Order/Invoice/Payment
+- Non-recipient marking read (except admin support tools)
+
+---
+
+# 15. Message State Machine
+
+## States
+
+- Sent
+- Delivered
+- Read
+- Deleted for Sender
+- Removed for Policy Violation
+
+## Allowed
+
+| From | To | Actor |
+|---|---|---|
+| (compose) | Sent | Sender |
+| Sent | Delivered | System |
+| Delivered | Read | Recipient |
+| Sent/Delivered/Read | Deleted for Sender | Sender |
+| Any | Removed for Policy Violation | Admin |
+
+## Forbidden
+
+- Message state used as business approval
+
+---
+
+# 16. Support Ticket State Machine
+
+## States
+
+- Open
+- In Progress
+- Waiting on Requester
+- Resolved
+- Closed
+- Reopened
+
+## Flow
+
+```
+Open → In Progress ←→ Waiting on Requester → Resolved → Closed
+                                                  ↓
+                                               Reopened → In Progress
+```
+
+## Allowed Transitions
+
+| From | To | Actor |
+|---|---|---|
+| Open | In Progress | Admin |
+| In Progress | Waiting on Requester | Admin |
+| Waiting on Requester | In Progress | Admin / Requester update |
+| In Progress | Resolved | Admin |
+| Resolved | Closed | Admin / Requester confirm / System |
+| Closed | Reopened | Requester / Admin |
+| Reopened | In Progress | Admin |
+
+## Forbidden
+
+- Ticket resolution automatically approving payments/orders without official entity transition
+
+---
+
+# 17. Catalogue State Machine
+
+## States
+
+- Active
+- Under Maintenance
+- Inactive
+
+## Allowed
+
+- Active ↔ Under Maintenance (Stockist)
+- Active/Under Maintenance → Inactive (Stockist)
+- Inactive → Active (Stockist)
+
+## Side Effects
+
+- Inactive/maintenance may hide catalogue from pharmacy browse according to rules
+
+---
+
+# Cross-Entity Transition Coordination
+
+Some transitions are coupled.
+
+| Trigger | Coupled Effects |
+|---|---|
+| Connection Active→Disconnected | Block new Orders; existing in-flight follow policy |
+| Business→Suspended | Block new trade transitions into Pending orders |
+| Order→Accepted | May reserve Inventory |
+| Order→Cancelled/Rejected | Release reservations |
+| Delivery→Delivered | Order→Delivered/Partially Delivered |
+| Payment→Approved | Invoice→Partially Paid/Paid |
+| Return→Approved | Credit Note issuance eligible |
+| Credit applied | Invoice outstanding reduced; Credit remaining reduced |
+| Batch→Expired | Inventory sellability reduced; allocation blocked |
+
+No coupled effect may violate the target entity's own state machine.
+
+---
+
+# Forbidden Global Patterns
+
+1. Skipping verification to trade
+2. Jumping financial documents backwards into editable draft after issue/payment
+3. Using chat/notifications as status authorities
+4. Negative inventory via transition side effects
+5. Delivering expired batches via dispatch transition
+6. Reverse from Closed/Locked without formal controlled reopen policy
+7. Silent status changes without actor + timestamp
+
+---
+
+# Completion Criteria
+
+Every stateful entity has explicit states, allowed transitions, forbidden transitions, owners, timeouts, and side effects.
+
+Next document: **Business Calculations**, defining every formula over these entities.

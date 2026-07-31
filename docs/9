@@ -1,0 +1,1174 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 8 — User Journeys
+
+---
+
+# Purpose
+
+This section defines every meaningful user journey in DigiSwasthya.
+
+A user journey is an end-to-end business path a user follows to achieve one outcome.
+
+Journeys do not describe screens or technical implementation.
+
+They describe:
+
+- Who performs the journey
+- Preconditions
+- Step sequence
+- Entities affected
+- Outcomes
+- Failure exits
+
+Every journey must move well-defined entities through well-defined states and capabilities.
+
+If a journey exists in the product but not in this document, the product definition is incomplete.
+
+---
+
+# Journey Structure
+
+Every journey uses this structure:
+
+```
+Journey Name
+Actor
+Goal
+Preconditions
+Steps
+Entities Affected
+Success Outcome
+Failure / Exit Paths
+Notes
+```
+
+For brevity in large lists, short-form journeys use:
+
+```
+Journey | Actor | Preconditions | Steps | Success | Failures
+```
+
+---
+
+# Journey Index
+
+## A. Authentication & Access
+## B. Registration & Verification
+## C. Business Profile & Settings
+## D. Staff Management
+## E. Discovery & Connections
+## F. Catalogue & Buying
+## G. Order Lifecycle
+## H. Fulfilment & Delivery
+## I. Invoicing
+## J. Payments & Credit
+## K. Returns & Credit Notes
+## L. Inventory & Batches
+## M. Communication
+## N. Support
+## O. Analytics & Exports
+## P. Platform Administration
+## Q. Suspension, Reactivation & Offboarding
+## R. Edge / Recovery Journeys
+
+---
+
+# A. Authentication & Access
+
+---
+
+## A1. Register Account Intent
+
+- Actor: New user
+- Goal: Begin onboarding
+- Preconditions: None
+- Steps: Open registration → Choose business type → Enter basic identity → Create credentials
+- Entities: User (Invited/Active pending), Business (Draft Registration)
+- Success: Account created; verification path available
+- Failures: Duplicate phone/email; invalid inputs
+
+## A2. Login
+
+- Actor: Existing user
+- Goal: Access platform
+- Preconditions: Active user credentials
+- Steps: Enter credentials → Authenticate → Land in role home
+- Success: Session established
+- Failures: Wrong credentials; suspended user; deactivated user
+
+## A3. Logout
+
+- Actor: Logged-in user
+- Goal: End session
+- Steps: Choose logout → Session ended
+- Success: User logged out
+
+## A4. Forgot Password
+
+- Actor: Existing user
+- Goal: Regain access
+- Steps: Request reset → Verify identity → Set new password → Login
+- Success: Password updated
+- Failures: Invalid identity proof; expired reset
+
+## A5. Reset Password While Logged In
+
+- Actor: Logged-in user
+- Goal: Change password
+- Steps: Enter current password → Enter new password → Confirm
+- Success: Password changed
+- Failures: Current password mismatch; weak password
+
+## A6. First Login After Invite
+
+- Actor: Invited staff
+- Goal: Activate membership
+- Preconditions: Valid invite
+- Steps: Open invite → Set credentials/profile → Enter business
+- Success: User Active
+- Failures: Expired invite; revoked invite
+
+## A7. Session Timeout Re-Login
+
+- Actor: Any user
+- Goal: Resume work securely
+- Steps: Timeout → Re-authenticate → Resume permitted context
+- Success: Secure re-entry
+- Failures: Account suspended during timeout
+
+---
+
+# B. Registration & Verification
+
+---
+
+## B1. Pharmacy Registration
+
+- Actor: Pharmacy owner
+- Goal: Create pharmacy business
+- Steps: Choose Pharmacy → Enter business details → Submit required fields → Create business
+- Entities: Business, User, Business Verification (Not Started/Submitted path)
+- Success: Draft/Pending verification business exists
+
+## B2. Stockist Registration
+
+- Actor: Stockist owner
+- Goal: Create stockist business
+- Same pattern as B1 with Business Type = Stockist
+
+## B3. Submit Verification Documents
+
+- Actor: Business owner
+- Goal: Request approval to trade
+- Preconditions: Business registered
+- Steps: Upload licenses/GST/docs → Submit
+- Entities: Business Verification → Submitted
+- Success: Under review queue
+- Failures: Missing required docs; invalid format
+
+## B4. Admin Reviews Verification
+
+- Actor: Platform Administrator
+- Goal: Decide eligibility
+- Steps: Open application → Review docs → Approve / Reject / Request documents
+- Success: Business verified or correction requested/rejected
+
+## B5. Admin Approves Business
+
+- Steps: Approve → Business Verification = Approved → Business can trade (subject to active status)
+- Notifications: Business notified
+
+## B6. Admin Rejects Business
+
+- Steps: Reject with reason → Business cannot trade → Business may reapply per rules
+
+## B7. Admin Requests Document Corrections
+
+- Steps: Request specific docs → Business status Documents Requested → Business resubmits
+
+## B8. Business Resubmits Documents
+
+- Preconditions: Documents Requested or Rejected with resubmit allowed
+- Steps: Upload corrections → Resubmit → Back to Under Review
+
+## B9. View Verification Status
+
+- Actor: Business user
+- Goal: Know whether trading is allowed
+- Success: Clear status and required actions shown
+
+---
+
+# C. Business Profile & Settings
+
+---
+
+## C1. Update Business Profile
+
+- Actor: Authorised business user
+- Steps: Edit permitted fields → Validate → Save
+- Failures: Restricted field edit; invalid GST/license format
+
+## C2. Manage Delivery Addresses (Pharmacy)
+
+- Steps: Add / edit / remove address → Set default
+- Failures: Delete sole required address if orders need one
+
+## C3. Configure Delivery Settings (Stockist)
+
+- Steps: Set service areas, delivery preferences → Save
+
+## C4. Manage Bank Details
+
+- Steps: Add/update payout/collection account details → Save
+- Notes: Sensitive; audit required
+
+## C5. Update Business Preferences
+
+- Steps: Notification prefs, operational prefs → Save
+
+## C6. View Business Activity Timeline
+
+- Steps: Open activity → Filter → Inspect events
+
+---
+
+# D. Staff Management
+
+---
+
+## D1. Invite Staff
+
+- Actor: Owner/Manager
+- Steps: Enter staff identity → Assign role/permissions → Send invite
+- Entities: User = Invited
+- Failures: Duplicate user; insufficient permission
+
+## D2. Staff Accepts Invite
+
+- See A6
+
+## D3. Assign / Change Staff Role
+
+- Steps: Select user → Change role/permissions → Confirm
+- Failures: Removing last owner; privilege escalation beyond actor rights
+
+## D4. Suspend Staff
+
+- Steps: Suspend → User cannot login/act → History retained
+
+## D5. Reactivate Staff
+
+- Steps: Reactivate → User Active
+
+## D6. Remove Staff
+
+- Steps: Remove/deactivate → Access revoked → Records remain attributed
+
+## D7. Transfer Business Ownership
+
+- Steps: Appoint new owner → Confirm → Previous owner role updated
+- Failures: No eligible recipient
+
+## D8. Staff Leaves Company (Operational Path)
+
+- Steps: Remove/suspend user → Reassign open tasks where required → Continue business operations
+
+---
+
+# E. Discovery & Connections
+
+---
+
+## E1. Search Stockists
+
+- Actor: Pharmacy
+- Preconditions: Pharmacy verified/eligible to discover
+- Steps: Search/filter stockists → View results
+
+## E2. View Stockist Public Profile
+
+- Steps: Open stockist → View permitted info
+
+## E3. Request Connection
+
+- Actor: Pharmacy
+- Preconditions: Both eligible; no conflicting active connection
+- Steps: Send request → Connection = Requested
+- Failures: Already requested/active; stockist not available
+
+## E4. Cancel Connection Request
+
+- Actor: Pharmacy
+- Preconditions: Status = Requested
+- Steps: Cancel → Request closed
+
+## E5. Stockist Reviews Connection Request
+
+- Actor: Stockist
+- Steps: Open request → View pharmacy details → Decide
+
+## E6. Approve Connection
+
+- Steps: Approve → Connection = Active → Both can trade
+- Notifications to pharmacy
+
+## E7. Reject Connection
+
+- Steps: Reject with reason → Connection = Rejected
+
+## E8. View Connected Partners
+
+- Actor: Pharmacy or Stockist
+- Steps: Open connections list → Filter/search
+
+## E9. Disconnect Connection
+
+- Actor: Permitted party
+- Preconditions: Active connection
+- Steps: Disconnect with reason → Connection = Disconnected
+- Notes: Historical docs remain; new orders blocked
+
+## E10. Block Trading Partner
+
+- Actor: Permitted stockist/admin path if supported
+- Steps: Block → Connection = Blocked
+
+## E11. Stockist Searches Pharmacies
+
+- Actor: Stockist
+- Steps: Search pharmacies → View request/relationship context
+
+## E12. Re-request Connection After Rejection/Disconnect
+
+- Preconditions: Rules allow new request
+- Steps: Submit new request → New Connection lifecycle starts
+
+---
+
+# F. Catalogue & Buying
+
+---
+
+## F1. Browse Connected Stockist Catalogue
+
+- Actor: Pharmacy
+- Preconditions: Active connection
+- Steps: Open catalogue → Browse products
+
+## F2. Search Products
+
+- Steps: Enter query → View matching products
+
+## F3. Filter Products
+
+- Steps: Apply filters (category, availability, etc.) → Results update
+
+## F4. View Product Details
+
+- Steps: Open product → View price, availability, pack, tax info
+
+## F5. Compare Products
+
+- Steps: Select products → Compare permitted attributes
+
+## F6. Add Product to Cart
+
+- Steps: Choose qty → Add
+- Failures: Qty invalid; product inactive; connection inactive
+
+## F7. Update Cart Quantity
+
+- Steps: Change qty → Validate → Update
+
+## F8. Remove Product from Cart
+
+- Steps: Remove line → Cart updated
+
+## F9. Save Product for Later / Wishlist
+
+- Steps: Save item → Available later
+
+## F10. Review Cart Before Order
+
+- Steps: Open cart → Validate items/prices/availability → Proceed or fix
+
+## F11. Place Purchase Order
+
+- Actor: Pharmacy
+- Preconditions: Active connection; non-empty valid cart
+- Steps: Confirm address/notes → Submit → Order = Pending
+- Entities: Order created; Notifications to stockist
+- Failures: Connection lost; product unavailable; empty cart; suspended business
+
+## F12. Duplicate Previous Order
+
+- Steps: Select past order → Duplicate into cart/draft → Review → Submit
+
+## F13. Reorder Previous Products
+
+- Steps: Select products from history → Add → Place order
+
+## F14. Stockist Adds Product
+
+- Actor: Stockist
+- Steps: Enter product fields → Save → Product Active/Draft
+
+## F15. Stockist Edits Product
+
+- Steps: Edit permitted fields → Save
+- Notes: Does not rewrite historical order lines
+
+## F16. Stockist Deactivates / Discontinues Product
+
+- Steps: Change status → Hidden from new purchase where required
+
+## F17. Import Catalogue
+
+- Steps: Upload catalogue data → Validate → Import result
+- Failures: Invalid rows; partial import handling
+
+## F18. Export Catalogue
+
+- Steps: Export authorised catalogue data
+
+## F19. Configure Product Pricing / Discounts
+
+- Steps: Set price/discount rules → Save
+
+---
+
+# G. Order Lifecycle
+
+---
+
+## G1. View Orders (Pharmacy)
+
+- Steps: Open orders → Search/filter → Open detail
+
+## G2. View Incoming Orders (Stockist)
+
+- Steps: Open inbox/orders → Prioritise Pending
+
+## G3. Accept Order
+
+- Actor: Stockist
+- Preconditions: Order Pending; businesses eligible
+- Steps: Review lines → Accept → Order = Accepted
+- Effects: Reservation/allocation may begin
+- Notifications to pharmacy
+
+## G4. Reject Order
+
+- Actor: Stockist
+- Steps: Reject with reason → Order = Rejected
+- Effects: No fulfilment; notify pharmacy
+
+## G5. Cancel Order (Pharmacy)
+
+- Preconditions: Cancellation still permitted
+- Steps: Cancel with reason → Order = Cancelled
+- Failures: Too late in lifecycle
+
+## G6. Cancel Order (Stockist)
+
+- Preconditions: Rules allow stockist cancel/abort before dispatch
+- Steps: Cancel with reason → Order = Cancelled → Release reservations
+
+## G7. Edit Pending Order (Stockist Fulfilment Adjust)
+
+- Preconditions: Edit permitted before lock
+- Steps: Adjust qty/lines where allowed → Save
+- Failures: Below zero; removing all lines illegally; locked state
+
+## G8. Pharmacy Tracks Order Progress
+
+- Steps: Open order → View current status and history
+
+## G9. Partial Acceptance / Partial Fulfilment Preparation
+
+- Actor: Stockist
+- Preconditions: Partial fulfilment permitted
+- Steps: Accept available qty → Record short lines → Continue fulfilment for accepted qty
+- Notes: Exact state machine in Part 9
+
+## G10. Close Order
+
+- Preconditions: Delivered/settled conditions met per rules
+- Steps: System or user closes → Order = Closed
+
+## G11. View Completed Orders
+
+- Steps: Filter completed/closed → Inspect records
+
+## G12. Order After Connection Removal Attempt
+
+- Failure journey: User tries to order → Blocked because connection not Active
+
+## G13. Order While Business Suspended
+
+- Failure journey: Submit blocked; clear suspension message
+
+---
+
+# H. Fulfilment & Delivery
+
+---
+
+## H1. Allocate Inventory to Order
+
+- Actor: Stockist
+- Preconditions: Order Accepted
+- Steps: Allocate batches/qty → Reservations updated
+- Failures: Insufficient sellable stock; expired batch selected
+
+## H2. Pack Order
+
+- Steps: Confirm packed contents → Order = Packed
+
+## H3. Generate Dispatch
+
+- Steps: Create Delivery from packed order → Assign if needed → Ready to dispatch
+
+## H4. Assign Delivery Staff
+
+- Steps: Choose delivery boy/staff → Delivery = Assigned
+
+## H5. Mark Out for Delivery
+
+- Steps: Start route → Delivery = Out for Delivery → Order may become Dispatched
+
+## H6. Complete Full Delivery
+
+- Steps: Mark delivered → Capture proof/recipient if required → Delivery = Delivered → Order = Delivered
+- Pharmacy may confirm receipts
+
+## H7. Partial Delivery
+
+- Steps: Deliver available items → Record delivered vs pending → Order = Partially Delivered
+- Remaining items follow continuation or cancellation rules
+
+## H8. Failed Delivery
+
+- Steps: Mark failed with reason → Delivery = Failed → Goods handling path (retry / return to stockist)
+
+## H9. Retry Failed Delivery
+
+- Steps: Reassign/reschedule → Out for Delivery again
+
+## H10. Pharmacy Records Received Quantities
+
+- Actor: Pharmacy
+- Steps: Open delivery/order → Enter received qty → Report shortage/damage if any
+
+## H11. Report Shortage on Receipt
+
+- Steps: Record short qty → Notify stockist → May create adjustment/return path
+
+## H12. Report Damaged Products on Receipt
+
+- Steps: Record damage → Attach evidence optional → Initiate return/adjustment path
+
+## H13. Manage Delivery Routes
+
+- Actor: Stockist
+- Steps: Create/edit routes → Assign deliveries
+
+## H14. View Delivery History
+
+- Actor: Stockist or Pharmacy
+- Steps: Filter deliveries → Open detail
+
+---
+
+# I. Invoicing
+
+---
+
+## I1. Create Invoice from Fulfilment
+
+- Actor: Stockist
+- Preconditions: Order eligible for billing
+- Steps: Generate invoice lines from billable qty → Invoice = Draft/Issued per process
+
+## I2. Issue Invoice
+
+- Steps: Confirm totals/taxes → Issue → Invoice = Issued → Outstanding created
+- Notify pharmacy
+
+## I3. View Invoice (Pharmacy)
+
+- Steps: Open invoice → View lines, tax, outstanding
+
+## I4. View Invoice (Stockist)
+
+- Steps: Open invoice → View settlement state
+
+## I5. Invoice Becomes Overdue
+
+- System journey: Due date passed and unpaid → Invoice = Overdue → Notify
+
+## I6. Void Invoice (Controlled)
+
+- Preconditions: Strict eligibility (e.g., not paid; authorised)
+- Steps: Void with reason → Invoice void record retained
+- Failures: Already paid/partially paid beyond void rules
+
+## I7. Multiple Invoices for Partial Fulfilment
+
+- Steps: Invoice delivered/billable portion → Later invoice remaining billable portion
+
+---
+
+# J. Payments & Credit
+
+---
+
+## J1. View Outstanding Invoices
+
+- Actor: Pharmacy
+- Steps: Open outstanding list → Sort/filter
+
+## J2. Make Payment Against Invoice(s)
+
+- Actor: Pharmacy
+- Steps: Select invoices → Enter amount/method/reference → Attach proof optional → Submit
+- Entities: Payment = Submitted
+- Failures: Invalid amount; no payable invoice; suspended
+
+## J3. Allocate Payment Across Invoices
+
+- Steps: Distribute amount → Validate allocation ≤ payment and ≤ each outstanding
+
+## J4. Stockist Reviews Payment
+
+- Actor: Stockist
+- Steps: Open payment → Check proof/reference/allocations
+
+## J5. Approve Payment
+
+- Steps: Approve → Payment = Approved → Invoice outstanding reduced → Possibly Paid/Partially Paid
+- Notify pharmacy
+
+## J6. Reject Payment
+
+- Steps: Reject with reason → No settlement effect
+- Notify pharmacy
+
+## J7. Place Payment On Hold
+
+- Steps: Hold with reason → Payment = On Hold → Later approve/reject
+
+## J8. Apply Available Credit to Invoice
+
+- Actor: Permitted pharmacy/stockist flow
+- Preconditions: Credit Note remaining > 0
+- Steps: Apply credit → Invoice outstanding reduced → Credit remaining reduced
+
+## J9. View Payment History
+
+- Actor: Pharmacy or Stockist
+- Steps: Filter payments → Open detail
+
+## J10. Payment Mismatch Investigation
+
+- Steps: Amount/reference mismatch detected → Hold/reject/request clarification via message/support
+
+## J11. Duplicate Payment Attempt
+
+- Failure/control journey: System flags duplicate reference/amount pattern → Block or force review
+
+---
+
+# K. Returns & Credit Notes
+
+---
+
+## K1. View Eligible Return Items
+
+- Actor: Pharmacy
+- Preconditions: Delivered items exist and eligible
+- Steps: Open returns eligibility → Select items
+
+## K2. Raise Return Request
+
+- Steps: Select products/qty/reasons → Submit → Return = Submitted
+- Failures: Qty > delivered; undelivered item; window expired
+
+## K3. Stockist Reviews Return
+
+- Steps: Open return → Assess evidence/reason/qty
+
+## K4. Approve Return
+
+- Steps: Approve → Return = Approved → Credit eligibility created
+- Optional physical goods back flow
+
+## K5. Partially Approve Return
+
+- Steps: Approve some lines/qty → Remainder rejected with reasons
+
+## K6. Reject Return
+
+- Steps: Reject with reason → No credit
+
+## K7. Record Goods Received Back
+
+- Actor: Stockist
+- Steps: Confirm returned goods → Disposition (restock/quarantine/destroy) → Inventory movement
+
+## K8. Issue Credit Note
+
+- Actor: Stockist
+- Preconditions: Approved return/adjustment
+- Steps: Create/issue credit note → Credit Note = Issued
+- Notify pharmacy
+
+## K9. Apply Credit Note
+
+- See J8
+
+## K10. View Return History
+
+- Both sides inspect past returns and outcomes
+
+## K11. View Credit Notes
+
+- Pharmacy/Stockist view issued/remaining/applied credit
+
+---
+
+# L. Inventory & Batches
+
+---
+
+## L1. Add Inventory / Create Batch
+
+- Actor: Stockist (or Pharmacy for own stock)
+- Steps: Enter product, batch, qty, expiry → Stock In movement
+
+## L2. Update Inventory Adjustment
+
+- Steps: Adjust qty with reason → Movement recorded
+- Failures: Resulting negative stock
+
+## L3. View Low Stock
+
+- Steps: Open low-stock list → Act (reorder/purchase/add stock)
+
+## L4. View Expiry Information
+
+- Steps: Filter near-expiry/expired batches → Quarantine or action
+
+## L5. Quarantine Batch
+
+- Steps: Mark batch quarantined → Not sellable
+
+## L6. Recall Batch
+
+- Steps: Mark recalled → Block allocation/delivery → Initiate reverse flows if needed
+
+## L7. Transfer Stock Internally
+
+- Actor: Stockist
+- Steps: Move between locations if supported → History recorded
+
+## L8. Pharmacy Inventory After Receipt
+
+- Steps: Delivery received → Pharmacy inventory increases by received qty/batch where tracked
+
+## L9. Prevent Sale of Expired Batch
+
+- Control journey: Allocation/dispatch attempts expired batch → Blocked
+
+## L10. View Inventory Movement History
+
+- Steps: Open product/batch → View movements
+
+---
+
+# M. Communication
+
+---
+
+## M1. Receive Notification
+
+- System + User: Event occurs → Notification created → User sees unread
+
+## M2. Open Notification Destination
+
+- Steps: Click notification → Navigate to entity if permitted → Mark read
+
+## M3. Mark Notification Read / Archive
+
+- Steps: Update notification status
+
+## M4. Send Message to Trading Partner
+
+- Preconditions: Allowed relationship
+- Steps: Compose → Send → Recipient receives
+
+## M5. Read Message Thread
+
+- Steps: Open thread → Messages marked read
+
+## M6. Message About an Order Context
+
+- Steps: Open order → Send related message → Thread linked to order reference
+- Notes: Does not change order status
+
+---
+
+# N. Support
+
+---
+
+## N1. Create Support Ticket
+
+- Actor: Any authorised user
+- Steps: Choose category → Describe issue → Attach optional refs → Submit → Ticket = Open
+
+## N2. Add Update to Ticket
+
+- Steps: Comment/attach → Waiting states may change
+
+## N3. Admin Assigns Ticket
+
+- Steps: Assign to support agent → In Progress
+
+## N4. Admin Resolves Ticket
+
+- Steps: Provide resolution → Resolved → Requester notified
+
+## N5. Close Ticket
+
+- Steps: Close after resolution/confirmation → Closed
+
+## N6. Reopen Ticket
+
+- Preconditions: Allowed
+- Steps: Reopen with reason → In Progress/Open
+
+## N7. View Ticket Status
+
+- Requester inspects progress
+
+---
+
+# O. Analytics & Exports
+
+---
+
+## O1. Pharmacy Views Purchasing Analytics
+
+- Steps: Open dashboard → Choose period → View KPIs/graphs
+
+## O2. Pharmacy Views Supplier Performance
+
+- Steps: Filter by stockist → Inspect metrics
+
+## O3. Stockist Views Sales Analytics
+
+- Steps: Open sales dashboard → Period/dimensions
+
+## O4. Stockist Views Customer Analytics
+
+- Steps: Inspect pharmacy-level purchase/payment behaviour
+
+## O5. View Inventory Analytics
+
+- Either side as applicable
+
+## O6. View Payment Analytics
+
+- Outstanding, collections, overdue trends
+
+## O7. Export Report
+
+- Steps: Choose dataset/filters → Export authorised data
+- Failures: No permission; empty result
+
+## O8. Platform Admin Views Global Analytics
+
+- Steps: Open platform KPIs → Investigate trends
+
+---
+
+# P. Platform Administration
+
+---
+
+## P1. Review Registration Queue
+
+- Admin opens pending verifications
+
+## P2. Approve / Reject / Request Docs
+
+- Covered in B4–B7
+
+## P3. Suspend Business
+
+- Steps: Choose business → Reason → Suspend → Trading blocked → Notify
+- Entities: Business = Suspended
+
+## P4. Reactivate Business
+
+- Steps: Review → Reactivate → Business Active/Verified path restored per rules
+
+## P5. View Any Business
+
+- Governance read access
+
+## P6. View Any Order / Payment / Return
+
+- Investigation journey
+
+## P7. Manage Announcements
+
+- Steps: Create/publish/expire announcement
+
+## P8. Manage Banners
+
+- Steps: Create/schedule/disable banners
+
+## P9. Configure Platform Settings
+
+- Steps: Update global configuration → Save with audit
+
+## P10. Review Audit Logs
+
+- Steps: Search actions → Inspect who/when/what
+
+## P11. Investigate Suspicious Activity
+
+- Steps: Correlate users, payments, duplicate GST, abnormal orders → Suspend/ticket/action
+
+## P12. Respond to Support Tickets
+
+- Covered in N
+
+---
+
+# Q. Suspension, Reactivation & Offboarding
+
+---
+
+## Q1. Business Suspended Mid-Order
+
+- Preconditions: Open orders exist
+- Steps: Suspension applied → New trade blocked → In-flight orders follow edge-case policy (complete / freeze / admin decision)
+
+## Q2. Supplier Suspended While Pharmacy Ordering
+
+- Failure: Catalogue/order actions blocked for that supplier
+
+## Q3. Pharmacy Suspended Before Payment Approval
+
+- Effects: New orders blocked; existing payment review may continue per rules
+
+## Q4. User Deleted/Removed During Assigned Delivery
+
+- Steps: Reassign delivery → Removed user access revoked → Delivery continues
+
+## Q5. Phone Number Change
+
+- Steps: Request change → Verify → Update identity → Audit old/new
+
+## Q6. Business Deactivation
+
+- Admin/business process: Deactivate → Access restricted → History retained
+
+## Q7. Reactivation After Compliance Fix
+
+- Steps: Business submits fix → Admin reactivates → Trading restored
+
+---
+
+# R. Recovery & Exception Journeys
+
+---
+
+## R1. Order Cancelled After Invoice Issued
+
+- Controlled exception: Cancel/void path restricted; may require credit note or admin policy rather than silent cancel
+
+## R2. Payment Approved Against Already Paid Invoice
+
+- Control: Block over-allocation or route to overpayment handling rule
+
+## R3. Return Raised After Eligibility Expiry
+
+- Failure: Request blocked with reason
+
+## R4. Credit Exceeds Invoice Outstanding
+
+- Steps: Apply up to outstanding → Remaining credit stays available
+
+## R5. Inventory Goes Insufficient After Accept
+
+- Steps: Stockist cannot pack full qty → Partial fulfilment / cancel remainder / reject continuation
+
+## R6. Batch Expires After Allocation Before Dispatch
+
+- Steps: Block dispatch of expired batch → Reallocate or adjust order
+
+## R7. Duplicate GST on Registration
+
+- Failure: Registration/verification blocked or flagged for admin
+
+## R8. Connection Removed With Open Orders
+
+- Steps: New orders blocked → Open orders continue or freeze per rules → Settlement/returns still processable under policy
+
+## R9. Invoice Before Dispatch Attempt
+
+- Policy journey: Allowed only if business rules explicitly permit bill-ahead; otherwise blocked
+
+## R10. Offline Continuation / Retry After Failure
+
+- Actor: Any
+- Steps: Action fails due to connectivity → User retries → No duplicate side effects if already succeeded
+- Notes: Detailed NFR/error behaviour later
+
+---
+
+# Complete Journey Catalogue (Short Form)
+
+The following compressed catalogue ensures coverage breadth. Each item is a first-class journey and must eventually have acceptance criteria.
+
+## Auth (continued)
+
+A8. Login with inactive invite  
+A9. Login after password reset  
+A10. Multiple failed login attempts lockout handling  
+A11. Switch device login  
+A12. Update profile name/photo  
+
+## Verification (continued)
+
+B10. Verification pending reminder  
+B11. Admin internal note without status change  
+B12. Re-verification after license expiry (future-ready path)  
+
+## Staff (continued)
+
+D9. Invite accountant  
+D10. Invite delivery boy  
+D11. Restrict staff from financial approval  
+D12. Staff permission revoked mid-session  
+
+## Connections (continued)
+
+E13. Pharmacy views rejection reason  
+E14. Stockist configures customer-specific terms after connect  
+E15. Connection inactive blocks catalogue price view  
+
+## Buying (continued)
+
+F20. Cart cleared after disconnect  
+F21. MOQ validation failure  
+F22. Max qty validation failure  
+F23. Tax-inclusive price display confirmation before place order  
+F24. Stockist bulk price update effect on new carts only  
+
+## Orders (continued)
+
+G14. Pharmacy edits draft order  
+G15. Discard draft order  
+G16. Stockist accepts then cannot fully allocate  
+G17. Pharmacy views rejection reason  
+G18. Reorder rejected order items selectively  
+G19. Order notes update before acceptance  
+G20. Multi-line order with mixed availability  
+
+## Fulfilment (continued)
+
+H15. Pack with batch selection  
+H16. Repack before dispatch  
+H17. Unassign delivery staff  
+H18. Delivery proof missing handling  
+H19. Pharmacy disputes delivered qty  
+H20. Split delivery across multiple trips  
+
+## Invoicing (continued)
+
+I8. Invoice tax recalculation check before issue  
+I9. Discount applied at invoice issue  
+I10. Round-off applied  
+I11. Pharmacy downloads/views invoice document  
+I12. Stockist exports invoices list  
+
+## Payments (continued)
+
+J12. Partial payment against one invoice  
+J13. Single payment against multiple invoices  
+J14. Payment without proof where allowed  
+J15. Payment with proof mandatory where configured  
+J16. Hold then approve  
+J17. Hold then reject  
+J18. Pharmacy resubmits after rejection  
+J19. Overdue invoice payment  
+
+## Returns/Credit (continued)
+
+K12. Return damaged goods  
+K13. Return near-expiry goods if policy allows  
+K14. Return wrong item supplied  
+K15. Credit note void before application  
+K16. Credit note partial application across invoices  
+K17. Return approval without physical return (policy)  
+K18. Return approval requiring pickup  
+
+## Inventory (continued)
+
+L11. Stock adjustment shrinkage  
+L12. Stock adjustment found stock  
+L13. Near-expiry alert act-and-discount future path  
+L14. Prevent allocate quarantined batch  
+L15. Pharmacy manual inventory add  
+L16. Pharmacy manual inventory remove  
+
+## Comms/Support (continued)
+
+M7. Notification expiry hides old item  
+M8. Mute/preference reduces non-critical notices  
+N8. Ticket on payment dispute  
+N9. Ticket on verification delay  
+N10. Ticket with order reference  
+
+## Admin (continued)
+
+P13. Banner targeted by role  
+P14. Announcement urgent broadcast  
+P15. Audit export  
+P16. Suspicious duplicate payment review  
+P17. Suspicious duplicate account review  
+
+## Recovery (continued)
+
+R11. Partial success payment submit then network drop  
+R12. Double-submit place order protection journey  
+R13. Approve payment concurrently with credit apply  
+R14. Business merge future-safe manual admin handling  
+R15. Data disagreement between analytics and invoice list (trust invoices)  
+
+---
+
+# Journey Principles
+
+1. Every journey starts from valid preconditions.
+2. Every journey names entities and resulting statuses.
+3. Official decisions never occur through Messages alone.
+4. Failure paths are part of the product, not afterthoughts.
+5. Historical documents remain after cancellations, suspensions, and disconnections.
+6. Journeys must align with Entity Specifications and later State Machines.
+7. A journey that cannot cite its entities and rules is incomplete.
+
+---
+
+# Completion Criteria
+
+This section is complete when every business-significant path—happy path, alternate path, and major failure path—is listed and can be traced to entities, capabilities, and eventually acceptance criteria.
+
+Next document: **State Machines**, which formalises every allowed and forbidden transition used by these journeys.

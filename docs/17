@@ -1,0 +1,306 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 16 — Error Behaviour
+
+---
+
+# Purpose
+
+This section defines product-level error behaviour: what users experience when something cannot complete.
+
+It is not a technical exception catalogue.
+
+It defines:
+
+- What the user sees (conceptually)
+- Whether retry is safe
+- Whether rollback occurs
+- Whether partial success is possible
+- Business impact
+
+---
+
+# Error Principles
+
+1. Errors explain the business reason, not technical internals.
+2. Successful business commits are not silently undone because a notification failed.
+3. Retries must be safe against duplication for create/approve actions.
+4. Forbidden actions are denials, not crashes.
+5. Partial success must list what succeeded and what failed.
+6. Financial and inventory errors fail closed (deny unsafe change).
+
+---
+
+# Error Categories
+
+## 1. Validation Errors
+
+- Cause: Missing/invalid inputs
+- User sees: Field/business rule message
+- Retry: Yes after correction
+- Rollback: Nothing persisted / no partial entity commit
+- Business impact: None
+
+Examples:
+- Empty order
+- Qty ≤ 0
+- Invalid GST format
+- Return qty > delivered
+
+## 2. Permission Errors
+
+- Cause: Role/status/boundary denial
+- User sees: Not allowed / insufficient permission
+- Retry: No unless permissions change
+- Rollback: None
+- Business impact: None
+
+Examples:
+- Pharmacy trying to approve payment
+- Staff without order permission
+- Unrelated business accessing invoice
+
+## 3. State Conflict Errors
+
+- Cause: Entity not in required state
+- User sees: Action not available for current status
+- Retry: Only if state becomes eligible
+- Rollback: None
+- Business impact: None beyond delayed action
+
+Examples:
+- Cancel after dispatch when forbidden
+- Accept already accepted order
+- Apply voided credit note
+
+## 4. Dependency Errors
+
+- Cause: Required relationship/record missing/inactive
+- User sees: Clear dependency reason
+- Retry: After dependency restored
+- Rollback: None
+- Business impact: Workflow blocked
+
+Examples:
+- No active connection
+- Business suspended
+- Product discontinued
+- Batch expired
+
+## 5. Inventory Sufficiency Errors
+
+- Cause: Not enough sellable stock
+- User sees: Insufficient available quantity / suggest partial
+- Retry: After stock add or qty reduce
+- Rollback: No negative stock written
+- Business impact: Fulfilment delayed/partial
+
+## 6. Financial Integrity Errors
+
+- Cause: Settlement would break money invariants
+- User sees: Allocation/credit/payment invalid reason
+- Retry: After corrected amounts
+- Rollback: No partial unsafe settlement
+- Business impact: Payables unchanged until valid action
+
+Examples:
+- Allocation > outstanding
+- Duplicate payment blocked
+- Credit exceed approved return
+
+## 7. Concurrency Conflicts
+
+- Cause: Another user/system changed entity first
+- User sees: Record updated by someone else / refresh and retry
+- Retry: Yes after refresh
+- Rollback: Loser’s action not applied
+- Business impact: Winner’s state remains
+
+## 8. Duplicate Submission Errors
+
+- Cause: Same action sent twice
+- User sees: Already submitted / existing record reference
+- Retry: Not creating a second record; may open existing
+- Rollback: N/A (first success stands)
+- Business impact: Single intended record
+
+## 9. Partial Batch Operation Errors
+
+- Cause: Bulk import/multi-allocate with mixed validity
+- User sees: Success count + failure list with reasons
+- Retry: Retry failed subset only
+- Rollback: Valid rows remain if partial policy selected
+- Business impact: Partial catalogue/ops update
+
+## 10. External/Connectivity Errors
+
+- Cause: Temporary connectivity/system unavailable
+- User sees: Couldn’t complete; try again
+- Retry: Yes; must be idempotent for commits
+- Rollback: If commit uncertain, user guided to verify whether it succeeded before repeating money/order actions
+- Business impact: Possible delay; no silent double charge/order if handled correctly
+
+## 11. Not Found / No Access Ambiguity
+
+- Cause: Missing entity or no permission
+- User sees: Not available (avoid leaking existence across businesses)
+- Retry: No
+- Business impact: None
+
+## 12. Governance Holds
+
+- Cause: On Hold / Suspended / Documents Requested
+- User sees: Account or record requires action/waiting
+- Retry: After hold cleared
+- Business impact: Trade or settlement paused per rules
+
+---
+
+# Action-Specific Error Behaviour
+
+## Place Order
+
+| Failure | User Guidance | Safe Retry | Persist? |
+|---|---|---|---|
+| Connection inactive | Reconnect required | After reconnect | No |
+| Product unavailable | Remove/update lines | Yes | No |
+| Suspended | Contact support/admin | After reactivation | No |
+| Duplicate submit | Show existing order | Open existing | First only |
+
+## Accept Order
+
+| Failure | Guidance | Notes |
+|---|---|---|
+| Already accepted | Refresh | No double reserve |
+| Insufficient stock | Partial/reject path | No negative stock |
+| Business suspended | Cannot accept | Pending may need cancel policy |
+
+## Approve Payment
+
+| Failure | Guidance | Notes |
+|---|---|---|
+| Already approved | Show status | No double settlement |
+| Allocation invalid | Fix allocation | Outstanding unchanged |
+| Duplicate flagged | Review hold | Manual decision |
+
+## Issue Invoice
+
+| Failure | Guidance | Notes |
+|---|---|---|
+| Nothing billable | Fulfil first | No empty invoice |
+| Already fully billed | Block | No double liability |
+| Tax/price invalid | Fix before issue | Draft remains |
+
+## Raise Return
+
+| Failure | Guidance | Notes |
+|---|---|---|
+| Qty > delivered | Correct qty | No submit |
+| Window expired | Closed | No exception silent allow |
+| Undelivered item | Ineligible | |
+
+## Apply Credit
+
+| Failure | Guidance | Notes |
+|---|---|---|
+| No remaining credit | Cannot apply | |
+| Invoice paid | Choose another | |
+| Expired credit | Cannot apply | |
+
+## Allocate Batch
+
+| Failure | Guidance | Notes |
+|---|---|---|
+| Expired/recalled/quarantined | Choose other batch | |
+| Qty unavailable | Reduce qty | Reservations atomic |
+
+---
+
+# Rollback Rules
+
+## Hard Rollback (action aborted fully)
+
+- Validation failures before commit
+- Permission denials
+- Insufficient stock for atomic allocation when partial not chosen
+- Financial invariant violations
+
+## No Rollback of Primary Event
+
+- Notification send failure after successful order/invoice/payment
+- Analytics refresh failure
+- Non-critical message delivery failure
+
+## Compensating Actions (not silent rollback)
+
+- Cancel remainder after partial fulfilment
+- Credit note after approved return
+- Payment reject after review
+- Reassign delivery after staff removal
+
+These are new official transitions, not secret undos.
+
+---
+
+# Partial Success Presentation Rules
+
+When partial success occurs, user must see:
+
+1. What succeeded (ids/counts)
+2. What failed (reasons)
+3. What to do next
+4. Whether money/stock changed
+
+Never show only “Success” if anything failed.
+
+---
+
+# Retry Safety Rules
+
+Safe to retry freely:
+- Views/searches
+- Validation-fail corrections
+- Connectivity fails before any acknowledgement
+
+Retry with care / idempotent:
+- Place order
+- Submit payment
+- Approve/reject actions
+- Issue invoice
+- Issue credit note
+
+Product should prefer returning the already-created record rather than creating another.
+
+---
+
+# Severity & User Impact
+
+| Severity | Examples | User expectation |
+|---|---|---|
+| Info denial | Filter empty | Adjust filters |
+| Blocking validation | Bad qty | Fix inputs |
+| Workflow blocked | Suspended / no connection | Resolve dependency |
+| Financial blocked | Bad allocation | Fix settlement inputs |
+| Conflict | Concurrent edit | Refresh |
+| System unavailable | Connectivity | Retry later + verify critical actions |
+
+---
+
+# Business Impact Statements (Required Tone)
+
+Error messages should make business impact clear:
+
+- “Order was not created.”
+- “Payment was not approved; outstanding unchanged.”
+- “Inventory was not reduced.”
+- “Invoice already issued; no duplicate created.”
+
+Avoid ambiguous “Something went wrong” for known business denials.
+
+---
+
+# Completion Criteria
+
+Every major failing action has known category behaviour for messaging, retry, rollback, and business impact.
+
+Next document: **Non-Functional Requirements**.

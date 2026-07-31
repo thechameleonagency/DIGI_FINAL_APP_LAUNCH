@@ -1,0 +1,458 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 4 — Business Relationships & Business Rules
+
+---
+
+# Purpose
+
+This section defines how every business entity interacts with every other business entity.
+
+It establishes the rules that govern the platform.
+
+These rules apply regardless of user interface, platform, or implementation.
+
+Every workflow, feature, screen, and business decision must follow these rules.
+
+If the application allows behaviour that violates these rules, the application is incorrect.
+
+---
+
+# Core Philosophy
+
+DigiSwasthya models real pharmaceutical business operations.
+
+The platform should never allow software convenience to violate real business logic.
+
+Business accuracy always takes priority over automation.
+
+---
+
+# Business Relationship Model
+
+The platform contains three active participants.
+
+```
+Platform Administrator
+
+        │
+
+        ▼
+
+Verifies Businesses
+
+        │
+
+ ┌──────┴──────┐
+
+ ▼             ▼
+
+Stockist ◄────► Pharmacy
+
+        Trades
+```
+
+The administrator governs.
+
+The stockist supplies.
+
+The pharmacy purchases.
+
+No user may perform another user's responsibilities.
+
+---
+
+# Relationship 1
+
+## Business → Users
+
+A business may have multiple users.
+
+Every user belongs to exactly one business.
+
+A user cannot belong to multiple businesses simultaneously.
+
+Removing a user must never delete business records.
+
+Business records always belong to the business, not the individual user.
+
+---
+
+# Relationship 2
+
+## Pharmacy ↔ Stockist
+
+A pharmacy may trade with multiple stockists.
+
+A stockist may trade with multiple pharmacies.
+
+Trading requires an approved business relationship.
+
+Without an approved relationship:
+
+- products cannot be ordered
+- pricing cannot be accessed
+- invoices cannot be created
+- payments cannot be made
+
+---
+
+# Relationship 3
+
+## Stockist → Product Catalogue
+
+Every stockist owns exactly one catalogue.
+
+The catalogue contains products available for sale.
+
+Products become visible only to eligible pharmacies according to future visibility rules.
+
+A stockist may:
+
+- add products
+- remove products
+- modify pricing
+- update availability
+
+Removing a product from the catalogue must never delete historical transactions.
+
+---
+
+# Relationship 4
+
+## Product → Inventory
+
+Every inventory record belongs to one product.
+
+Inventory represents physical stock.
+
+Inventory changes only through recognised inventory movements.
+
+Inventory cannot change arbitrarily.
+
+---
+
+# Relationship 5
+
+## Inventory → Batch
+
+Inventory exists at the batch level.
+
+Every stock movement references a batch.
+
+Different batches of the same product remain independent.
+
+Expiry dates belong to batches, not products.
+
+---
+
+# Relationship 6
+
+## Pharmacy → Order
+
+A pharmacy creates purchase orders.
+
+Orders are requests.
+
+Orders do not guarantee fulfilment.
+
+A pharmacy may:
+
+- create
+- edit (while permitted)
+- cancel (while permitted)
+
+A pharmacy cannot approve its own order.
+
+---
+
+# Relationship 7
+
+## Stockist → Order
+
+The stockist receives purchase requests.
+
+The stockist decides whether to fulfil the request.
+
+The stockist may:
+
+- accept
+- reject
+- partially fulfil (future capability)
+- dispatch
+- complete delivery
+
+The stockist owns the fulfilment process.
+
+---
+
+# Relationship 8
+
+## Order → Invoice
+
+Invoices originate from orders.
+
+Invoices cannot exist independently of a completed order fulfilment process unless explicitly supported by future business rules.
+
+One order may generate one or more invoices if future partial fulfilment is supported.
+
+Every invoice always references its originating order.
+
+---
+
+# Relationship 9
+
+## Invoice → Payment
+
+Payments settle invoices.
+
+Payments never modify invoices.
+
+Invoices remain permanent financial records.
+
+Payments only reduce outstanding balances.
+
+Invoices determine financial liability.
+
+Payments determine settlement.
+
+---
+
+# Relationship 10
+
+## Delivery → Order
+
+Deliveries transport ordered goods.
+
+Delivery status affects order status.
+
+Delivery does not automatically indicate payment.
+
+Payment remains a separate business process.
+
+---
+
+# Relationship 11
+
+## Return → Delivered Goods
+
+Returns may only reference delivered products.
+
+Undelivered products cannot be returned.
+
+Returned quantities cannot exceed delivered quantities.
+
+Every returned item references its original order.
+
+---
+
+# Relationship 12
+
+## Return → Credit Note
+
+Approved returns generate credit notes.
+
+Rejected returns generate no financial adjustment.
+
+Credit notes represent financial value.
+
+Returned goods represent physical value.
+
+These are separate concepts.
+
+---
+
+# Relationship 13
+
+## Credit Note → Invoice
+
+Credit notes reduce future invoice liabilities.
+
+Credit notes never modify historical invoices.
+
+Credit notes remain independently traceable financial documents.
+
+---
+
+# Relationship 14
+
+## Notifications
+
+Notifications communicate events.
+
+Notifications never create business events.
+
+Deleting a notification must never affect business data.
+
+---
+
+# Relationship 15
+
+## Messages
+
+Messages assist communication.
+
+Messages never replace business transactions.
+
+Business decisions must always occur through official workflows.
+
+A message saying
+
+"Approved"
+
+does not approve an order.
+
+The order workflow approves the order.
+
+---
+
+# Universal Business Rules
+
+The following rules apply throughout DigiSwasthya.
+
+---
+
+## Rule 1
+
+Every business transaction must have an owner.
+
+---
+
+## Rule 2
+
+Every financial record must be traceable.
+
+---
+
+## Rule 3
+
+Business records must never disappear because of user deletion.
+
+---
+
+## Rule 4
+
+Deleting a business must never destroy historical financial data.
+
+---
+
+## Rule 5
+
+Inventory should never become negative.
+
+---
+
+## Rule 6
+
+Expired inventory should never be supplied.
+
+---
+
+## Rule 7
+
+Every order must reference:
+
+- one pharmacy
+- one stockist
+
+---
+
+## Rule 8
+
+Every invoice belongs to an order.
+
+---
+
+## Rule 9
+
+Every payment belongs to one or more invoices.
+
+---
+
+## Rule 10
+
+Every return belongs to delivered goods.
+
+---
+
+## Rule 11
+
+Every credit note belongs to an approved adjustment.
+
+---
+
+## Rule 12
+
+Every notification references a business event.
+
+---
+
+## Rule 13
+
+Every message references participants.
+
+---
+
+## Rule 14
+
+Historical records should never lose integrity.
+
+Business history must always remain reconstructable.
+
+---
+
+## Rule 15
+
+Business actions should always leave an audit trail.
+
+The platform should always know:
+
+- who performed the action
+- when it occurred
+- what changed
+
+---
+
+# Platform Invariants
+
+The following statements must always remain true.
+
+A pharmacy cannot purchase from itself.
+
+A stockist cannot purchase from itself.
+
+A business cannot approve its own verification.
+
+Users cannot belong to multiple businesses simultaneously.
+
+Invoices cannot exist without a valid business relationship.
+
+Payments cannot exist without financial liability.
+
+Returns cannot exceed delivered quantities.
+
+Inventory cannot become negative.
+
+Expired batches cannot be delivered.
+
+Completed financial records cannot disappear.
+
+Business history cannot become inconsistent.
+
+---
+
+# Future Rules
+
+Future product features may introduce additional business relationships.
+
+Examples include:
+
+- multiple warehouses
+- multiple delivery partners
+- manufacturer relationships
+- inter-stockist transfers
+- procurement chains
+
+These future relationships must extend this model rather than replace it.
+
+The integrity of the existing business relationships must always be preserved.

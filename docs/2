@@ -1,0 +1,492 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 2 — User Roles & Responsibilities
+
+---
+
+# Purpose
+
+This section defines every user role within DigiSwasthya.
+
+It explains:
+
+- Who the user is.
+- Why they use the platform.
+- What business problems they solve.
+- What responsibilities they have.
+- What information belongs to them.
+- What they are allowed to do.
+- What they are not allowed to do.
+
+This section defines responsibilities only.
+
+It does **not** define features or screens.
+
+Those are defined in later sections.
+
+---
+
+# User Roles
+
+The platform currently supports three primary user roles.
+
+1. Pharmacy
+2. Stockist
+3. Platform Administrator
+
+No other roles currently exist within the product.
+
+Doctors, patients, medical representatives, manufacturers, transporters, and consumers are outside the current product scope.
+
+---
+
+# Role 1 — Pharmacy
+
+## Overview
+
+A Pharmacy is a licensed business that purchases pharmaceutical products from one or more stockists for resale or dispensing.
+
+The pharmacy is the buyer within the B2B relationship.
+
+The pharmacy uses DigiSwasthya to digitally manage purchasing, inventory, payments, supplier relationships, and retail operations.
+
+---
+
+## Primary Goals
+
+A pharmacy wants to:
+
+- Find reliable stockists.
+- Purchase medicines.
+- Receive products.
+- Maintain inventory.
+- Track outstanding orders.
+- Pay suppliers.
+- Return damaged or expired goods.
+- Monitor business performance.
+- Reduce manual work.
+
+---
+
+## Responsibilities
+
+A pharmacy is responsible for:
+
+- Maintaining accurate business information.
+- Maintaining valid licenses.
+- Ordering products responsibly.
+- Receiving deliveries correctly.
+- Reporting shortages or damaged products.
+- Making payments.
+- Managing inventory.
+- Managing pharmacy staff.
+- Following pharmaceutical regulations.
+
+---
+
+## Business Ownership
+
+A pharmacy owns and manages:
+
+- Business profile.
+- Business documents.
+- Staff.
+- Delivery addresses.
+- Internal inventory.
+- Customer sales.
+- Purchase history.
+- Payment history.
+- Return requests.
+- Wishlist.
+- Business settings.
+
+---
+
+## Relationships
+
+A pharmacy can establish business relationships with multiple stockists.
+
+A pharmacy cannot purchase products from a stockist unless a valid business relationship exists.
+
+---
+
+## Permissions
+
+A pharmacy should be able to:
+
+- Register.
+- Complete verification.
+- Manage its profile.
+- Manage staff.
+- Search for stockists.
+- Request connections.
+- View connected stockists.
+- Browse catalogues.
+- Place orders.
+- Track orders.
+- Receive deliveries.
+- Record received quantities.
+- Make payments.
+- Submit payment proof.
+- Raise return requests.
+- Receive credit notes.
+- View notifications.
+- Communicate with stockists.
+- View analytics.
+- Manage settings.
+
+---
+
+## Restrictions
+
+A pharmacy should not be able to:
+
+- Approve its own verification.
+- Approve payments.
+- Modify invoices issued by stockists.
+- Edit completed deliveries.
+- Delete financial records.
+- Access another pharmacy's data.
+- View private stockist information.
+- Purchase products without verification.
+- Purchase products from disconnected stockists.
+
+---
+
+## Success
+
+A pharmacy successfully completes its business cycle when it can:
+
+Connect
+
+↓
+
+Order
+
+↓
+
+Receive
+
+↓
+
+Pay
+
+↓
+
+Return (if required)
+
+↓
+
+Continue purchasing
+
+without requiring external communication channels.
+
+---
+
+# Role 2 — Stockist
+
+## Overview
+
+A Stockist is a licensed pharmaceutical distributor supplying medicines and healthcare products to pharmacies.
+
+The stockist is the seller within the B2B relationship.
+
+The stockist manages product availability, inventory, invoicing, fulfilment, collections, and delivery operations.
+
+---
+
+## Primary Goals
+
+A stockist wants to:
+
+- Build pharmacy relationships.
+- Sell products.
+- Process incoming orders.
+- Maintain inventory.
+- Generate invoices.
+- Dispatch deliveries.
+- Receive payments.
+- Process returns.
+- Monitor business performance.
+
+---
+
+## Responsibilities
+
+A stockist is responsible for:
+
+- Maintaining valid licenses.
+- Maintaining inventory.
+- Maintaining product pricing.
+- Managing batches.
+- Managing expiry.
+- Accepting or rejecting orders.
+- Packing orders.
+- Dispatching deliveries.
+- Managing collections.
+- Processing returns.
+- Issuing credit notes.
+- Managing delivery staff.
+- Managing business users.
+
+---
+
+## Business Ownership
+
+A stockist owns:
+
+- Business profile.
+- Product catalogue.
+- Inventory.
+- Batch information.
+- Pricing.
+- Pharmacy relationships.
+- Orders.
+- Invoices.
+- Delivery operations.
+- Financial records.
+- Staff.
+- Business documents.
+
+---
+
+## Relationships
+
+A stockist may trade with many pharmacies simultaneously.
+
+The stockist controls whether a pharmacy becomes an approved trading partner.
+
+---
+
+## Permissions
+
+A stockist should be able to:
+
+- Register.
+- Complete verification.
+- Manage profile.
+- Manage staff.
+- Manage pharmacy connections.
+- View incoming orders.
+- Accept orders.
+- Reject orders.
+- Edit pending orders.
+- Allocate inventory.
+- Pack orders.
+- Generate invoices.
+- Dispatch deliveries.
+- Mark deliveries complete.
+- Record inventory movements.
+- Receive payments.
+- Approve payments.
+- Reject payments.
+- Place payments on hold.
+- Approve returns.
+- Reject returns.
+- Issue credit notes.
+- Manage delivery routes.
+- View analytics.
+- Export reports.
+
+---
+
+## Restrictions
+
+A stockist should not be able to:
+
+- Modify completed financial records.
+- Edit locked invoices.
+- Edit delivered orders.
+- Access another stockist's data.
+- View another stockist's inventory.
+- Bypass verification.
+- Remove audit history.
+
+---
+
+## Success
+
+A stockist successfully completes its business cycle when it can:
+
+Receive Order
+
+↓
+
+Accept
+
+↓
+
+Pack
+
+↓
+
+Invoice
+
+↓
+
+Dispatch
+
+↓
+
+Deliver
+
+↓
+
+Receive Payment
+
+↓
+
+Complete Settlement
+
+without requiring manual tracking.
+
+---
+
+# Role 3 — Platform Administrator
+
+## Overview
+
+The Platform Administrator manages the DigiSwasthya platform itself.
+
+The administrator does not participate in buying or selling medicines.
+
+Instead, the administrator governs the ecosystem.
+
+---
+
+## Primary Goals
+
+The administrator wants to:
+
+- Verify businesses.
+- Maintain platform quality.
+- Prevent fraud.
+- Resolve disputes.
+- Monitor activity.
+- Maintain compliance.
+- Support users.
+
+---
+
+## Responsibilities
+
+The administrator is responsible for:
+
+- Reviewing registrations.
+- Verifying businesses.
+- Suspending accounts.
+- Reactivating accounts.
+- Reviewing support tickets.
+- Monitoring orders.
+- Monitoring payments.
+- Managing platform announcements.
+- Managing banners.
+- Reviewing analytics.
+- Maintaining audit records.
+
+---
+
+## Business Ownership
+
+The administrator owns:
+
+- Verification records.
+- Platform configuration.
+- Moderation decisions.
+- Platform announcements.
+- Audit logs.
+- Suspension history.
+- Global analytics.
+
+---
+
+## Permissions
+
+An administrator should be able to:
+
+- Approve registrations.
+- Reject registrations.
+- Request document corrections.
+- Suspend businesses.
+- Reactivate businesses.
+- Review tickets.
+- Respond to tickets.
+- View every business.
+- View every order.
+- View every payment.
+- View analytics.
+- View audit logs.
+- Manage banners.
+- Manage announcements.
+- Configure platform settings.
+
+---
+
+## Restrictions
+
+An administrator should not:
+
+- Create orders.
+- Purchase products.
+- Sell products.
+- Generate invoices.
+- Manipulate business financial records.
+- Alter business transaction history without maintaining an audit trail.
+
+---
+
+## Success
+
+The administrator succeeds when the platform remains:
+
+- Secure.
+- Accurate.
+- Verified.
+- Fair.
+- Compliant.
+- Reliable.
+
+---
+
+# Role Relationships
+
+The platform operates using a structured hierarchy.
+
+```
+Platform Administrator
+            │
+            │
+            ▼
+     Verifies Businesses
+            │
+            │
+ ┌──────────┴──────────┐
+ │                     │
+ ▼                     ▼
+Stockist          Pharmacy
+     ▲                 │
+     │                 │
+     └──────Trades─────┘
+```
+
+The administrator governs the platform.
+
+The stockist supplies products.
+
+The pharmacy purchases products.
+
+No user may perform responsibilities belonging to another role unless explicitly granted by future platform permissions.
+
+---
+
+# Role Design Principles
+
+Every future feature added to DigiSwasthya must clearly answer:
+
+- Which role uses this feature?
+- Why does this role need it?
+- What responsibility does it support?
+- What business outcome does it achieve?
+- Does this responsibility belong to another role instead?
+
+If these questions cannot be answered, the feature should not be included in the product.

@@ -1,0 +1,440 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 20 — Product Glossary
+
+---
+
+# Purpose
+
+This glossary defines the official language of DigiSwasthya.
+
+Everyone — product, design, engineering, support, QA, operations, and business stakeholders — must use these terms with the same meaning.
+
+If a term is used differently in conversation than in this glossary, this glossary wins until the PDD is formally revised.
+
+---
+
+# A
+
+## Acceptance Criteria
+Measurable pass/fail statements used to audit whether the product matches the PDD.
+
+## Active Connection
+A Connection in Active status allowing trade between a Pharmacy and a Stockist.
+
+## Admin / Platform Administrator
+Platform governance user who verifies, suspends, supports, and monitors, but does not trade medicines.
+
+## Allocation (Inventory)
+Assignment/reservation of sellable stock (usually batch-level) to an order for fulfilment.
+
+## Allocation (Payment)
+Distribution of a payment amount across one or more invoices.
+
+## Analytics
+Derived insights calculated from source entities. Never the source of truth.
+
+## Available Credit
+Sum of remaining amounts on issued, non-expired, non-void credit notes for a trading pair.
+
+## Available Inventory
+On Hand quantity minus Reserved quantity for sellable batches.
+
+## Audit Trail
+Record of who did what, when, and what changed.
+
+---
+
+# B
+
+## Batch
+A manufacturing lot of a product with batch number, quantity, and expiry.
+
+## Billable Quantity
+Quantity eligible to appear on an invoice according to fulfilment/billing rules.
+
+## Business
+A legally registered organisation on DigiSwasthya operating as Pharmacy or Stockist.
+
+## Business Verification
+The process and record deciding whether a Business may trade.
+
+## Buyer
+In current product: the Pharmacy side of a trade.
+
+---
+
+# C
+
+## Catalogue / Product Catalogue
+The sellable list of products owned by a Stockist.
+
+## Closed (Order)
+Terminal operational status indicating the order lifecycle is finished under closure rules. Financial dues may still exist separately if policy allows operational close with open payables.
+
+## Connection
+Trading relationship between one Pharmacy and one Stockist.
+
+## Counterparty
+The other business in a trade relationship or transaction.
+
+## Credit Note
+Financial credit document issued by a Stockist reducing future/outstanding liability without rewriting historical invoice lines.
+
+## Credit Remaining / Remaining Credit
+Unapplied portion of a credit note.
+
+---
+
+# D
+
+## Delivery
+Entity representing transport of goods from Stockist to Pharmacy.
+
+## Delivery Boy
+Operational role that executes assigned deliveries.
+
+## Disconnected
+Connection status where prior relationship is closed and new trade is blocked.
+
+## Dispatch
+Act/state of sending packed goods out for delivery.
+
+## Draft
+Editable pre-submission state of an entity (order, invoice, payment, return, etc.).
+
+---
+
+# E
+
+## Edge Case
+Exceptional or conflicting situation requiring explicit product behaviour.
+
+## Expiry
+Date after which a batch is not sellable.
+
+## Expiry %
+Portion of shelf life consumed, when manufactury and expiry dates allow calculation.
+
+## Export
+Download/extraction of authorised dataset under permissions and filters.
+
+---
+
+# F
+
+## Fill Rate
+Delivered quantity relative to ordered quantity.
+
+## Fulfilment
+Stockist process of accepting, allocating, packing, dispatching, and delivering an order.
+
+## Forbidden Transition
+State change explicitly disallowed by the state machine.
+
+---
+
+# G
+
+## GMV
+Gross Merchandise Value — platform-level sum of non-void issued invoice totals for a period.
+
+## GST
+Goods and Services Tax applied per tax rules; may split into CGST/SGST or IGST.
+
+## GSTIN / GST Number
+Tax identity number of a business.
+
+---
+
+# H
+
+## Hold (Payment On Hold)
+Payment review state pausing approval/rejection pending clarification.
+
+---
+
+# I
+
+## Inventory
+Physical stock records for a business, maintained with batch-level movements.
+
+## Invoice
+Financial document defining what a Pharmacy owes a Stockist for billable goods.
+
+## Issued (Invoice)
+Invoice status where liability is officially created and lines are immutable in substance.
+
+---
+
+# L
+
+## Lifecycle
+Ordered progression of states an entity may pass through.
+
+## Low Stock
+Availability at or below reorder level.
+
+---
+
+# M
+
+## Manager
+Business operational role with broad permissions below Owner.
+
+## Message
+Conversational communication. Never an official approval mechanism.
+
+## Movement (Inventory)
+An auditable change in inventory quantity with reason/source.
+
+---
+
+# N
+
+## Near Expiry
+Batch within configured high-risk days-to-expiry bands.
+
+## Net Sales
+Gross sales minus credit notes issued in the period (per calculations).
+
+## Notification
+Event communication to users. Does not mutate business truth.
+
+---
+
+# O
+
+## On Hand
+Physical quantity held before subtracting reservations.
+
+## Order
+Purchase request from Pharmacy to Stockist. Intent to buy; not itself settlement.
+
+## Order Line
+A product + quantity (+ price snapshot and related fields) within an order.
+
+## Outstanding / Outstanding Balance
+Amount still due on an invoice or across invoices after approved payments and applied credits.
+
+## Owner
+Primary business controlling role with full business administration rights including ownership transfer.
+
+---
+
+# P
+
+## Pack / Packed
+Fulfilment state where goods are prepared for dispatch.
+
+## Partial Delivery
+Delivery of some but not all expected goods.
+
+## Partial Fulfilment
+Supplying only part of requested order quantities under rules.
+
+## Payment
+Record of money paid by Pharmacy toward invoice liabilities.
+
+## Pharmacy
+Buyer business that purchases from stockists.
+
+## Platform
+DigiSwasthya system and its governance layer.
+
+## Product
+Sellable medicine/healthcare item listed by a stockist.
+
+## Product Definition Document (PDD)
+The master non-technical specification of what DigiSwasthya is and how it must behave.
+
+---
+
+# Q
+
+## Quarantine
+Batch/inventory status making stock non-sellable pending disposition.
+
+---
+
+# R
+
+## Recall / Recalled
+Safety status blocking sellable allocation/distribution of a batch.
+
+## Recipient (Notification)
+User/business inbox target for an event notice.
+
+## Rejected
+Terminal negative decision state for requests (order, connection, payment, return, verification, etc.).
+
+## Reorder Level
+Threshold at or below which low-stock status appears.
+
+## Reserved Inventory
+Quantity committed to fulfilment and unavailable for new allocation.
+
+## Return
+Request to send back delivered goods for approval and potential credit.
+
+## Role
+Primary business type role (Pharmacy/Stockist/Admin) or internal operational role (Owner/Manager/Staff/Delivery Boy/Accountant).
+
+---
+
+# S
+
+## Settlement
+Process of reducing outstanding liability via approved payments and applied credits.
+
+## SKU
+Stock keeping unit / stockist product code identity for a catalogue product.
+
+## Source of Truth
+Authoritative entity record from which derived data is calculated.
+
+## Staff
+Internal business user role with limited operational permissions.
+
+## State Machine
+Definition of legal states and transitions for an entity.
+
+## Stockist
+Seller/distributor business that supplies pharmacies.
+
+## Support Ticket
+Assistance request to platform support; does not itself mutate trade documents.
+
+## Suspended
+Business/user status that blocks operational access/trade while retaining history.
+
+---
+
+# T
+
+## Tax Snapshot
+Tax rate/amount captured for a line at the governing commitment point.
+
+## Trade / Trading
+Ordering, fulfilment, invoicing, payment, and related B2B commerce actions between connected verified businesses.
+
+## Transition
+A legal move from one entity state to another by an allowed actor.
+
+---
+
+# U
+
+## User
+Individual person account belonging to exactly one Business.
+
+---
+
+# V
+
+## Validation
+Pre-commit checks preventing illegal inputs or states.
+
+## Verification
+See Business Verification.
+
+## Void
+Controlled cancellation of a financial document under strict rules, retaining audit record.
+
+---
+
+# W
+
+## Wishlist / Save for Later
+Pharmacy-saved products not yet ordered.
+
+---
+
+# Term Distinctions (Critical)
+
+## Order vs Invoice
+Order = purchase intent/fulfilment request. Invoice = financial liability document.
+
+## Payment vs Settlement
+Payment = submitted/approved money record. Settlement = effect on outstanding after approval/allocation.
+
+## Return vs Credit Note
+Return = physical/request workflow. Credit Note = financial credit document after approval/adjustment.
+
+## Notification vs Message
+Notification = event alert. Message = conversation. Neither is an official approval.
+
+## Available vs On Hand
+On Hand = physical stock. Available = On Hand − Reserved (sellable).
+
+## Business vs User
+Business owns records. User acts on behalf of one business.
+
+## Analytics vs Source Records
+Analytics summarise. Invoices/orders/payments remain authoritative.
+
+## Disconnect vs Suspend
+Disconnect ends a pair’s trading relationship. Suspend blocks a business platform-wide (governance).
+
+## Draft vs Issued
+Draft editable. Issued financial documents are substantive records.
+
+---
+
+# Naming Conventions for Documents & IDs (Product Language)
+
+- Order Number
+- Invoice Number
+- Payment Number / Reference
+- Delivery Number
+- Return Number
+- Credit Note Number
+- Ticket Number
+
+Numbers are business identifiers used in search, support, and audit.
+
+---
+
+# Language Rules
+
+1. Do not call an Order an Invoice.
+2. Do not call a Message an Approval.
+3. Do not call Analytics the balance due if Invoice Outstanding exists.
+4. Do not call Suspended the same as Disconnected.
+5. Do not call Available Inventory the same as On Hand.
+6. Do not say “deleted” for financial history when the product actually voids/cancels/deactivates.
+
+---
+
+# Completion Criteria
+
+All PDD documents use glossary terms consistently. New terms introduced by future expansion must be added here before implementation language spreads.
+
+---
+
+# PDD Document Map
+
+| Part | File | Name |
+|---|---|---|
+| 1 | App Overview | Product Foundation |
+| 2 | 2 | User Roles & Responsibilities |
+| 3 | 3 | Business Entities |
+| 4 | 4 | Business Relationships & Business Rules |
+| 5 | 5 | User Capabilities |
+| 6 | 6 / 7 | Capability Specifications |
+| 7 | 8 | Entity Specifications |
+| 8 | 9 | User Journeys |
+| 9 | 10 | State Machines |
+| 10 | 11 | Business Calculations |
+| 11 | 12 | Permissions Matrix |
+| 12 | 13 | Notifications |
+| 13 | 14 | Search, Filtering, Sorting & Export |
+| 14 | 15 | Dashboards & KPIs |
+| 15 | 16 | Edge Cases & Exception Handling |
+| 16 | 17 | Error Behaviour |
+| 17 | 18 | Non-Functional Requirements |
+| 18 | 19 | Acceptance Criteria / Audit Specification |
+| 19 | 20 | Future Expansion |
+| 20 | 21 | Product Glossary |
+
+This completes the master Product Definition set for DigiSwasthya in non-technical product language.

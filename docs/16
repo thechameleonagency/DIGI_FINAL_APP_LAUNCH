@@ -1,0 +1,627 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 15 — Edge Cases & Exception Handling
+
+---
+
+# Purpose
+
+This section defines exceptional, conflicting, abusive, and rare situations DigiSwasthya must handle correctly.
+
+Edge cases are part of the product definition.
+
+If the application fails unpredictably in these situations, the application is incorrect.
+
+Each case defines:
+
+- Situation
+- Expected product behaviour
+- What must not happen
+
+---
+
+# Principles
+
+1. Prefer blocking illegal states over silent correction.
+2. Preserve audit history.
+3. Do not invent money, stock, or approvals.
+4. Partial success must be explicit.
+5. When policy choices exist, choose the safer financial/inventory-preserving option.
+6. Messages never resolve edge cases that require official transitions.
+
+---
+
+# A. Identity, Registration & Verification
+
+## E-A01 Duplicate GST on registration
+- Behaviour: Block or flag; do not create second verified trader on same GST without admin resolution.
+- Must not: Silently allow two active verified businesses with identical GST.
+
+## E-A02 Duplicate phone on registration
+- Behaviour: Reject or require recovery of existing account.
+- Must not: Create ambiguous dual accounts for same phone.
+
+## E-A03 Duplicate drug license
+- Behaviour: Flag/block per uniqueness policy.
+- Must not: Ignore obvious duplicate licenses during verification.
+
+## E-A04 User submits verification with expired license
+- Behaviour: Reject or request correction; trading remains blocked.
+- Must not: Approve expired credentials.
+
+## E-A05 Admin approves while documents incomplete
+- Behaviour: Prevent approval until required docs present.
+- Must not: Allow approve with missing mandatory evidence.
+
+## E-A06 Business resubmits different GST after rejection
+- Behaviour: Treat as new review; prior history retained.
+- Must not: Erase previous rejection history.
+
+## E-A07 Verified business later found fraudulent
+- Behaviour: Suspend immediately; freeze new trade; preserve records for investigation.
+- Must not: Delete historical invoices/orders.
+
+## E-A08 Owner loses access to phone used for login
+- Behaviour: Controlled recovery/support process; identity proof required.
+- Must not: Support casually reassign ownership without audit.
+
+## E-A09 Two admins review same verification concurrently
+- Behaviour: First committed decision wins; second sees already decided state.
+- Must not: Double-decision corruption.
+
+## E-A10 Business type change Pharmacy ↔ Stockist after verification
+- Behaviour: Not allowed in current product without controlled platform process.
+- Must not: Self-serve flip that breaks entity assumptions.
+
+---
+
+# B. Users & Staff
+
+## E-B01 Staff leaves while packing orders
+- Behaviour: Reassign tasks; removed user loses access; order continues.
+- Must not: Cancel orders solely because staff left.
+
+## E-B02 Sole owner removed
+- Behaviour: Block removal until ownership transfer.
+- Must not: Leave business with zero owners.
+
+## E-B03 Invited user already belongs to another business
+- Behaviour: Block invite acceptance under current single-business rule.
+- Must not: Attach one user to two businesses.
+
+## E-B04 Permissions revoked mid-session
+- Behaviour: Next action denied; session may continue read-only or reauth per policy.
+- Must not: Allow privileged action after revoke.
+
+## E-B05 Delivery boy deactivated while out for delivery
+- Behaviour: Keep delivery record; reassign; notify managers.
+- Must not: Mark delivery complete automatically.
+
+## E-B06 Accountant tries to accept orders
+- Behaviour: Deny unless explicitly granted.
+- Must not: Infer permission from financial access.
+
+## E-B07 User deleted locally expects history gone
+- Behaviour: History remains attributed to removed user identity.
+- Must not: Cascade-delete orders/payments.
+
+## E-B08 Phone number change for active user
+- Behaviour: Verify new phone; audit old/new; sessions may invalidate.
+- Must not: Allow unverified phone swap on owner accounts without checks.
+
+---
+
+# C. Connections
+
+## E-C01 Connection removed with open Pending order
+- Behaviour: New orders blocked; open Pending order follows policy (auto-cancel or freeze for decision). Preferred safe default: block acceptance of new work; allow stockist to reject/cancel pending; do not allow new submits.
+- Must not: Allow new orders on inactive connection.
+
+## E-C02 Connection removed after Accepted but before dispatch
+- Behaviour: Allow controlled completion or controlled cancel with reason; no new lines.
+- Must not: Orphan fulfilment without status.
+
+## E-C03 Connection removed after invoice issued
+- Behaviour: Settlement and returns for historical docs remain processable.
+- Must not: Delete invoices or block payment on valid dues solely due to disconnect.
+
+## E-C04 Duplicate connection request while one Requested exists
+- Behaviour: Block duplicate; show existing request.
+- Must not: Create multiple Requested rows for same pair.
+
+## E-C05 Pharmacy requests connection to itself / same business
+- Behaviour: Impossible/blocked.
+- Must not: Self-trade relationship.
+
+## E-C06 Stockist approves then immediately disconnects
+- Behaviour: Allowed; Active history retained; new trade blocked after disconnect.
+- Must not: Erase approval audit.
+
+## E-C07 Rejected pharmacy re-requests immediately
+- Behaviour: Allowed unless cool-down/block policy.
+- Must not: Auto-approve because previously connected.
+
+## E-C08 Blocked pharmacy attempts browse pricing
+- Behaviour: Deny private pricing/order.
+- Must not: Leak customer-specific rates.
+
+---
+
+# D. Catalogue, Cart & Ordering
+
+## E-D01 Product deactivated while in cart
+- Behaviour: Block place order for that line; require removal/update.
+- Must not: Create order against inactive product.
+
+## E-D02 Price changes after add-to-cart before submit
+- Behaviour: Recheck at submit; show updated price confirmation or block if policy requires confirm.
+- Must not: Silently charge unexpected price without snapshot clarity.
+
+## E-D03 Stock becomes zero after accept
+- Behaviour: Partial fulfilment path or cancel remainder; cannot pack unavailable qty.
+- Must not: Negative inventory.
+
+## E-D04 Empty order submit
+- Behaviour: Block.
+- Must not: Create empty Pending order.
+
+## E-D05 Quantity zero / negative
+- Behaviour: Validation fail.
+- Must not: Persist invalid qty.
+
+## E-D06 Duplicate product lines in cart
+- Behaviour: Merge quantities.
+- Must not: Ambiguous double lines unless intentionally separate batches later.
+
+## E-D07 MOQ not met
+- Behaviour: Block submit with reason.
+- Must not: Accept under MOQ.
+
+## E-D08 Max order qty exceeded
+- Behaviour: Block.
+- Must not: Accept above max.
+
+## E-D09 Order while pharmacy suspended
+- Behaviour: Block.
+- Must not: Queue stealth orders.
+
+## E-D10 Order while stockist suspended
+- Behaviour: Block new submit/accept.
+- Must not: Continue normal trade.
+
+## E-D11 Reorder from historical discontinued product
+- Behaviour: Allow add only if currently sellable; otherwise block line.
+- Must not: Resurrect discontinued product into Active catalogue silently.
+
+## E-D12 Notes contain “approved/paid” language
+- Behaviour: Stored as note only; no status effect.
+- Must not: Auto-transition states from notes.
+
+---
+
+# E. Order Lifecycle Conflicts
+
+## E-E01 Pharmacy cancels after Accepted
+- Behaviour: Allowed only if rules say so; else deny.
+- Must not: Cancel after dispatch without controlled process.
+
+## E-E02 Stockist rejects after Accept
+- Behaviour: Forbidden; use cancel-with-reason path if needed.
+- Must not: Move Accepted → Rejected.
+
+## E-E03 Double accept by two staff
+- Behaviour: First wins; second sees Accepted.
+- Must not: Duplicate side effects/reservations.
+
+## E-E04 Cancel after invoice issued
+- Behaviour: Do not silently cancel financial liability; require void/credit policy path.
+- Must not: Delete invoice because order cancelled late.
+
+## E-E05 Order closed while payment outstanding
+- Behaviour: Closure rules must define whether operational close allowed with open dues; financial outstanding remains.
+- Must not: Hide unpaid invoice because order closed.
+
+## E-E06 Partial delivery forever unfinished
+- Behaviour: Remainder cancel/complete policy + SLA reminders.
+- Must not: Leave infinite Partially Delivered with no action path.
+
+## E-E07 Edit lines after Packed
+- Behaviour: Block.
+- Must not: Mutate packed contents silently.
+
+## E-E08 Accept order with all expired-only stock
+- Behaviour: Block allocation/accept fulfilment; force reject/partial none.
+- Must not: Dispatch expired medicines.
+
+---
+
+# F. Inventory & Batches
+
+## E-F01 Negative inventory attempt
+- Behaviour: Block movement.
+- Must not: Persist negative on hand.
+
+## E-F02 Reserve more than available
+- Behaviour: Block reservation.
+- Must not: Over-reserve.
+
+## E-F03 Batch expires after reservation before dispatch
+- Behaviour: Block dispatch of that batch; reallocate or adjust order.
+- Must not: Deliver expired reserved stock.
+
+## E-F04 Batch recall after dispatch out for delivery
+- Behaviour: Critical alert; stop completion if not delivered; initiate return/recovery process if delivered.
+- Must not: Ignore recall.
+
+## E-F05 Manual adjustment without reason
+- Behaviour: Require reason.
+- Must not: Silent stock edits.
+
+## E-F06 Same batch number different products
+- Behaviour: Allowed only if product-scoped uniqueness; prevent ambiguity in movements.
+- Must not: Mix batch identity across products in one stock ledger incorrectly.
+
+## E-F07 Quarantined stock allocated
+- Behaviour: Block.
+- Must not: Sell quarantined goods.
+
+## E-F08 Pharmacy inventory not updated on receipt
+- Behaviour: Receipt confirmation should create pharmacy stock movement when pharmacy inventory tracking enabled.
+- Must not: Claim stock increased without receipt event.
+
+## E-F09 Stock transfer creates disappearance
+- Behaviour: Source decrease and destination increase in one controlled movement pair.
+- Must not: One-sided transfer.
+
+## E-F10 Near-expiry sold against FEFO preference
+- Behaviour: Prefer earliest expiry sellable batch when auto-allocate; allow override with audit if permitted.
+- Must not: Auto-pick expired.
+
+---
+
+# G. Delivery Exceptions
+
+## E-G01 Mark delivered without assignment
+- Behaviour: Allow only if policy permits direct complete; else require valid delivery path.
+- Must not: Skip creating delivery record when dispatch claimed.
+
+## E-G02 Partial delivery quantities exceed packed
+- Behaviour: Block.
+- Must not: Deliver more than dispatched.
+
+## E-G03 Pharmacy claims not received but stockist marks delivered
+- Behaviour: Keep both signals; open dispute/support/shortage path; do not auto-delete delivery.
+- Must not: Silent overwrite without audit.
+
+## E-G04 Failed delivery then mark delivered without retry
+- Behaviour: Require new successful attempt transition.
+- Must not: Failed → Delivered direct.
+
+## E-G05 Proof of delivery missing when mandatory
+- Behaviour: Block complete or mark complete-with-exception per config.
+- Must not: Ignore mandatory POD config.
+
+## E-G06 Delivery to wrong address recorded
+- Behaviour: Failed/wrong delivery reason; corrective redelivery; possible return to stockist.
+- Must not: Force Paid/Closed automatically.
+
+## E-G07 Multiple deliveries for one order
+- Behaviour: Allowed for partial/multi-trip; quantities cumulative must not exceed ordered/packed rules.
+- Must not: Double-count delivered qty.
+
+---
+
+# H. Invoicing Exceptions
+
+## E-H01 Invoice before dispatch
+- Behaviour: Block unless explicit bill-ahead policy enabled for that business relationship.
+- Must not: Default-allow pre-dispatch invoicing.
+
+## E-H02 Invoice qty > delivered/billable qty
+- Behaviour: Block.
+- Must not: Over-bill.
+
+## E-H03 Duplicate invoice for same fully billed lines
+- Behaviour: Block double billing of same billable qty.
+- Must not: Create double liability.
+
+## E-H04 Tax rate changed after order before invoice
+- Behaviour: Use legally/product-defined snapshot policy (order-time vs invoice-time) consistently and visibly.
+- Must not: Ambiguous mixed tax without rule.
+
+## E-H05 Void after partial payment
+- Behaviour: Generally forbidden; use credit note / controlled reversal policy.
+- Must not: Void away paid amounts casually.
+
+## E-H06 Invoice issued then order rejected historically impossible
+- Behaviour: State machine prevents; if data repair needed, admin-controlled with audit only.
+- Must not: Normal user path creating impossible combo.
+
+## E-H07 Round-off manipulated to alter totals unfairly
+- Behaviour: Round-off constrained to policy limits.
+- Must not: Arbitrary round-off as hidden discount/tax evasion tool.
+
+---
+
+# I. Payments & Settlement
+
+## E-I01 Duplicate payment submission (same reference)
+- Behaviour: Flag/block or force On Hold review.
+- Must not: Auto-approve duplicates.
+
+## E-I02 Payment amount > total selected outstanding
+- Behaviour: Block or allow unallocated remainder per advance-payment policy.
+- Must not: Negative invoice outstanding.
+
+## E-I03 Payment approved against already paid invoice
+- Behaviour: Block allocation; leave unallocated or reject.
+- Must not: Drive outstanding negative.
+
+## E-I04 Concurrent approve payment and apply credit
+- Behaviour: Serialise settlement; final outstanding = Grand Total − payments − credits ≥ 0.
+- Must not: Race to negative.
+
+## E-I05 Payment proof unreadable
+- Behaviour: On Hold/Reject with reason.
+- Must not: Approve without required proof when proof mandatory.
+
+## E-I06 Pharmacy edits amount after submit
+- Behaviour: Block; create new payment instead.
+- Must not: Mutate under-review payment silently.
+
+## E-I07 Stockist approves then tries reject
+- Behaviour: Forbidden without controlled reversal process.
+- Must not: Silent unapprove.
+
+## E-I08 Payment for disconnected pair on old invoice
+- Behaviour: Allowed for outstanding historical invoice.
+- Must not: Block settlement of lawful dues solely due to disconnect.
+
+## E-I09 Currency/method mismatch notes
+- Behaviour: Hold/reject if method invalid.
+- Must not: Convert inventively.
+
+## E-I10 Split allocation doesn’t sum to payment
+- Behaviour: Allow unallocated only if policy; else require full allocation.
+- Must not: Lose money in allocation gaps without visibility.
+
+---
+
+# J. Returns & Credit Notes
+
+## E-J01 Return qty > delivered qty
+- Behaviour: Block.
+- Must not: Approve excess.
+
+## E-J02 Return on undelivered items
+- Behaviour: Block.
+- Must not: Create return eligibility from Pending/Accepted only.
+
+## E-J03 Return after eligibility window
+- Behaviour: Block with reason.
+- Must not: Accept late returns silently.
+
+## E-J04 Credit exceeds approved return value
+- Behaviour: Block.
+- Must not: Over-credit.
+
+## E-J05 Credit exceeds invoice outstanding on apply
+- Behaviour: Apply min(remaining credit, outstanding); keep leftover credit.
+- Must not: Negative outstanding.
+
+## E-J06 Return approved but goods never received back when required
+- Behaviour: Do not close until goods-back or policy waiver with audit.
+- Must not: Restock inventory without receipt.
+
+## E-J07 Restock damaged goods as sellable
+- Behaviour: Disposition must quarantine/destroy if damaged; not Active sellable.
+- Must not: Auto-restock damaged as sellable.
+
+## E-J08 Credit note void after partial apply
+- Behaviour: Only unapplied remainder voidable, or controlled reversal of applications first.
+- Must not: Void away already applied credit without reversing settlement.
+
+## E-J09 Duplicate return for same delivered units
+- Behaviour: Track already returned qty; block exceed.
+- Must not: Double credit same units.
+
+## E-J10 Return while businesses suspended
+- Behaviour: Generally allow processing historical returns; block new trade.
+- Must not: Freeze dispute resolution forever without policy.
+
+---
+
+# K. Notifications & Messaging
+
+## E-K01 Notification click after permission lost
+- Behaviour: Show access denied; notification may mark read.
+- Must not: Reveal entity payload beyond permission.
+
+## E-K02 Message says “payment approved”
+- Behaviour: No payment status change.
+- Must not: Treat chat as approval.
+
+## E-K03 Notification generation failure
+- Behaviour: Business event remains; retry notify; surface undelivered if critical and possible.
+- Must not: Roll back invoice/order because SMS/inbox failed (default).
+
+## E-K04 Flood of low-stock alerts
+- Behaviour: Digest/throttle per product.
+- Must not: Spam unbounded duplicates every minute.
+
+---
+
+# L. Support & Admin Governance
+
+## E-L01 Support agent edits invoice totals
+- Behaviour: Denied.
+- Must not: Admin chat tools mutate finances.
+
+## E-L02 Suspend business mid payment review
+- Behaviour: Payment may still be decidable for historical dues per policy; new orders blocked.
+- Must not: Auto-approve payments on suspension.
+
+## E-L03 Ticket closed while investigation incomplete
+- Behaviour: Allowed but reopen path exists; no automatic business mutation.
+- Must not: Closing ticket void invoices.
+
+## E-L04 Admin deactivates business with open receivables
+- Behaviour: Retain all financial records; restrict login/trade; collections path defined.
+- Must not: Wipe receivables.
+
+---
+
+# M. Analytics Conflicts
+
+## E-M01 Dashboard total ≠ invoice list sum
+- Behaviour: Trust invoice list/documents; mark analytics stale/recalculate.
+- Must not: Change invoices to match chart.
+
+## E-M02 Timezone period boundary differences
+- Behaviour: Use consistent business timezone policy.
+- Must not: Different dashboards using different day cutovers.
+
+## E-M03 Export during recalculation
+- Behaviour: Export consistent snapshot or delay with message.
+- Must not: Half-old half-new mixed totals without notice.
+
+---
+
+# N. Concurrency & Double Submit
+
+## E-N01 Double-click place order
+- Behaviour: One order created; second attempt idempotent/blocked.
+- Must not: Duplicate Pending orders.
+
+## E-N02 Double-click approve payment
+- Behaviour: One approval effect.
+- Must not: Double allocation.
+
+## E-N03 Accept and cancel racing
+- Behaviour: Deterministic winner; loser gets state conflict error.
+- Must not: Hybrid Accepted+Cancelled state.
+
+## E-N04 Allocate same batch qty to two orders concurrently
+- Behaviour: Reservations serialised; one fails if insufficient.
+- Must not: Both succeed beyond available.
+
+---
+
+# O. Data Integrity & Deletion
+
+## E-O01 Delete business with history
+- Behaviour: Deactivate instead; retain history.
+- Must not: Hard-delete financial graph.
+
+## E-O02 Delete product with past order lines
+- Behaviour: Discontinue/hide; keep master reference.
+- Must not: Break historical order readability.
+
+## E-O03 Delete notification deletes order
+- Behaviour: Impossible; independent.
+- Must not: Cascade into transactions.
+
+## E-O04 User requests full data erase conflicting with statutory records
+- Behaviour: Retain legally required business records; limit personal access fields per policy.
+- Must not: Destroy invoices because user left.
+
+---
+
+# P. Business Merge / Structural Change (Current Handling)
+
+## E-P01 Two pharmacies merge commercially
+- Behaviour: Current product has no self-serve merge; admin/manual controlled process; do not auto-merge histories incorrectly.
+- Must not: Casual combine of GST entities without governance.
+
+## E-P02 Stockist adds second warehouse (not supported)
+- Behaviour: Out of scope; single inventory model remains.
+- Must not: Fake multi-warehouse via notes.
+
+## E-P03 Inter-stockist transfer requested
+- Behaviour: Out of scope currently; deny as product capability.
+- Must not: Misuse returns/orders to simulate transfer without rules.
+
+---
+
+# Q. Pharmaceutical Safety Specific
+
+## E-Q01 Expired medicine in pick list
+- Behaviour: Block pick/dispatch.
+- Must not: Complete delivery of expired sellable goods.
+
+## E-Q02 Recalled batch already delivered
+- Behaviour: Critical notifications; initiate return/recall response journey; credit paths as needed.
+- Must not: Leave no operational trace.
+
+## E-Q03 Schedule-sensitive products (if tracked)
+- Behaviour: Enforce any configured eligibility constraints.
+- Must not: Ignore configured restrictions.
+
+## E-Q04 Temperature-sensitive note ignored
+- Behaviour: Notes alone insufficient; if future cold-chain exists, separate controls; currently do not claim cold-chain compliance.
+- Must not: Market unsupported compliance.
+
+---
+
+# R. Partial Success Patterns
+
+## E-R01 Catalogue import 900/1000 rows valid
+- Behaviour: Import valid rows; report invalid rows; no silent all-or-nothing confusion—policy must be explicit (prefer partial with report).
+- Must not: Mark full success when rows failed.
+
+## E-R02 Multi-invoice payment where one invoice becomes paid concurrently
+- Behaviour: Allocate to still-open invoices; leftover unallocated/adjust; show clear result.
+- Must not: Fail entire payment after money intent without clear state.
+
+## E-R03 Network drop after order created
+- Behaviour: On retry, do not create second order if first succeeded; show existing order.
+- Must not: Duplicate on retry.
+
+---
+
+# S. Large-Volume / Practical Limits
+
+## E-S01 Order with extremely large line count
+- Behaviour: Enforce practical max lines; block beyond.
+- Must not: Hang user journey without feedback.
+
+## E-S02 Export million rows
+- Behaviour: Require narrower filters / async export.
+- Must not: Fail silently.
+
+## E-S03 Search with only 1 character
+- Behaviour: Require minimum characters or show guided results.
+- Must not: Unbounded heavy scans without constraint.
+
+---
+
+# Edge Case Index (Additional Short Forms)
+
+E-T01 Customer-specific price exists then connection blocked → price hidden  
+E-T02 Wishlist item from disconnected stockist → not orderable  
+E-T03 Draft order older than TTL → auto discard/cancel  
+E-T04 Invoice due date before invoice date → validation fail  
+E-T05 Payment date in far future → validation fail/hold  
+E-T06 Credit note issued with zero amount → block  
+E-T07 Return reason missing → block submit  
+E-T08 Delivery boy opens unassigned delivery → deny  
+E-T09 Staff exports without export permission → deny  
+E-T10 Analytics period start > end → validation fail  
+E-T11 GSTIN format invalid → block save/verify  
+E-T12 Free-text amount with more than 2 decimals beyond policy → normalize/reject  
+E-T13 Same invoice paid by two payments racing → second allocation constrained  
+E-T14 Order accepted, pharmacy deactivated → fulfilment policy path + no new orders  
+E-T15 Stockist catalogue under maintenance → browse may be blocked with message  
+E-T16 Support ticket references entity from another business → deny link or hide  
+E-T17 Announcement targeted to pharmacy seen by stockist → no  
+E-T18 Banner expired still showing → should stop  
+E-T19 Reopen closed ticket after long retention → policy governed  
+E-T20 Apply expired credit → block  
+
+---
+
+# Completion Criteria
+
+Critical illegal states in identity, trade, inventory, finance, and concurrency have explicit expected behaviour.
+
+Next document: **Error Behaviour**.

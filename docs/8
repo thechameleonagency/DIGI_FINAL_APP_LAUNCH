@@ -1,0 +1,2360 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 7 — Entity Specifications
+
+---
+
+# Purpose
+
+Part 3 defined which business entities exist.
+
+This section defines **everything about each entity**.
+
+For every entity, this document specifies purpose, ownership, participants, fields, relationships, statuses, allowed and forbidden actions, lifecycle, business rules, audit fields, derived data, dependencies, deletion rules, and visibility rules.
+
+This section is intentionally non-technical.
+
+It is nearly a complete data specification written in product language.
+
+Every workflow, state machine, calculation, permission, notification, screen, and acceptance criterion must conform to these entity definitions.
+
+If the application stores, displays, or behaves differently than this document, the application is incorrect.
+
+---
+
+# Specification Structure
+
+Every entity is defined using the following structure.
+
+```
+Entity Name
+
+Purpose
+Owner
+Participants
+Required Fields
+Optional Fields
+Relationships
+Valid Statuses
+Allowed Actions
+Forbidden Actions
+Lifecycle
+Business Rules
+Audit Fields
+Derived Data
+Dependencies
+Deletion Rules
+Visibility Rules
+```
+
+---
+
+# Entity Index
+
+1. Business
+2. User
+3. Business Verification
+4. Connection
+5. Product
+6. Product Catalogue
+7. Inventory
+8. Batch
+9. Order
+10. Invoice
+11. Payment
+12. Delivery
+13. Return
+14. Credit Note
+15. Notification
+16. Message
+17. Support Ticket
+18. Analytics (Derived Entity)
+
+---
+
+# 1. Business
+
+## Purpose
+
+Represents a legally registered organisation using DigiSwasthya as either a Pharmacy or a Stockist.
+
+A Business is the root owner of nearly every other operational entity in the platform.
+
+## Owner
+
+The Business itself.
+
+The Platform Administrator governs verification and suspension, but does not own the business.
+
+## Participants
+
+- Business Owner (primary account holder)
+- Business Staff (users belonging to the business)
+- Platform Administrator (verification and governance only)
+
+## Required Fields
+
+- Business Name
+- Business Type (Pharmacy or Stockist)
+- Registered Address
+- Contact Phone
+- Contact Email
+- GST Number
+- Drug License Number
+- Owner Name
+- Registration Status
+- Verification Status
+- Account Status (Active, Suspended, Deactivated)
+- Created At
+- Created By
+
+## Optional Fields
+
+- Trade Name / Brand Name
+- Alternate Phone
+- Website
+- Business Description
+- Logo
+- Service Areas (Stockist)
+- Delivery Settings
+- Bank Account Details
+- Additional Licenses
+- Notes
+- Preferred Language
+- Business Preferences
+
+## Relationships
+
+- Has many Users
+- Has one current Business Verification
+- Has many Connections
+- Pharmacy may create many Orders
+- Stockist may receive many Orders
+- Stockist owns one Product Catalogue
+- Owns Inventory
+- Owns Addresses
+- Owns Support Tickets
+- Owns Notifications (business-scoped)
+- Owns financial history associated with the business
+
+## Valid Statuses
+
+- Draft Registration
+- Pending Verification
+- Verified
+- Verification Rejected
+- Documents Requested
+- Suspended
+- Reactivation Pending
+- Deactivated
+
+## Allowed Actions
+
+- Register
+- Submit verification documents
+- Update profile (where permitted)
+- Invite staff
+- Manage staff
+- Manage settings
+- Request reactivation (if suspended and allowed)
+- View own business records
+
+## Forbidden Actions
+
+- Approve own verification
+- Change business type after verification without platform process
+- Delete financial history
+- Access another business's private data
+- Trade while unverified
+- Trade while suspended
+
+## Lifecycle
+
+```
+Draft Registration
+        ↓
+Pending Verification
+        ↓
+Verified  ←→  Suspended  →  Reactivation Pending  →  Verified
+        ↓
+Verification Rejected / Documents Requested
+        ↓
+Resubmission → Pending Verification
+```
+
+Deactivated is a terminal or near-terminal business state requiring administrator process.
+
+## Business Rules
+
+- A business must be either Pharmacy or Stockist, never both in the current product.
+- Only verified and active businesses may trade.
+- GST and Drug License must be unique where platform uniqueness rules apply.
+- Business records survive user deletion.
+- Suspension immediately blocks trading capabilities.
+- Historical transactions remain visible after suspension.
+
+## Audit Fields
+
+- Created At
+- Created By
+- Updated At
+- Updated By
+- Suspended At
+- Suspended By
+- Suspension Reason
+- Reactivated At
+- Reactivated By
+- Verification Decision History
+
+## Derived Data
+
+- Total Orders
+- Total Invoices
+- Outstanding Balance
+- Active Connections Count
+- Staff Count
+- Last Activity At
+
+## Dependencies
+
+- At least one User (owner) to operate
+- Valid identity and license information for verification
+
+## Deletion Rules
+
+- A Business must never be hard-deleted if it has financial or transactional history.
+- Deactivation is preferred over deletion.
+- Related historical Orders, Invoices, Payments, Returns, and Credit Notes must be retained.
+- Staff users may be deactivated; business history remains.
+
+## Visibility Rules
+
+- Business sees its own profile and operational data.
+- Connected trading partners see only permitted public/trading profile fields.
+- Platform Administrator can view all businesses for governance.
+- Unconnected businesses see only discoverable public profile fields.
+
+---
+
+# 2. User
+
+## Purpose
+
+Represents an individual person who accesses DigiSwasthya on behalf of exactly one Business.
+
+## Owner
+
+The Business to which the user belongs.
+
+## Participants
+
+- The User
+- Business Owner / Manager (staff administration)
+- Platform Administrator (support and account governance where required)
+
+## Required Fields
+
+- Full Name
+- Phone Number
+- Email (if required by registration flow)
+- Password / Authentication Credential Reference
+- Belonging Business
+- Role Within Business
+- Account Status (Active, Invited, Suspended, Removed)
+- Created At
+
+## Optional Fields
+
+- Profile Photo
+- Alternate Phone
+- Designation
+- Permissions Override Set
+- Last Login At
+- Device Preferences
+- Notification Preferences
+
+## Relationships
+
+- Belongs to exactly one Business
+- May create or act on Orders, Payments, Returns, Messages, Support Tickets according to permissions
+- Receives Notifications
+- May be assigned Deliveries (Delivery staff)
+
+## Valid Statuses
+
+- Invited
+- Active
+- Suspended
+- Removed / Deactivated
+
+## Allowed Actions
+
+- Log in (if Active)
+- Update own profile (permitted fields)
+- Perform capabilities granted by role/permissions
+- Reset password
+- Log out
+
+## Forbidden Actions
+
+- Belong to multiple businesses simultaneously
+- Transfer ownership of business records to themselves personally
+- Access data outside granted permissions
+- Delete audit history
+- Approve platform-level verification
+
+## Lifecycle
+
+```
+Invited
+   ↓
+Active
+   ↓
+Suspended ←→ Active
+   ↓
+Removed / Deactivated
+```
+
+## Business Rules
+
+- Every user belongs to exactly one business.
+- Removing a user must never delete business records they created.
+- Actions remain attributed to the user who performed them, even after removal.
+- Owner role cannot be removed without transferring ownership.
+- Suspended users cannot perform business actions.
+
+## Audit Fields
+
+- Created At
+- Created By
+- Updated At
+- Updated By
+- Last Login At
+- Suspended At
+- Suspended By
+- Removed At
+- Removed By
+- Role Change History
+
+## Derived Data
+
+- Permissions Effective Set
+- Open Tasks Count
+- Unread Notifications Count
+- Last Activity At
+
+## Dependencies
+
+- Must reference an existing Business
+- Invitation flow depends on inviter permissions
+
+## Deletion Rules
+
+- Users are deactivated/removed, not erased.
+- Historical attribution must remain.
+- Personal login access is revoked on removal.
+- Messages and actions remain as business records.
+
+## Visibility Rules
+
+- User can view own profile.
+- Business admins can view staff list and roles.
+- Trading partners do not see internal staff lists unless a specific operational view requires a contact person.
+- Platform Administrator may view users for support and governance.
+
+---
+
+# 3. Business Verification
+
+## Purpose
+
+Represents the verification state and evidence used to decide whether a Business may trade on DigiSwasthya.
+
+## Owner
+
+Platform Administrator (decision ownership).
+
+Business owns the submitted documents and application.
+
+## Participants
+
+- Business Owner / authorised business user
+- Platform Administrator
+
+## Required Fields
+
+- Business Reference
+- Verification Status
+- Submitted Documents
+- Submitted At
+- Current Reviewer (when under review)
+- Decision (when decided)
+- Decision At (when decided)
+
+## Optional Fields
+
+- Reviewer Notes
+- Correction Requests
+- Resubmission Count
+- Risk Flags
+- Internal Comments
+
+## Relationships
+
+- Belongs to one Business
+- References uploaded documents
+- Influences Business Account Status and trading eligibility
+
+## Valid Statuses
+
+- Not Started
+- Submitted
+- Under Review
+- Documents Requested
+- Approved
+- Rejected
+
+## Allowed Actions
+
+- Submit documents
+- Resubmit after correction request
+- Admin request documents
+- Admin approve
+- Admin reject
+- View status
+
+## Forbidden Actions
+
+- Business approving itself
+- Trading before approval
+- Editing locked approved verification evidence without a controlled amendment process
+- Deleting verification history
+
+## Lifecycle
+
+```
+Not Started
+     ↓
+Submitted
+     ↓
+Under Review
+     ↓
+Documents Requested → Resubmitted → Under Review
+     ↓
+Approved / Rejected
+```
+
+## Business Rules
+
+- Every business has exactly one current verification status.
+- Approval is required before trade.
+- Rejection must include a reason.
+- Document requests pause trading eligibility until resolved.
+- Previous verification decisions remain in history.
+
+## Audit Fields
+
+- Submitted At
+- Submitted By
+- Reviewed At
+- Reviewed By
+- Decision
+- Decision Reason
+- Document Request History
+
+## Derived Data
+
+- Days Pending
+- Resubmission Count
+- Verification Completeness Score (if used)
+
+## Dependencies
+
+- Business must exist
+- Required documents must be present before approval
+
+## Deletion Rules
+
+- Verification records are never deleted.
+- Document replacement creates history, not silent overwrite without trace.
+
+## Visibility Rules
+
+- Business sees status, required actions, and non-internal reasons.
+- Platform Administrator sees full verification record including internal notes.
+- Other businesses never see verification documents.
+
+---
+
+# 4. Connection
+
+## Purpose
+
+Represents an approved trading relationship between one Pharmacy and one Stockist.
+
+## Owner
+
+Joint business relationship.
+
+Initiation may come from Pharmacy request; approval ownership sits with Stockist.
+
+## Participants
+
+- Pharmacy
+- Stockist
+
+## Required Fields
+
+- Pharmacy Business
+- Stockist Business
+- Connection Status
+- Requested At
+- Requested By
+
+## Optional Fields
+
+- Request Message
+- Approval Notes
+- Rejection Reason
+- Customer-Specific Pricing Flag
+- Credit Terms
+- Preferred Delivery Settings
+- Disconnection Reason
+
+## Relationships
+
+- Links exactly one Pharmacy and one Stockist
+- Enables Orders between the pair
+- Enables catalogue visibility according to rules
+- Enables invoicing and payments between the pair
+
+## Valid Statuses
+
+- Requested
+- Active
+- Rejected
+- Blocked
+- Disconnected
+
+## Allowed Actions
+
+- Request connection
+- Cancel request (before decision)
+- Approve request
+- Reject request
+- Disconnect (where permitted)
+- Block (where permitted)
+- View connection details
+
+## Forbidden Actions
+
+- Order without Active connection
+- Self-connection
+- Duplicate active connection between the same pair
+- Pharmacy approving its own request
+
+## Lifecycle
+
+```
+Requested
+    ↓
+Active / Rejected
+    ↓
+Disconnected / Blocked
+```
+
+Active may move to Disconnected or Blocked.
+
+## Business Rules
+
+- Trading requires Active status.
+- One active connection per Pharmacy–Stockist pair.
+- Disconnecting must not delete historical Orders, Invoices, Payments, Returns, or Credit Notes.
+- New orders are blocked when connection is not Active.
+- In-flight orders at disconnection follow explicit edge-case rules.
+
+## Audit Fields
+
+- Requested At / By
+- Approved At / By
+- Rejected At / By
+- Disconnected At / By
+- Blocked At / By
+- Reason History
+
+## Derived Data
+
+- Total Orders Between Pair
+- Outstanding Balance Between Pair
+- Last Trade Date
+
+## Dependencies
+
+- Both businesses verified and eligible to trade
+- Distinct pharmacy and stockist identities
+
+## Deletion Rules
+
+- Connections are closed (Disconnected/Blocked), not erased.
+- Historical relationship evidence remains.
+
+## Visibility Rules
+
+- Pharmacy and Stockist in the relationship can view the connection.
+- Platform Administrator can view for dispute/governance.
+- Unrelated businesses cannot view the connection.
+
+---
+
+# 5. Product
+
+## Purpose
+
+Represents a medicine or healthcare product offered for trade by a Stockist.
+
+## Owner
+
+Stockist Business that created/listed the product.
+
+## Participants
+
+- Stockist (owner/manager of catalogue product)
+- Connected Pharmacies (browse/purchase view)
+- Platform Administrator (moderation if required)
+
+## Required Fields
+
+- Product Name
+- Owning Stockist
+- SKU / Stockist Product Code
+- Unit of Measure
+- Base Price
+- Tax Category / GST Rate
+- Availability Status
+- Created At
+
+## Optional Fields
+
+- Generic Name
+- Manufacturer Name
+- Pack Size
+- HSN Code
+- Category
+- Description
+- Images
+- MRP
+- Discount Rules
+- Minimum Order Quantity
+- Maximum Order Quantity
+- Prescription Category / Schedule
+- Storage Conditions
+- Barcode
+- Tags
+
+## Relationships
+
+- Belongs to one Stockist
+- Appears in one Product Catalogue
+- Has many Batches
+- Has Inventory records
+- Appears on many Order Lines
+- Appears on Invoice Lines
+- May appear on Return Lines
+
+## Valid Statuses
+
+- Draft
+- Active
+- Inactive
+- Out of Stock
+- Discontinued
+
+## Allowed Actions
+
+- Create
+- Edit (permitted fields)
+- Activate / Deactivate
+- Update pricing
+- Update availability
+- Discontinue
+- View
+
+## Forbidden Actions
+
+- Delete product if historical transactions reference it
+- Pharmacy editing stockist product master data
+- Selling discontinued products on new orders
+- Changing historical order line product identity
+
+## Lifecycle
+
+```
+Draft
+  ↓
+Active ←→ Inactive / Out of Stock
+  ↓
+Discontinued
+```
+
+## Business Rules
+
+- Product identity in historical documents must remain stable.
+- Price shown at order time must be captured on the order line.
+- Availability must consider batch-level sellable inventory.
+- Same real-world medicine may exist independently per stockist.
+
+## Audit Fields
+
+- Created At / By
+- Updated At / By
+- Price Change History
+- Status Change History
+
+## Derived Data
+
+- Available Quantity
+- Reserved Quantity
+- Nearest Expiry Date
+- Active Batch Count
+- Times Ordered
+
+## Dependencies
+
+- Owning Stockist must exist
+- Tax category must be valid
+
+## Deletion Rules
+
+- Products with history are discontinued, not deleted.
+- Catalogue removal hides from new browsing but preserves history.
+
+## Visibility Rules
+
+- Stockist sees full product master.
+- Connected pharmacies see permitted catalogue fields and trade price according to connection/pricing rules.
+- Unconnected pharmacies do not see private pricing.
+- Platform Administrator may view for support/moderation.
+
+---
+
+# 6. Product Catalogue
+
+## Purpose
+
+Represents the complete sellable product list owned by a Stockist.
+
+## Owner
+
+Stockist
+
+## Participants
+
+- Stockist users managing catalogue
+- Connected Pharmacies browsing
+
+## Required Fields
+
+- Owning Stockist
+- Catalogue Status
+- Last Updated At
+
+## Optional Fields
+
+- Catalogue Name
+- Import Reference
+- Visibility Rules
+- Notes
+
+## Relationships
+
+- Belongs to exactly one Stockist
+- Contains many Products
+- Referenced during Browse Catalogue and Place Order
+
+## Valid Statuses
+
+- Active
+- Under Maintenance
+- Inactive
+
+## Allowed Actions
+
+- Add products
+- Remove products from active selling
+- Import catalogue
+- Export catalogue
+- Publish updates
+
+## Forbidden Actions
+
+- Pharmacy modifying catalogue
+- Deleting catalogue history tied to past orders
+- Exposing catalogue to non-eligible pharmacies against visibility rules
+
+## Lifecycle
+
+```
+Active ←→ Under Maintenance
+   ↓
+Inactive
+```
+
+## Business Rules
+
+- Every stockist owns exactly one current catalogue in the current product.
+- Catalogue changes must not alter historical order snapshots.
+- Visibility follows connection and business rules.
+
+## Audit Fields
+
+- Created At / By
+- Updated At / By
+- Import History
+
+## Derived Data
+
+- Total Products
+- Active Products
+- Out of Stock Products
+
+## Dependencies
+
+- Stockist Business
+
+## Deletion Rules
+
+- Catalogue is not deleted; it may be inactivated.
+- Product membership history remains reconstructable through product and order history.
+
+## Visibility Rules
+
+- Stockist sees full catalogue management view.
+- Eligible pharmacies see permitted sellable products.
+- Others do not.
+
+---
+
+# 7. Inventory
+
+## Purpose
+
+Represents physical stock available to a Business, maintained at batch level and aggregated by product.
+
+## Owner
+
+The Business that holds the stock.
+
+- Stockist inventory for sale/fulfilment
+- Pharmacy inventory for internal stock management
+
+## Participants
+
+- Business inventory managers
+- Fulfilment staff (stockist)
+- Delivery confirmation flows may adjust received stock (pharmacy)
+
+## Required Fields
+
+- Business
+- Product
+- Batch
+- Quantity On Hand
+- Quantity Reserved
+- Quantity Available (or derivable)
+- Last Movement At
+
+## Optional Fields
+
+- Location / Rack
+- Reorder Level
+- Reorder Quantity
+- Notes
+
+## Relationships
+
+- Belongs to Business
+- References Product
+- References Batch
+- Affected by Orders, Deliveries, Returns, Adjustments
+
+## Valid Statuses
+
+- Available
+- Reserved
+- Low Stock
+- Expired
+- Quarantined
+- Zero
+
+Status may be derived from quantities and batch expiry.
+
+## Allowed Actions
+
+- Add stock
+- Adjust stock
+- Reserve stock
+- Release reservation
+- Consume stock on dispatch/delivery rules
+- Receive stock
+- Quarantine stock
+- View history
+
+## Forbidden Actions
+
+- Manual negative stock
+- Selling expired sellable stock
+- Changing another business's inventory
+- Silent inventory edits without movement reason
+
+## Lifecycle
+
+Inventory quantity changes through recognised movements:
+
+```
+Stock In
+Reservation
+Reservation Release
+Dispatch / Sale Consumption
+Return In
+Adjustment
+Expiry / Quarantine
+```
+
+## Business Rules
+
+- Inventory must never become negative.
+- Available = On Hand − Reserved (subject to final calculation rules).
+- Expired batches are not sellable.
+- Every quantity change must reference a movement reason and source document where applicable.
+- Reservations occur according to order acceptance/allocation rules.
+
+## Audit Fields
+
+- Movement At
+- Movement By
+- Movement Type
+- Source Document
+- Previous Quantity
+- New Quantity
+- Reason
+
+## Derived Data
+
+- Available Quantity
+- Reserved Quantity
+- Expiry Risk Quantity
+- Low Stock Flag
+- Inventory Value
+
+## Dependencies
+
+- Product
+- Batch
+- Business
+
+## Deletion Rules
+
+- Inventory records are not deleted; they move to zero and remain in history through movements.
+- Batch expiry does not erase history.
+
+## Visibility Rules
+
+- Owning business sees full inventory.
+- Trading partners do not see exact internal stock unless product availability exposure is explicitly configured.
+- Platform Administrator may view for investigations.
+
+---
+
+# 8. Batch
+
+## Purpose
+
+Represents a manufacturing batch of a product with quantity, batch identity, and expiry.
+
+## Owner
+
+Business that holds/created the batch record (typically Stockist for sellable stock; Pharmacy for received stock records).
+
+## Participants
+
+- Inventory managers
+- Fulfilment staff
+
+## Required Fields
+
+- Product
+- Batch Number
+- Expiry Date
+- Quantity
+- Owning Business
+- Batch Status
+- Created At
+
+## Optional Fields
+
+- Manufacturing Date
+- Manufacturer
+- Supplier Reference
+- MRP at Receipt
+- Cost
+- Location
+- Recall Flag
+- Notes
+
+## Relationships
+
+- Belongs to Product
+- Underpins Inventory
+- Referenced by Order allocation / Invoice lines / Delivery lines / Return lines where batch tracking applies
+
+## Valid Statuses
+
+- Active
+- Expired
+- Quarantined
+- Recalled
+- Consumed / Closed
+
+## Allowed Actions
+
+- Create batch
+- Update quantity through movements
+- Mark quarantined
+- Mark recalled
+- View expiry
+- Consume on fulfilment
+
+## Forbidden Actions
+
+- Deliver expired batch as sellable goods
+- Reuse batch identity incorrectly for a different product within the same business stock model
+- Delete batch with movement history
+
+## Lifecycle
+
+```
+Active
+  ↓
+Quarantined / Recalled / Expired
+  ↓
+Consumed / Closed
+```
+
+## Business Rules
+
+- Expiry belongs to batch, not product.
+- Expired batches cannot be newly allocated for fulfilment.
+- Recall immediately blocks sellable allocation.
+- Returned goods may return into quarantined or sellable stock based on return disposition rules.
+
+## Audit Fields
+
+- Created At / By
+- Updated At / By
+- Status Change History
+- Recall History
+
+## Derived Data
+
+- Days to Expiry
+- Expiry Percentage / Risk Band
+- Remaining Sellable Quantity
+
+## Dependencies
+
+- Product
+- Owning Business
+
+## Deletion Rules
+
+- Batches with history are closed, not deleted.
+
+## Visibility Rules
+
+- Owning business sees batch detail.
+- Pharmacy may see batch/expiry on delivered goods and invoices where provided.
+- Unrelated businesses do not see batch stock.
+
+---
+
+# 9. Order
+
+## Purpose
+
+Represents a purchase request from a Pharmacy to a Stockist for one or more products.
+
+An Order expresses intent to purchase. It is not itself a financial settlement document.
+
+## Owner
+
+Created by Pharmacy.
+
+Fulfilment owned by Stockist after submission.
+
+## Participants
+
+- Pharmacy (buyer)
+- Stockist (seller)
+- Authorised staff on both sides
+- Delivery staff (operational participation after dispatch)
+
+## Required Fields
+
+- Order Number
+- Pharmacy
+- Stockist
+- Connection Reference
+- Order Status
+- Order Lines (Product, Quantity, Unit Price Snapshot)
+- Delivery Address
+- Placed At
+- Placed By
+
+## Optional Fields
+
+- Notes from Pharmacy
+- Notes from Stockist
+- Requested Delivery Date
+- Rejection Reason
+- Cancellation Reason
+- Partial Fulfilment Flags
+- Internal References
+- Expected Dispatch Date
+
+## Relationships
+
+- Belongs to one Pharmacy and one Stockist
+- Requires Active Connection at creation
+- Contains many Order Lines
+- May generate one or more Invoices
+- May have one or more Deliveries
+- May lead to Returns on delivered items
+- Triggers Notifications
+
+## Valid Statuses
+
+- Draft
+- Pending
+- Accepted
+- Rejected
+- Cancelled
+- Packed
+- Dispatched
+- Partially Delivered
+- Delivered
+- Closed
+
+Exact transition rules are defined in State Machines.
+
+## Allowed Actions
+
+- Create / edit draft
+- Submit
+- Accept
+- Reject
+- Cancel (when permitted)
+- Pack
+- Dispatch
+- Confirm delivery / receive
+- View / track
+- Duplicate / reorder from history
+
+## Forbidden Actions
+
+- Pharmacy accepting its own order
+- Ordering without Active connection
+- Editing after locked fulfilment states
+- Deleting an order with financial/delivery history
+- Exceeding business rules for quantities/cancellations
+
+## Lifecycle
+
+```
+Draft
+  ↓
+Pending
+  ↓
+Accepted / Rejected / Cancelled
+  ↓
+Packed
+  ↓
+Dispatched
+  ↓
+Partially Delivered / Delivered
+  ↓
+Closed
+```
+
+## Business Rules
+
+- Order must contain at least one line.
+- Quantities must be greater than zero.
+- Price snapshots are captured at relevant commitment points.
+- No financial liability exists until invoicing rules create it.
+- Inventory reservation occurs according to acceptance/allocation rules.
+- Historical order integrity cannot be rewritten silently.
+
+## Audit Fields
+
+- Created At / By
+- Submitted At / By
+- Accepted At / By
+- Rejected At / By
+- Cancelled At / By
+- Status Change History
+- Line Change History before lock
+
+## Derived Data
+
+- Order Subtotal
+- Tax Total
+- Order Total
+- Fulfilled Quantity
+- Outstanding Quantity
+- Linked Invoice Count
+- Payment Status Summary
+
+## Dependencies
+
+- Verified Pharmacy
+- Verified Stockist
+- Active Connection
+- Sellable Products
+
+## Deletion Rules
+
+- Drafts may be discarded according to rules.
+- Submitted and later orders are never hard-deleted.
+- Cancellation closes the order; it remains visible.
+
+## Visibility Rules
+
+- Pharmacy and Stockist on the order can view it.
+- Platform Administrator can view for support/governance.
+- Other businesses cannot view it.
+
+---
+
+# 10. Invoice
+
+## Purpose
+
+Represents the financial document defining what a Pharmacy owes a Stockist for fulfilled/billable goods.
+
+## Owner
+
+Stockist (issuer)
+
+## Participants
+
+- Stockist
+- Pharmacy
+- Accountant roles on either side
+- Platform Administrator (read-only governance/support)
+
+## Required Fields
+
+- Invoice Number
+- Related Order
+- Pharmacy
+- Stockist
+- Invoice Lines
+- Invoice Date
+- Subtotal
+- Tax Total
+- Grand Total
+- Invoice Status
+- Outstanding Amount
+- Created At
+- Created By
+
+## Optional Fields
+
+- Due Date
+- Discount Total
+- Round Off
+- Notes
+- Payment Terms
+- Credit Note Applications
+- Attachment / PDF Reference
+
+## Relationships
+
+- Originates from Order
+- May be linked to Delivery
+- Settled by one or more Payments
+- Adjusted by Credit Notes (without rewriting invoice history)
+- Belongs to Pharmacy–Stockist pair
+
+## Valid Statuses
+
+- Draft
+- Issued
+- Partially Paid
+- Paid
+- Overdue
+- Cancelled / Void (only under strict rules)
+- Locked
+
+## Allowed Actions
+
+- Create from eligible fulfilment
+- Issue
+- View
+- Record payment allocation against
+- Apply credit note against outstanding
+- Mark overdue (system or rules)
+- Void only under controlled pre-settlement rules
+
+## Forbidden Actions
+
+- Pharmacy editing stockist invoice totals
+- Silent rewrite of issued financial lines
+- Deleting an issued invoice
+- Creating invoice without valid order/fulfilment basis
+- Paying more than allowed without explicit overpayment rules
+
+## Lifecycle
+
+```
+Draft
+  ↓
+Issued
+  ↓
+Partially Paid ←→ Paid
+  ↓
+Overdue (from Issued / Partially Paid when past due)
+  ↓
+Locked
+```
+
+Void/Cancel only from eligible early states under strict rules.
+
+## Business Rules
+
+- Invoice is the source of financial liability.
+- Payments never modify immutable issued invoice lines; they reduce outstanding balance.
+- Credit notes reduce liability via application, not by editing original lines.
+- Invoice numbering must be unique per stockist.
+- Issued invoices become permanent financial records.
+
+## Audit Fields
+
+- Created At / By
+- Issued At / By
+- Voided At / By / Reason
+- Status Change History
+- Allocation History References
+
+## Derived Data
+
+- Outstanding Amount
+- Paid Amount
+- Credit Applied Amount
+- Days Overdue
+- Settlement Status
+
+## Dependencies
+
+- Order
+- Active/valid trading relationship at creation time
+- Billable quantities
+
+## Deletion Rules
+
+- Issued invoices are never deleted.
+- Draft invoices may be discarded before issue.
+- Void retains record with reason.
+
+## Visibility Rules
+
+- Issuing Stockist and billed Pharmacy can view.
+- Platform Administrator can view.
+- Unrelated parties cannot view.
+
+---
+
+# 11. Payment
+
+## Purpose
+
+Represents money paid by a Pharmacy toward one or more Invoices.
+
+## Owner
+
+Created by Pharmacy (payment submission).
+
+Confirmation/approval owned by Stockist.
+
+## Participants
+
+- Pharmacy
+- Stockist
+- Accountant roles
+- Platform Administrator (oversight)
+
+## Required Fields
+
+- Payment Number / Reference
+- Pharmacy
+- Stockist
+- Amount
+- Payment Method
+- Payment Date
+- Payment Status
+- Created At
+- Created By
+
+## Optional Fields
+
+- Transaction Reference
+- Payment Proof Attachment
+- Notes
+- Allocated Invoice List
+- Hold Reason
+- Rejection Reason
+- Received Bank Account
+
+## Relationships
+
+- Belongs to Pharmacy and Stockist
+- Allocated to one or more Invoices
+- May interact with Credit Note application rules
+- Triggers Notifications
+- Affects Outstanding Balance
+
+## Valid Statuses
+
+- Draft
+- Submitted
+- Under Review
+- Approved
+- Rejected
+- On Hold
+- Cancelled
+
+## Allowed Actions
+
+- Create payment
+- Submit proof
+- Allocate to invoices
+- Approve
+- Reject
+- Place on hold
+- View history
+
+## Forbidden Actions
+
+- Approving own payment as pharmacy
+- Deleting approved payment history
+- Allocating to unrelated invoices
+- Changing approved payment amount silently
+- Using payment to rewrite invoice documents
+
+## Lifecycle
+
+```
+Draft
+  ↓
+Submitted
+  ↓
+Under Review
+  ↓
+Approved / Rejected / On Hold
+  ↓
+(On Hold → Under Review / Approved / Rejected)
+```
+
+## Business Rules
+
+- Payment reduces outstanding only when Approved (unless explicit rules say otherwise).
+- Allocation total cannot exceed payment amount.
+- Allocation cannot exceed invoice outstanding at allocation time.
+- Duplicate payment references should be detected and blocked or flagged.
+- Rejected payments create no settlement effect.
+
+## Audit Fields
+
+- Created At / By
+- Submitted At / By
+- Reviewed At / By
+- Approved At / By
+- Rejected At / By
+- Hold History
+- Allocation History
+
+## Derived Data
+
+- Unallocated Amount
+- Allocated Amount
+- Settlement Effect on each invoice
+
+## Dependencies
+
+- At least one payable Invoice or explicit advance-payment rule
+- Valid Pharmacy–Stockist relationship context
+
+## Deletion Rules
+
+- Financial payments are not deleted.
+- Drafts may be discarded.
+- Rejected/cancelled remain for audit.
+
+## Visibility Rules
+
+- Pharmacy and Stockist in the payment can view.
+- Platform Administrator can view.
+- Others cannot.
+
+---
+
+# 12. Delivery
+
+## Purpose
+
+Represents transportation of ordered/invoiced goods from Stockist to Pharmacy.
+
+## Owner
+
+Stockist (dispatch ownership)
+
+Pharmacy participates in receipt confirmation.
+
+## Participants
+
+- Stockist fulfilment staff
+- Delivery Boy / delivery staff
+- Pharmacy receiving staff
+
+## Required Fields
+
+- Delivery Number
+- Related Order (and/or Invoice as applicable)
+- Pharmacy
+- Stockist
+- Delivery Status
+- Delivery Address
+- Created At
+
+## Optional Fields
+
+- Assigned Delivery Person
+- Route
+- Dispatch Time
+- Expected Delivery Time
+- Actual Delivery Time
+- Received By Name
+- Receipt Notes
+- Proof of Delivery
+- Partial Delivery Details
+
+## Relationships
+
+- Linked to Order
+- May link to Invoice
+- Contains delivered item quantities / batches
+- Can enable Returns after successful delivery
+- Affects Order status
+
+## Valid Statuses
+
+- Pending Assignment
+- Assigned
+- Out for Delivery
+- Partially Delivered
+- Delivered
+- Failed
+- Cancelled
+- Returned to Stockist
+
+## Allowed Actions
+
+- Create dispatch
+- Assign delivery staff
+- Mark out for delivery
+- Complete delivery
+- Record partial delivery
+- Record failure
+- Confirm receipt
+- View tracking
+
+## Forbidden Actions
+
+- Delivering without eligible packed/dispatched order state
+- Editing completed delivery quantities without controlled correction flow
+- Marking delivered without recording received reality when shortage/damage flow requires it
+
+## Lifecycle
+
+```
+Pending Assignment
+       ↓
+Assigned
+       ↓
+Out for Delivery
+       ↓
+Partially Delivered / Delivered / Failed
+       ↓
+Returned to Stockist (from Failed where applicable)
+```
+
+## Business Rules
+
+- Delivery completion does not equal payment completion.
+- Delivered quantities become the basis for return eligibility.
+- Partial delivery must record what was delivered.
+- Failed delivery must not silently mark order delivered.
+
+## Audit Fields
+
+- Created At / By
+- Assigned At / By
+- Dispatched At / By
+- Delivered At / By
+- Failed At / Reason
+- Receipt Confirmation At / By
+
+## Derived Data
+
+- Delivery Duration
+- Success Flag
+- Delivered Value
+- Pending Quantity
+
+## Dependencies
+
+- Order in eligible fulfilment state
+- Delivery address
+- Allocated goods
+
+## Deletion Rules
+
+- Deliveries are not deleted after dispatch events; they are cancelled or completed with history.
+
+## Visibility Rules
+
+- Stockist and Pharmacy on the delivery can view.
+- Assigned delivery staff can view assignment details needed for delivery.
+- Platform Administrator can view.
+- Others cannot.
+
+---
+
+# 13. Return
+
+## Purpose
+
+Represents a request to return delivered products and seek approval for physical and financial adjustment.
+
+## Owner
+
+Initiated by Pharmacy.
+
+Approval owned by Stockist.
+
+## Participants
+
+- Pharmacy
+- Stockist
+- Inventory staff
+- Accountant (credit issuance side)
+
+## Required Fields
+
+- Return Number
+- Pharmacy
+- Stockist
+- Source Order / Delivered Items
+- Return Lines (Product, Quantity, Reason)
+- Return Status
+- Created At
+- Created By
+
+## Optional Fields
+
+- Notes
+- Evidence Attachments
+- Pickup Details
+- Rejection Reason
+- Disposition (Restock, Quarantine, Destroy)
+
+## Relationships
+
+- References delivered Order items
+- May reference Invoice lines
+- Approved returns may generate Credit Notes
+- May adjust Inventory based on disposition
+
+## Valid Statuses
+
+- Draft
+- Submitted
+- Under Review
+- Approved
+- Partially Approved
+- Rejected
+- Goods Received Back
+- Closed
+
+## Allowed Actions
+
+- Create return request
+- Submit
+- Review
+- Approve / partially approve
+- Reject
+- Record goods received back
+- Issue credit note from approval
+- View status
+
+## Forbidden Actions
+
+- Returning undelivered items
+- Returning quantities above delivered quantities
+- Returning after eligibility window if such window exists
+- Pharmacy approving its own return
+- Financial adjustment without approval
+
+## Lifecycle
+
+```
+Draft
+  ↓
+Submitted
+  ↓
+Under Review
+  ↓
+Approved / Partially Approved / Rejected
+  ↓
+Goods Received Back (if physical return required)
+  ↓
+Closed
+```
+
+## Business Rules
+
+- Returns do not immediately change payments.
+- Only approved returns create credit eligibility.
+- Returned quantity ≤ delivered quantity for each item.
+- Inventory impact depends on disposition.
+- Closed returns remain permanent records.
+
+## Audit Fields
+
+- Created At / By
+- Submitted At / By
+- Reviewed At / By
+- Decision
+- Decision Reason
+- Goods Received At / By
+- Disposition History
+
+## Derived Data
+
+- Requested Value
+- Approved Value
+- Credit Issued Value
+- Pending Review Age
+
+## Dependencies
+
+- Delivered goods
+- Original Order
+- Active enough trading context to process returns (even if new orders are blocked, historical returns may still be processed under rules)
+
+## Deletion Rules
+
+- Returns are not deleted after submission.
+- Drafts may be discarded.
+
+## Visibility Rules
+
+- Pharmacy and Stockist participants can view.
+- Platform Administrator can view.
+- Others cannot.
+
+---
+
+# 14. Credit Note
+
+## Purpose
+
+Represents financial credit issued to a Pharmacy, typically after an approved return or authorised adjustment.
+
+## Owner
+
+Stockist (issuer)
+
+## Participants
+
+- Stockist
+- Pharmacy
+- Accountant roles
+
+## Required Fields
+
+- Credit Note Number
+- Pharmacy
+- Stockist
+- Source Reference (Return / Adjustment)
+- Amount
+- Credit Note Status
+- Remaining Amount
+- Issued At
+- Issued By
+
+## Optional Fields
+
+- Related Invoice References
+- Notes
+- Expiry of Credit (if policy exists)
+- Line-level breakdown
+- Reason Code
+
+## Relationships
+
+- Originates from Approved Return or authorised adjustment
+- Applies against future or outstanding Invoice liabilities
+- Does not rewrite historical invoice documents
+
+## Valid Statuses
+
+- Draft
+- Issued
+- Partially Applied
+- Fully Applied
+- Cancelled / Void (strict rules)
+- Expired (if policy exists)
+
+## Allowed Actions
+
+- Create from approved source
+- Issue
+- Apply to invoices
+- View
+- Void only under strict unapplied rules
+
+## Forbidden Actions
+
+- Issuing credit without approved source
+- Exceeding approved return value
+- Pharmacy creating stockist credit notes
+- Editing issued credit amount silently
+- Using credit as cash refund unless future product explicitly supports refunds
+
+## Lifecycle
+
+```
+Draft
+  ↓
+Issued
+  ↓
+Partially Applied → Fully Applied
+  ↓
+Expired / Void (conditional)
+```
+
+## Business Rules
+
+- Credit notes reduce future/outstanding liabilities.
+- Remaining amount cannot be negative.
+- Application cannot exceed remaining credit or invoice outstanding.
+- Historical invoices remain intact; application is separate.
+
+## Audit Fields
+
+- Created At / By
+- Issued At / By
+- Voided At / By / Reason
+- Application History
+
+## Derived Data
+
+- Remaining Credit
+- Applied Credit
+- Related Outstanding Reduction
+
+## Dependencies
+
+- Approved Return or authorised adjustment source
+- Pharmacy–Stockist context
+
+## Deletion Rules
+
+- Issued credit notes are never deleted.
+- Drafts may be discarded.
+
+## Visibility Rules
+
+- Issuing Stockist and recipient Pharmacy can view.
+- Platform Administrator can view.
+- Others cannot.
+
+---
+
+# 15. Notification
+
+## Purpose
+
+Communicates a business event to a user or business without modifying the underlying business data.
+
+## Owner
+
+System-generated on behalf of the event source.
+
+Recipient user/business owns read-state.
+
+## Participants
+
+- Triggering Business Event
+- Recipient User(s)
+- Possibly recipient Business inbox
+
+## Required Fields
+
+- Notification Type
+- Recipient
+- Title / Summary
+- Trigger Event Reference
+- Priority
+- Created At
+- Read Status
+
+## Optional Fields
+
+- Body Text
+- Destination Reference (Order, Invoice, Payment, etc.)
+- Expiry At
+- Action Required Flag
+- Delivery Channels (in-app, etc.)
+
+## Relationships
+
+- References a Business Event / Entity
+- Belongs to Recipient User or Business
+- Never owns financial truth
+
+## Valid Statuses
+
+- Unread
+- Read
+- Archived
+- Expired
+- Dismissed
+
+## Allowed Actions
+
+- Generate (system)
+- Mark read
+- Archive
+- Dismiss
+- Open destination
+- View history
+
+## Forbidden Actions
+
+- Using notification as approval mechanism
+- Deleting a notification in a way that deletes business records
+- Editing historical trigger meaning
+
+## Lifecycle
+
+```
+Generated (Unread)
+      ↓
+Read / Dismissed / Archived
+      ↓
+Expired (optional)
+```
+
+## Business Rules
+
+- Notifications never create business events.
+- Notification failure must not roll back the business event by default.
+- Clicking may navigate to source entity if permitted.
+- Priority affects presentation, not business validity.
+
+## Audit Fields
+
+- Created At
+- Read At
+- Archived At
+- Event Reference
+
+## Derived Data
+
+- Unread Count
+- Action Required Count
+
+## Dependencies
+
+- Source business event
+- Valid recipient
+
+## Deletion Rules
+
+- Notifications may expire or be archived.
+- Business source records remain untouched.
+- Retention policy may remove old notifications without affecting transactions.
+
+## Visibility Rules
+
+- Only recipient (and admin for support) can view the notification instance.
+- Content must not leak private cross-business data beyond recipient entitlements.
+
+---
+
+# 16. Message
+
+## Purpose
+
+Represents conversational communication between platform users or businesses.
+
+Messages assist coordination. They do not replace official business workflows.
+
+## Owner
+
+Sender owns the sent message content.
+
+Conversation is shared between participants.
+
+## Participants
+
+- Sender User / Business
+- Recipient User / Business
+- Support participants where applicable
+
+## Required Fields
+
+- Conversation / Thread Reference
+- Sender
+- Recipient(s)
+- Message Body
+- Sent At
+- Message Status
+
+## Optional Fields
+
+- Attachments
+- Related Entity Reference (Order, Invoice, etc.)
+- Edited At
+- Deleted For Sender Flag
+
+## Relationships
+
+- May reference Order / Invoice / Return context
+- Belongs to participants
+- Independent from official status changes
+
+## Valid Statuses
+
+- Sent
+- Delivered
+- Read
+- Deleted for Sender
+- Removed for Policy Violation (admin)
+
+## Allowed Actions
+
+- Send message
+- Read message
+- Attach file where permitted
+- Link to business context
+- Report message
+
+## Forbidden Actions
+
+- Treating a message as an official approval
+- Editing business records through messaging
+- Messaging outside allowed participant relationships (e.g., unconnected trade chat if restricted)
+
+## Lifecycle
+
+```
+Sent
+  ↓
+Delivered
+  ↓
+Read
+```
+
+Moderation may remove visibility without erasing audit where required.
+
+## Business Rules
+
+- A message saying "Approved" does not approve an order/payment/return.
+- Official decisions occur only through official capabilities.
+- Message history should remain available for dispute context according to retention rules.
+
+## Audit Fields
+
+- Sent At / By
+- Read At
+- Moderation Actions
+
+## Derived Data
+
+- Unread Thread Count
+- Last Message Preview
+
+## Dependencies
+
+- Valid participants
+- Optional related entity visibility permissions
+
+## Deletion Rules
+
+- User-side delete may hide from self; conversation audit may remain.
+- Business-critical moderation retains evidence as required.
+
+## Visibility Rules
+
+- Only conversation participants can view.
+- Platform Administrator may view for dispute/safety support.
+- Unrelated users cannot view.
+
+---
+
+# 17. Support Ticket
+
+## Purpose
+
+Represents a request for assistance submitted by a Business or User to Platform Support / Administrator.
+
+## Owner
+
+Submitting Business/User owns the request content.
+
+Platform Administrator owns resolution workflow.
+
+## Participants
+
+- Requester
+- Platform Support / Administrator
+- Possibly mentioned Business counterpart in dispute context
+
+## Required Fields
+
+- Ticket Number
+- Requester
+- Business
+- Category
+- Subject
+- Description
+- Ticket Status
+- Created At
+
+## Optional Fields
+
+- Related Entity References
+- Attachments
+- Priority
+- Assignee
+- Resolution Notes
+- Satisfaction Rating
+
+## Relationships
+
+- Belongs to Business / User
+- May reference Order, Payment, Invoice, Connection, Verification, etc.
+- Independent from transaction state unless admin takes official governance action
+
+## Valid Statuses
+
+- Open
+- In Progress
+- Waiting on Requester
+- Resolved
+- Closed
+- Reopened
+
+## Allowed Actions
+
+- Create ticket
+- Add update
+- Assign
+- Resolve
+- Close
+- Reopen
+- View
+
+## Forbidden Actions
+
+- Using ticket chat alone as substitute for financial document changes without official action
+- Requester assigning platform admins arbitrarily beyond request
+- Deleting tickets with resolution history
+
+## Lifecycle
+
+```
+Open
+  ↓
+In Progress ←→ Waiting on Requester
+  ↓
+Resolved
+  ↓
+Closed ←→ Reopened
+```
+
+## Business Rules
+
+- Support tickets do not automatically mutate Orders, Invoices, or Payments.
+- Any business mutation must occur through official governed actions.
+- Ticket history remains for audit and quality.
+
+## Audit Fields
+
+- Created At / By
+- Assigned At / By
+- Status Change History
+- Resolved At / By
+- Closed At / By
+
+## Derived Data
+
+- Age
+- First Response Time
+- Resolution Time
+
+## Dependencies
+
+- Valid requester account/business
+- Optional related entity references
+
+## Deletion Rules
+
+- Tickets are closed, not erased.
+- Attachments follow retention policy.
+
+## Visibility Rules
+
+- Requester and platform support can view.
+- Related business counterpart does not see the ticket unless explicitly designed as a dispute room.
+- Unrelated parties cannot view.
+
+---
+
+# 18. Analytics (Derived Entity)
+
+## Purpose
+
+Represents calculated business insights derived from authoritative records.
+
+Analytics are never the source of truth.
+
+## Owner
+
+Derived for a Business or for Platform Administrator (global).
+
+## Participants
+
+- Pharmacy users (pharmacy analytics)
+- Stockist users (stockist analytics)
+- Platform Administrator (platform analytics)
+
+## Required Fields
+
+- Scope (Business / Platform)
+- Metric Name
+- Period
+- Calculated Value
+- Calculated At
+- Source Definition Reference
+
+## Optional Fields
+
+- Dimensions (product, supplier, customer, route)
+- Comparison Period Value
+- Filters Applied
+
+## Relationships
+
+- Derived from Orders, Invoices, Payments, Inventory, Returns, Connections, etc.
+- Never replaces underlying entities
+
+## Valid Statuses
+
+- Current
+- Stale
+- Recalculating
+
+## Allowed Actions
+
+- View
+- Filter
+- Export authorised analytics
+- Recalculate (system)
+
+## Forbidden Actions
+
+- Editing analytics as if primary records
+- Using analytics to overwrite operational data
+
+## Lifecycle
+
+```
+Calculated → Available → Stale → Recalculated
+```
+
+## Business Rules
+
+- Underlying records always win in case of conflict.
+- Definitions of metrics must match Business Calculations.
+- Exports are snapshots, not new sources of truth.
+
+## Audit Fields
+
+- Calculated At
+- Definition Version
+- Exported At / By (for export actions)
+
+## Derived Data
+
+Not applicable beyond the metrics themselves.
+
+## Dependencies
+
+- Source transactional entities
+- Metric definitions from Business Calculations
+
+## Deletion Rules
+
+- Analytics snapshots may be regenerated.
+- Source data retention is independent and authoritative.
+
+## Visibility Rules
+
+- Businesses see only their own analytics.
+- Platform Administrator sees platform-wide analytics.
+- No cross-business private analytics leakage.
+
+---
+
+# Cross-Entity Integrity Rules
+
+The following must always remain true across entities.
+
+1. Every transactional entity references valid Pharmacy and Stockist where applicable.
+2. Orders require Active Connection at creation.
+3. Invoices require a valid order/fulfilment basis.
+4. Payments allocate only to eligible invoices.
+5. Returns reference only delivered quantities.
+6. Credit Notes originate from approved adjustments.
+7. Inventory never goes negative.
+8. Expired batches are not newly supplied.
+9. Notifications and Messages never replace official workflow decisions.
+10. User deletion never deletes Business history.
+11. Historical financial documents are immutable in substance.
+12. Derived analytics never override source records.
+
+---
+
+# Completion Criteria
+
+This section is complete when every core entity needed by DigiSwasthya has a full specification covering purpose, ownership, fields, relationships, statuses, actions, lifecycle, rules, audit, derived data, dependencies, deletion, and visibility.
+
+Next:
+
+- **User Journeys** move these entities through business processes.
+- **State Machines** formalise allowed status transitions.
+- **Business Calculations** formalise every formula over these fields.

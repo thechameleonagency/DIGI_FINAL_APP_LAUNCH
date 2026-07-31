@@ -1,0 +1,538 @@
+# DigiSwasthya Product Definition Document (PDD)
+
+# Part 12 — Notifications
+
+---
+
+# Purpose
+
+This section defines every notification DigiSwasthya generates.
+
+For each notification:
+
+- Trigger
+- Recipients
+- Priority
+- Persistence
+- Expiry
+- Click destination
+- Actions available
+- Whether it is actionable
+
+Notifications communicate events. They never replace official workflows.
+
+---
+
+# Notification Principles
+
+1. Generated after the business event succeeds.
+2. Failure to notify must not roll back the business event by default.
+3. Recipient sees only information they are permitted to view.
+4. Clicking opens the destination entity when permission remains valid.
+5. Priority affects presentation ordering, not business correctness.
+6. Users may manage preferences for non-critical notifications.
+7. Critical financial/verification/security notices should remain mandatory.
+
+---
+
+# Priority Levels
+
+- Critical
+- High
+- Medium
+- Low
+
+---
+
+# Persistence
+
+- Persistent: remains until read/archived/expired
+- Transient: may auto-expire quickly
+- Mandatory: cannot be fully disabled by preferences
+
+---
+
+# Notification Catalogue
+
+---
+
+## N-001 Business Verification Submitted
+
+- Trigger: Business submits verification
+- Sent To: Platform Admins (queue)
+- Priority: Medium
+- Persistent: Yes
+- Expiry: None / long retention
+- Clickable: Yes → Verification Review
+- Actionable: Yes (review)
+
+## N-002 Documents Requested
+
+- Trigger: Admin requests documents
+- Sent To: Business Owner/Managers
+- Priority: High
+- Mandatory: Yes
+- Destination: Verification page
+
+## N-003 Business Approved
+
+- Trigger: Verification approved
+- Sent To: Business Owner/Managers
+- Priority: High
+- Destination: Business dashboard
+
+## N-004 Business Rejected
+
+- Trigger: Verification rejected
+- Sent To: Business Owner/Managers
+- Priority: High
+- Destination: Verification page with reason
+
+## N-005 Business Suspended
+
+- Trigger: Admin suspends business
+- Sent To: Business Owner/Managers (+ optionally all staff)
+- Priority: Critical
+- Mandatory: Yes
+- Destination: Account status / support
+
+## N-006 Business Reactivated
+
+- Trigger: Admin reactivates business
+- Sent To: Business Owner/Managers
+- Priority: High
+- Destination: Dashboard
+
+## N-007 Staff Invited
+
+- Trigger: Staff invite created
+- Sent To: Invitee (external/in-app if exists)
+- Priority: High
+- Destination: Invite acceptance
+
+## N-008 Staff Role Changed
+
+- Trigger: Role/permissions changed
+- Sent To: Affected user
+- Priority: Medium
+- Destination: Profile/permissions info
+
+## N-009 Staff Suspended / Removed
+
+- Trigger: Staff suspended/removed
+- Sent To: Affected user; Owner/Manager copy optional
+- Priority: High
+
+---
+
+## N-010 Connection Requested
+
+- Trigger: Pharmacy requests connection
+- Sent To: Stockist Owner/Managers
+- Priority: High
+- Destination: Connection request detail
+- Actionable: Approve/Reject from destination
+
+## N-011 Connection Approved
+
+- Trigger: Stockist approves connection
+- Sent To: Pharmacy requester/owners/managers
+- Priority: High
+- Destination: Stockist / catalogue entry point
+
+## N-012 Connection Rejected
+
+- Trigger: Stockist rejects connection
+- Sent To: Pharmacy
+- Priority: Medium
+- Destination: Connection status with reason
+
+## N-013 Connection Cancelled by Pharmacy
+
+- Trigger: Pharmacy cancels request
+- Sent To: Stockist
+- Priority: Low
+- Destination: Requests list
+
+## N-014 Connection Disconnected
+
+- Trigger: Either party disconnects
+- Sent To: Counterparty owners/managers
+- Priority: High
+- Destination: Connections
+
+## N-015 Connection Blocked
+
+- Trigger: Stockist/Admin blocks
+- Sent To: Pharmacy owners/managers
+- Priority: High
+
+---
+
+## N-016 Order Placed
+
+- Trigger: Pharmacy submits order
+- Sent To: Stockist order recipients (Owner/Manager/Staff with order inbox)
+- Priority: High
+- Destination: Order detail
+- Actionable: Yes
+
+## N-017 Order Accepted
+
+- Trigger: Stockist accepts order
+- Sent To: Pharmacy order creator + owners/managers
+- Priority: High
+- Destination: Order detail
+
+## N-018 Order Rejected
+
+- Trigger: Stockist rejects order
+- Sent To: Pharmacy
+- Priority: High
+- Destination: Order detail with reason
+
+## N-019 Order Cancelled
+
+- Trigger: Order cancelled by permitted actor
+- Sent To: Counterparty relevant users
+- Priority: High
+- Destination: Order detail
+
+## N-020 Order Packed
+
+- Trigger: Order marked packed
+- Sent To: Pharmacy (Medium), Stockist ops (Low/Medium)
+- Destination: Order detail
+
+## N-021 Order Dispatched
+
+- Trigger: Dispatch started
+- Sent To: Pharmacy
+- Priority: High
+- Destination: Delivery/Order tracking
+
+## N-022 Partial Delivery Completed
+
+- Trigger: Partial delivery recorded
+- Sent To: Pharmacy + Stockist ops
+- Priority: High
+- Destination: Delivery detail
+
+## N-023 Delivery Completed
+
+- Trigger: Delivery completed
+- Sent To: Pharmacy + Stockist ops
+- Priority: High
+- Destination: Order/Delivery detail
+
+## N-024 Delivery Failed
+
+- Trigger: Delivery failed
+- Sent To: Stockist ops + Pharmacy
+- Priority: High
+- Destination: Delivery detail
+
+## N-025 Delivery Assigned
+
+- Trigger: Delivery assigned to delivery boy
+- Sent To: Assigned Delivery Boy
+- Priority: High
+- Destination: Assigned delivery detail
+
+## N-026 Shortage / Damage Reported
+
+- Trigger: Pharmacy reports shortage/damage
+- Sent To: Stockist ops/managers
+- Priority: High
+- Destination: Order/Delivery/Return path
+
+---
+
+## N-027 Invoice Issued
+
+- Trigger: Invoice issued
+- Sent To: Pharmacy accountant/owners/managers
+- Priority: High
+- Mandatory: Yes
+- Destination: Invoice detail
+
+## N-028 Invoice Overdue
+
+- Trigger: Invoice becomes overdue
+- Sent To: Pharmacy financial users; Stockist accountant optional
+- Priority: High
+- Destination: Invoice detail
+
+## N-029 Invoice Paid
+
+- Trigger: Invoice outstanding reaches zero
+- Sent To: Both parties financial users
+- Priority: Medium
+- Destination: Invoice detail
+
+## N-030 Invoice Voided
+
+- Trigger: Invoice voided under rules
+- Sent To: Both parties financial users
+- Priority: High
+- Destination: Invoice detail
+
+---
+
+## N-031 Payment Submitted
+
+- Trigger: Pharmacy submits payment
+- Sent To: Stockist accountant/owners/managers
+- Priority: High
+- Destination: Payment detail
+- Actionable: Yes
+
+## N-032 Payment Approved
+
+- Trigger: Stockist approves payment
+- Sent To: Pharmacy financial users
+- Priority: High
+- Destination: Payment detail
+
+## N-033 Payment Rejected
+
+- Trigger: Payment rejected
+- Sent To: Pharmacy financial users
+- Priority: High
+- Destination: Payment detail with reason
+
+## N-034 Payment On Hold
+
+- Trigger: Payment placed on hold
+- Sent To: Pharmacy financial users
+- Priority: Medium
+- Destination: Payment detail
+
+## N-035 Duplicate Payment Flagged
+
+- Trigger: Possible duplicate detected
+- Sent To: Stockist accountants; optionally Admin
+- Priority: High
+- Destination: Payment review
+
+---
+
+## N-036 Return Submitted
+
+- Trigger: Pharmacy submits return
+- Sent To: Stockist ops/managers/accountant
+- Priority: High
+- Destination: Return detail
+
+## N-037 Return Approved
+
+- Trigger: Return approved
+- Sent To: Pharmacy
+- Priority: High
+- Destination: Return detail
+
+## N-038 Return Partially Approved
+
+- Trigger: Partial approval
+- Sent To: Pharmacy
+- Priority: High
+- Destination: Return detail
+
+## N-039 Return Rejected
+
+- Trigger: Return rejected
+- Sent To: Pharmacy
+- Priority: High
+- Destination: Return detail with reason
+
+## N-040 Credit Note Issued
+
+- Trigger: Credit note issued
+- Sent To: Pharmacy financial users
+- Priority: High
+- Mandatory: Yes
+- Destination: Credit note detail
+
+## N-041 Credit Applied
+
+- Trigger: Credit applied to invoice
+- Sent To: Both financial users
+- Priority: Medium
+- Destination: Invoice / Credit note
+
+---
+
+## N-042 Low Stock Alert
+
+- Trigger: Product available ≤ reorder level
+- Sent To: Stockist inventory managers (and pharmacy if own inventory)
+- Priority: Medium
+- Destination: Inventory product
+
+## N-043 Near Expiry Alert
+
+- Trigger: Batch enters critical/high expiry band
+- Sent To: Inventory managers
+- Priority: High
+- Destination: Batch detail
+
+## N-044 Batch Expired
+
+- Trigger: Batch auto-expires
+- Sent To: Inventory managers
+- Priority: High
+- Destination: Batch detail
+
+## N-045 Batch Recalled
+
+- Trigger: Batch marked recalled
+- Sent To: Inventory/fulfilment managers; Admin optional
+- Priority: Critical
+- Destination: Batch detail
+
+---
+
+## N-046 New Message Received
+
+- Trigger: Message sent to user/business
+- Sent To: Recipient
+- Priority: Medium
+- Destination: Conversation thread
+
+## N-047 Support Ticket Created
+
+- Trigger: Ticket created
+- Sent To: Platform support queue
+- Priority: Medium
+- Destination: Ticket detail
+
+## N-048 Support Ticket Updated
+
+- Trigger: Comment/status change
+- Sent To: Other party (requester or assignee)
+- Priority: Medium
+- Destination: Ticket detail
+
+## N-049 Support Ticket Resolved
+
+- Trigger: Ticket resolved
+- Sent To: Requester
+- Priority: Medium
+- Destination: Ticket detail
+
+## N-050 Platform Announcement
+
+- Trigger: Admin publishes announcement
+- Sent To: Targeted roles/businesses
+- Priority: Medium/High
+- Destination: Announcement detail
+
+## N-051 Security / Password Changed
+
+- Trigger: Password changed
+- Sent To: Affected user
+- Priority: Critical
+- Mandatory: Yes
+- Destination: Security settings
+
+## N-052 Login from Unusual Condition (if supported)
+
+- Trigger: Suspicious login detected
+- Sent To: Affected user
+- Priority: Critical
+- Mandatory: Yes
+
+## N-053 Invite Expired
+
+- Trigger: Invite TTL passed
+- Sent To: Inviter Owner/Manager
+- Priority: Low
+- Destination: Staff list
+
+## N-054 Order Pending SLA Reminder
+
+- Trigger: Pending order aged beyond SLA
+- Sent To: Stockist order recipients
+- Priority: Medium
+- Destination: Order detail
+
+## N-055 Payment Review SLA Reminder
+
+- Trigger: Payment waiting beyond SLA
+- Sent To: Stockist accountants
+- Priority: Medium
+- Destination: Payment detail
+
+## N-056 Verification Pending SLA Reminder
+
+- Trigger: Verification aged beyond SLA
+- Sent To: Admins
+- Priority: Medium
+- Destination: Verification queue
+
+## N-057 Reactivation Request Submitted
+
+- Trigger: Suspended business requests reactivation
+- Sent To: Admins
+- Priority: High
+- Destination: Business governance page
+
+## N-058 Credit Note Expiring (if policy)
+
+- Trigger: Remaining credit nearing expiry
+- Sent To: Pharmacy financial users; Stockist optional
+- Priority: Medium
+- Destination: Credit note
+
+## N-059 Export Ready (if async exports)
+
+- Trigger: Export finished
+- Sent To: Requesting user
+- Priority: Low
+- Destination: Downloads/exports
+
+## N-060 Partial Fulfilment Update
+
+- Trigger: Order accepted/fulfilled partially
+- Sent To: Pharmacy
+- Priority: High
+- Destination: Order detail
+
+---
+
+# Recipient Resolution Rules
+
+1. Role-targeted notifications go to all active users in that business with the role/permission.
+2. Assignment-targeted notifications go only to the assigned user (e.g., delivery boy).
+3. Creator-targeted notifications always include the initiating user if still active.
+4. Removed/suspended users do not receive operational action notifications; owners may receive account notices.
+5. Counterparty notifications never include private internal notes.
+
+---
+
+# Preference Rules
+
+| Category | Can Disable |
+|---|---|
+| Verification / Suspension / Security | No |
+| Orders / Deliveries | Rarely (maybe mute low-priority only) |
+| Payments / Invoices / Credit Notes | No for core events |
+| Marketing/Announcements non-critical | Yes |
+| Low stock / Near expiry | Yes with caution defaults on |
+| Messages | Mute conversation possible; not system-critical |
+
+---
+
+# Click Behaviour
+
+- If destination entity still visible to recipient → open it.
+- If permission lost → show access denied with notification retained.
+- If entity deleted/discarded draft → show unavailable message.
+
+---
+
+# Completion Criteria
+
+Every business event that a user must know about has a notification definition with trigger, recipient, priority, and destination.
+
+Next document: **Search, Filtering, Sorting & Export**.
