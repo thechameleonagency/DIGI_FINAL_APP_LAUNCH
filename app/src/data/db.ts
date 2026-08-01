@@ -8,22 +8,37 @@ import type {
   Cart,
   Catalogue,
   Connection,
+  CounterfeitReport,
   CreditNote,
+  CustomerSale,
   Delivery,
+  DeliveryArea,
+  Favourite,
   InventoryMovement,
   Invoice,
   Message,
   MessageThread,
   Notification,
   Order,
+  PartnerInvite,
+  ManagedPharmacy,
   Payment,
   PharmacyInventoryItem,
+  PharmacyRoute,
   PlatformSettings,
+  PriceChange,
   Product,
+  PurchaseBill,
+  PurchaseOrder,
   ReturnRequest,
   SeedMeta,
+  SmartOrderRun,
+  StockistRoute,
   StoredFile,
+  Supplier,
+  SupplierReturn,
   SupportTicket,
+  UpgradeRequest,
   User,
   Verification,
   WishlistItem,
@@ -57,6 +72,21 @@ export class DigiSwasthyaDB extends Dexie {
   wishlists!: Table<WishlistItem, string>;
   pharmacyInventory!: Table<PharmacyInventoryItem, string>;
   seedMeta!: Table<SeedMeta, string>;
+  smartOrderRuns!: Table<SmartOrderRun, string>;
+  customerSales!: Table<CustomerSale, string>;
+  deliveryAreas!: Table<DeliveryArea, string>;
+  pharmacyRoutes!: Table<PharmacyRoute, string>;
+  managedPharmacies!: Table<ManagedPharmacy, string>;
+  partnerInvites!: Table<PartnerInvite, string>;
+  suppliers!: Table<Supplier, string>;
+  purchaseOrders!: Table<PurchaseOrder, string>;
+  purchaseBills!: Table<PurchaseBill, string>;
+  supplierReturns!: Table<SupplierReturn, string>;
+  stockistRoutes!: Table<StockistRoute, string>;
+  upgradeRequests!: Table<UpgradeRequest, string>;
+  counterfeitReports!: Table<CounterfeitReport, string>;
+  priceChanges!: Table<PriceChange, string>;
+  favourites!: Table<Favourite, string>;
 
   constructor() {
     super('DigiSwasthyaDB');
@@ -88,6 +118,28 @@ export class DigiSwasthyaDB extends Dexie {
       wishlists: 'id, pharmacyId, productId, stockistId',
       pharmacyInventory: 'id, pharmacyId, productId',
       seedMeta: 'id',
+    });
+    this.version(2).stores({
+      smartOrderRuns: 'id, pharmacyId',
+      customerSales: 'id, pharmacyId, saleNo',
+      deliveryAreas: 'id, pharmacyId',
+      pharmacyRoutes: 'id, pharmacyId',
+      partnershipApplications: 'id, pharmacyId, status',
+      partnerInvites: 'id, stockistId, phone',
+      suppliers: 'id, stockistId',
+      purchaseOrders: 'id, stockistId, supplierId, status',
+      purchaseBills: 'id, stockistId, supplierId',
+      supplierReturns: 'id, stockistId, status',
+      stockistRoutes: 'id, stockistId',
+      upgradeRequests: 'id, businessId, status, utr',
+      counterfeitReports: 'id, status, batchId',
+      priceChanges: 'id, stockistId, productId',
+      favourites: 'id, [pharmacyId+stockistId], pharmacyId, stockistId',
+    });
+    this.version(3).stores({
+      partnershipApplications: null,
+      managedPharmacies: 'id, stockistId, status, phone, linkedBusinessId',
+      partnerInvites: 'id, stockistId, phone, managedPharmacyId',
     });
   }
 }

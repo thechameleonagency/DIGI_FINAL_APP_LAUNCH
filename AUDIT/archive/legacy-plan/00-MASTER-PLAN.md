@@ -1,6 +1,6 @@
 # DigiSwasthya — Complete Build Plan (No Backend)
 
-**Status (updated 2026-07-31):** Build executed once, then fully audited — every original phase is Partial; the active plan of record is [13-GAP-CLOSURE-PLAN.md](./13-GAP-CLOSURE-PLAN.md) (see `BUILD-STATUS.md` for honest status)  
+**Status (updated 2026-08-01):** PLAN/13 gap-closure Phases 1–14 complete (all ledger rows Done). Canvas matrix statuses live in [14-CANVAS-COVERAGE-MATRIX.md](./14-CANVAS-COVERAGE-MATRIX.md); runbook in `BUILD-STATUS.md`.  
 **Product:** DigiSwasthya B2B pharmaceutical commerce & operations platform  
 **Constraint:** Client-side only (local/mock/static data; no server API)  
 **Authority:** PDD Parts 1–20 in `docs/` + **Part 21 addendum `docs/22`** (canvas-derived feature specs) are the source of truth. Design canvases (`.dc.html`) are binding for feature/flow coverage — **nothing in them is skipped or deferred** (user directive 2026-07-31; adaptations specified in `docs/22`, item-by-item guarantee in [14-CANVAS-COVERAGE-MATRIX.md](./14-CANVAS-COVERAGE-MATRIX.md)); PDD principles prevail on conflicts via adaptation, never omission.  

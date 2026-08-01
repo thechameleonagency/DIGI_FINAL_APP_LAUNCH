@@ -14,14 +14,52 @@ import {
 } from './portals/auth/AuthPages';
 import { AdminApp } from './portals/admin/AdminApp';
 import { PharmacyApp } from './portals/pharmacy/PharmacyApp';
+import { CatalogueSharePage } from './portals/public/CatalogueSharePage';
+import { VerifyBillPage } from './portals/public/VerifyBillPage';
 import { StockistApp } from './portals/stockist/StockistApp';
 import { runPolicyClock } from './services/supportService';
-import { clearPersistedSession, readPersistedSession, useSession } from './store/session';
+import {
+  clearPersistedSession,
+  isSessionExpired,
+  persistSession,
+  readPersistedSession,
+  setReauthReason,
+  useSession,
+} from './store/session';
 import { useUi } from './store/ui';
 import { ToastHost } from './ui/components/primitives';
 
+async function revalidateSession(params: {
+  clearSession: () => void;
+  refreshEntities: (user: import('./domain/entities/types').User, business: import('./domain/entities/types').Business) => void;
+}): Promise<void> {
+  const persisted = readPersistedSession();
+  if (!persisted) return;
+  if (isSessionExpired(persisted.issuedAt)) {
+    clearPersistedSession();
+    params.clearSession();
+    setReauthReason('timeout');
+    return;
+  }
+  const user = await db.users.get(persisted.userId);
+  const business = await db.businesses.get(persisted.businessId);
+  if (!user || !business || business.accountStatus === 'Deactivated') {
+    clearPersistedSession();
+    params.clearSession();
+    setReauthReason('revoked');
+    return;
+  }
+  if (user.status === 'Suspended' || user.status === 'Removed') {
+    clearPersistedSession();
+    params.clearSession();
+    setReauthReason('removed');
+    return;
+  }
+  params.refreshEntities(user, business);
+}
+
 export default function App() {
-  const { setSession, setHydrated, clearSession } = useSession();
+  const { setSession, setHydrated, clearSession, refreshEntities } = useSession();
   const { toasts, dismissToast } = useUi();
 
   useEffect(() => {
@@ -30,13 +68,50 @@ export default function App() {
       await ensureSeeded();
       const persisted = readPersistedSession();
       if (persisted) {
-        const user = await db.users.get(persisted.userId);
-        const business = await db.businesses.get(persisted.businessId);
-        if (user && business && user.status === 'Active' && business.accountStatus !== 'Deactivated') {
-          if (!cancelled) setSession(user, business);
-        } else {
+        if (isSessionExpired(persisted.issuedAt)) {
           clearPersistedSession();
+          setReauthReason('timeout');
           if (!cancelled) clearSession();
+        } else {
+          const user = await db.users.get(persisted.userId);
+          const business = await db.businesses.get(persisted.businessId);
+          if (
+            user &&
+            business &&
+            user.status === 'Active' &&
+            business.accountStatus !== 'Deactivated'
+          ) {
+            // Restore without resetting issuedAt (TTL continues).
+            persistSession(user.id, business.id, persisted.issuedAt, persisted.impersonation);
+            if (!cancelled) {
+              if (persisted.impersonation) {
+                const adminUser = await db.users.get(persisted.impersonation.adminUserId);
+                const adminBusiness = await db.businesses.get(persisted.impersonation.adminBusinessId);
+                if (adminUser && adminBusiness) {
+                  useSession.setState({
+                    user: { ...user, impersonationReadOnly: true, passwordHash: '', passwordSalt: '' },
+                    business,
+                    impersonation: {
+                      adminUser,
+                      adminBusiness,
+                      reason: persisted.impersonation.reason,
+                      startedAt: persisted.impersonation.startedAt,
+                      targetBusinessId: persisted.impersonation.targetBusinessId,
+                      notifyOwner: persisted.impersonation.notifyOwner,
+                    },
+                  });
+                } else {
+                  useSession.setState({ user, business, impersonation: null });
+                }
+              } else {
+                useSession.setState({ user, business, impersonation: null });
+              }
+            }
+          } else {
+            clearPersistedSession();
+            if (!cancelled) clearSession();
+            setReauthReason('revoked');
+          }
         }
       }
       if (!cancelled) setHydrated(true);
@@ -48,16 +123,17 @@ export default function App() {
   }, [setSession, setHydrated, clearSession]);
 
   useEffect(() => {
-    const onFocus = () => {
+    const tick = () => {
+      void revalidateSession({ clearSession, refreshEntities });
       void runPolicyClock();
     };
-    window.addEventListener('focus', onFocus);
-    const id = window.setInterval(() => void runPolicyClock(), 5 * 60 * 1000);
+    window.addEventListener('focus', tick);
+    const id = window.setInterval(tick, 60_000);
     return () => {
-      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('focus', tick);
       window.clearInterval(id);
     };
-  }, []);
+  }, [clearSession, refreshEntities]);
 
   const { hydrated } = useSession();
   if (!hydrated) {
@@ -83,6 +159,8 @@ export default function App() {
         <Route path="/auth/invite/:token" element={<InviteAcceptPage />} />
         <Route path="/auth/pending" element={<PendingVerificationPage />} />
         <Route path="/auth/suspended" element={<SuspendedPage />} />
+        <Route path="/verify-bill" element={<VerifyBillPage />} />
+        <Route path="/catalogue-share/:stockistId" element={<CatalogueSharePage />} />
 
         <Route element={<RequireAuth />}>
           <Route element={<RequirePortal type="Pharmacy" />}>

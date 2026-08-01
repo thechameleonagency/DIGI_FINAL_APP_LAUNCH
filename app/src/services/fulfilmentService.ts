@@ -114,6 +114,16 @@ export async function allocateOrder(params: {
     version: order.version + 1,
     statusHistory: [...order.statusHistory, { from: order.status, to: 'Allocated', at: ts, actorId: params.actor.id }],
   });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Order',
+    entityId: order.id,
+    action: params.overrides ? 'order.allocate.override' : 'order.allocate',
+    reason: params.overrides ? 'Manual batch allocation (FEFO override)' : 'FEFO allocation',
+    after: { status: 'Allocated', orderNo: order.orderNo },
+  });
   await notifyBusinessUsers(order.pharmacyId, 'N-020', { orderNo: order.orderNo }, { type: 'Order', id: order.id });
   return ok((await db.orders.get(order.id))!);
 }
@@ -143,6 +153,15 @@ export async function packOrder(params: {
     updatedAt: ts,
     version: order.version + 1,
     statusHistory: [...order.statusHistory, { from: 'Allocated', to: 'Packed', at: ts, actorId: params.actor.id }],
+  });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Order',
+    entityId: order.id,
+    action: 'order.pack',
+    after: { status: 'Packed', orderNo: order.orderNo },
   });
   await notifyBusinessUsers(order.pharmacyId, 'N-021', { orderNo: order.orderNo }, { type: 'Order', id: order.id });
   return ok((await db.orders.get(order.id))!);
@@ -188,6 +207,28 @@ export async function issueInvoice(params: {
     });
   if (!billableLines.length) {
     return fail('Validation', 'INV_EMPTY', 'No billable quantities.', 'Invoice was not issued.');
+  }
+
+  // CF-18: optional delivery fee at issue time (immutable thereafter — E-CF-18b)
+  const feeFlat = params.stockist.preferences?.deliveryFeeFlat ?? 0;
+  const feeFreeAbove = params.stockist.preferences?.deliveryFeeFreeAbove;
+  if (feeFlat > 0) {
+    const goodsSubtotal = billableLines.reduce((s, l) => s + l.lineSubtotal, 0);
+    const waive = feeFreeAbove != null && feeFreeAbove > 0 && goodsSubtotal >= feeFreeAbove;
+    if (!waive) {
+      const feeCalc = calcInvoiceLine({ qty: 1, unitPrice: feeFlat, gstPercent: 0 });
+      billableLines.push({
+        productId: 'delivery-fee',
+        productName: 'Delivery charge',
+        sku: 'DEL-FEE',
+        qty: 1,
+        unitPrice: feeFlat,
+        gstPercent: 0,
+        ...feeCalc,
+        batchNumber: undefined,
+        expiryDate: undefined,
+      });
+    }
   }
 
   const totals = calcInvoiceTotals(billableLines, settings?.roundingMode ?? 'nearest');
@@ -237,11 +278,60 @@ export async function issueInvoice(params: {
   return ok(invoice);
 }
 
+/** CF-16: issue invoices for many ready orders; per-order success/failure (partial success). */
+export async function bulkIssueInvoices(params: {
+  actor: User;
+  stockist: Business;
+  orderIds: string[];
+}): Promise<
+  Result<{
+    results: { orderId: string; orderNo?: string; ok: boolean; invoiceNo?: string; message?: string; code?: string }[];
+    successCount: number;
+    failureCount: number;
+  }>
+> {
+  const perm = assertCan(params.actor, params.stockist, 'invoice.issue');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Bulk billing was not started.');
+  if (!params.orderIds.length) {
+    return fail('Validation', 'BULK_EMPTY', 'Select at least one order.', 'Bulk billing was not started.');
+  }
+  const results: {
+    orderId: string;
+    orderNo?: string;
+    ok: boolean;
+    invoiceNo?: string;
+    message?: string;
+    code?: string;
+  }[] = [];
+  for (const orderId of params.orderIds) {
+    const order = await db.orders.get(orderId);
+    const res = await issueInvoice({ actor: params.actor, stockist: params.stockist, orderId });
+    if (res.ok) {
+      results.push({ orderId, orderNo: order?.orderNo, ok: true, invoiceNo: res.data.invoiceNo });
+    } else {
+      results.push({
+        orderId,
+        orderNo: order?.orderNo,
+        ok: false,
+        message: res.message,
+        code: res.code,
+      });
+    }
+  }
+  return ok({
+    results,
+    successCount: results.filter((r) => r.ok).length,
+    failureCount: results.filter((r) => !r.ok).length,
+  });
+}
+
 export async function createAndDispatchDelivery(params: {
   actor: User;
   stockist: Business;
   orderId: string;
   assigneeId?: string;
+  scheduledDate?: string;
+  routeId?: string;
 }): Promise<Result<Delivery>> {
   const perm = assertCan(params.actor, params.stockist, 'delivery.assign');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Delivery was not created.');
@@ -297,6 +387,7 @@ export async function createAndDispatchDelivery(params: {
     }
   }
 
+  const scheduledDate = params.scheduledDate?.slice(0, 10) || undefined;
   const delivery: Delivery = {
     id: newId(),
     deliveryNo: nextNumber('DEL'),
@@ -306,6 +397,8 @@ export async function createAndDispatchDelivery(params: {
     pharmacyId: order.pharmacyId,
     status: params.assigneeId ? 'Assigned' : 'Created',
     assignedTo: params.assigneeId,
+    routeId: params.routeId,
+    scheduledDate,
     lines: order.lines.map((l) => ({
       productId: l.productId,
       productName: l.productName,
@@ -321,24 +414,180 @@ export async function createAndDispatchDelivery(params: {
     updatedAt: ts,
   };
 
-  await db.transaction('rw', db.deliveries, db.orders, async () => {
+  await db.transaction('rw', db.deliveries, db.orders, db.stockistRoutes, async () => {
     await db.deliveries.add(delivery);
     await db.orders.update(order.id, {
       status: 'Dispatched',
       deliveryId: delivery.id,
+      preferredDeliveryDate: scheduledDate ?? order.preferredDeliveryDate,
       updatedAt: ts,
       version: order.version + 1,
       statusHistory: [...order.statusHistory, { from: order.status, to: 'Dispatched', at: ts, actorId: params.actor.id }],
     });
+    if (params.routeId) {
+      const route = await db.stockistRoutes.get(params.routeId);
+      if (route && route.stockistId === params.stockist.id) {
+        const seq = route.stops.length;
+        await db.stockistRoutes.put({
+          ...route,
+          stops: [...route.stops, { deliveryId: delivery.id, seq }],
+        });
+      }
+    }
   });
 
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Delivery',
+    entityId: delivery.id,
+    action: 'delivery.dispatch',
+    after: { deliveryNo: delivery.deliveryNo, orderNo: order.orderNo, assignedTo: params.assigneeId, scheduledDate },
+  });
   await notifyBusinessUsers(order.pharmacyId, 'N-022', { orderNo: order.orderNo }, { type: 'Order', id: order.id });
+  if (scheduledDate) {
+    await notifyBusinessUsers(
+      order.pharmacyId,
+      'N-316',
+      { orderNo: order.orderNo, date: scheduledDate },
+      { type: 'Delivery', id: delivery.id },
+    );
+  }
   if (params.assigneeId) {
     await notifyBusinessUsers(params.stockist.id, 'N-023', { deliveryNo: delivery.deliveryNo }, { type: 'Delivery', id: delivery.id }, [
       'DeliveryBoy',
     ]);
   }
   return ok(delivery);
+}
+
+export async function assignDelivery(params: {
+  actor: User;
+  stockist: Business;
+  deliveryId: string;
+  assigneeId?: string | null;
+}): Promise<Result<Delivery>> {
+  const perm = assertCan(params.actor, params.stockist, 'delivery.assign');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Assignment was not saved.');
+  const delivery = await db.deliveries.get(params.deliveryId);
+  if (!delivery || delivery.stockistId !== params.stockist.id) {
+    return fail('NotFound', 'DEL_MISSING', 'Delivery not found.', 'Assignment was not saved.');
+  }
+  if (!['Created', 'Assigned', 'Failed'].includes(delivery.status)) {
+    return fail('StateConflict', 'DEL_ASSIGN_STATE', 'Cannot reassign in current status.', 'Assignment was not saved.');
+  }
+  const ts = new Date().toISOString();
+  const assigneeId = params.assigneeId || undefined;
+  let status = delivery.status;
+  if (assigneeId && delivery.status === 'Created') {
+    const t = machines.delivery('Created', 'Assigned');
+    if (!t.ok) return fail('StateConflict', 'DEL_BAD_STATE', t.reason!, 'Assignment was not saved.');
+    status = 'Assigned';
+  } else if (!assigneeId && delivery.status === 'Assigned') {
+    status = 'Created';
+  } else if (assigneeId && delivery.status === 'Failed') {
+    const t = machines.delivery('Failed', 'Assigned');
+    if (!t.ok) return fail('StateConflict', 'DEL_BAD_STATE', t.reason!, 'Assignment was not saved.');
+    status = 'Assigned';
+  }
+  await db.deliveries.update(delivery.id, {
+    assignedTo: assigneeId,
+    status,
+    updatedAt: ts,
+    statusHistory: [
+      ...delivery.statusHistory,
+      {
+        from: delivery.status,
+        to: status,
+        at: ts,
+        actorId: params.actor.id,
+        reason: assigneeId ? `Assigned to ${assigneeId}` : 'Unassigned',
+      },
+    ],
+  });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Delivery',
+    entityId: delivery.id,
+    action: 'delivery.assign',
+    after: { assignedTo: assigneeId, status },
+  });
+  if (assigneeId) {
+    await notifyBusinessUsers(params.stockist.id, 'N-023', { deliveryNo: delivery.deliveryNo }, { type: 'Delivery', id: delivery.id }, [
+      'DeliveryBoy',
+    ]);
+  }
+  return ok((await db.deliveries.get(delivery.id))!);
+}
+
+export async function returnFailedDeliveryToStockist(params: {
+  actor: User;
+  stockist: Business;
+  deliveryId: string;
+}): Promise<Result<Delivery>> {
+  const perm = assertCan(params.actor, params.stockist, 'delivery.assign');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Stock was not returned.');
+  const delivery = await db.deliveries.get(params.deliveryId);
+  if (!delivery || delivery.stockistId !== params.stockist.id) {
+    return fail('NotFound', 'DEL_MISSING', 'Delivery not found.', 'Stock was not returned.');
+  }
+  if (delivery.status !== 'Failed') {
+    return fail('StateConflict', 'DEL_NOT_FAILED', 'Only failed deliveries can be returned to stockist.', 'Stock was not returned.');
+  }
+  if (delivery.returnedToStockistAt) {
+    return fail('Duplicate', 'DEL_RESTOCKED', 'Stock already returned for this delivery.', 'Stock was not returned again.');
+  }
+  const order = await db.orders.get(delivery.orderId);
+  if (!order) return fail('NotFound', 'ORD_MISSING', 'Order not found.', 'Stock was not returned.');
+  const ts = new Date().toISOString();
+  for (const line of order.lines) {
+    for (const a of line.batchAllocations ?? []) {
+      const batch = await db.batches.get(a.batchId);
+      if (!batch) continue;
+      const newOnHand = batch.onHand + a.qty;
+      await db.batches.update(batch.id, {
+        onHand: newOnHand,
+        status: batch.status === 'Depleted' ? 'Available' : batch.status,
+        updatedAt: ts,
+      });
+      await db.inventoryMovements.add({
+        id: newId(),
+        businessId: params.stockist.id,
+        productId: line.productId,
+        batchId: batch.id,
+        type: 'ReturnIn',
+        qty: a.qty,
+        reason: `Returned to stockist from failed ${delivery.deliveryNo}`,
+        sourceDocType: 'Delivery',
+        sourceDocId: delivery.id,
+        actorId: params.actor.id,
+        prevQty: batch.onHand,
+        newQty: newOnHand,
+        at: ts,
+      });
+    }
+  }
+  const t = machines.delivery('Failed', 'Cancelled');
+  if (!t.ok) return fail('StateConflict', 'DEL_BAD_STATE', t.reason!, 'Stock was not returned.');
+  await db.deliveries.update(delivery.id, {
+    status: 'Cancelled',
+    updatedAt: ts,
+    returnedToStockistAt: ts,
+    statusHistory: [...delivery.statusHistory, { from: 'Failed', to: 'Cancelled', at: ts, actorId: params.actor.id, reason: 'Returned to stockist' }],
+  });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Delivery',
+    entityId: delivery.id,
+    action: 'delivery.returnToStockist',
+    after: { status: 'Cancelled', deliveryNo: delivery.deliveryNo },
+  });
+  return ok((await db.deliveries.get(delivery.id))!);
 }
 
 export async function updateDeliveryStatus(params: {
@@ -349,6 +598,7 @@ export async function updateDeliveryStatus(params: {
   deliveredQtys?: Record<string, number>;
   failReason?: string;
   podFileId?: string;
+  receivedBy?: string;
 }): Promise<Result<Delivery>> {
   const perm = assertCan(params.actor, params.stockist, 'delivery.update');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Delivery was not updated.');
@@ -358,6 +608,19 @@ export async function updateDeliveryStatus(params: {
   }
   if (params.actor.role === 'DeliveryBoy' && delivery.assignedTo !== params.actor.id) {
     return fail('Permission', 'DEL_ASSIGN', 'Delivery Boy can only update assigned deliveries.', 'Delivery was not updated.');
+  }
+  // E-CF-18a: route stops require an assignee before execution actions
+  if (
+    delivery.routeId &&
+    ['OutForDelivery', 'Delivered', 'PartiallyDelivered', 'Failed'].includes(params.status) &&
+    !delivery.assignedTo
+  ) {
+    return fail(
+      'BusinessRule',
+      'ROUTE_UNASSIGNED',
+      'Unassigned route stop cannot be executed.',
+      'Delivery was not updated.',
+    );
   }
   const t = machines.delivery(delivery.status, params.status);
   if (!t.ok) return fail('StateConflict', 'DEL_BAD_STATE', t.reason!, 'Delivery was not updated.');
@@ -378,7 +641,8 @@ export async function updateDeliveryStatus(params: {
     status: params.status,
     lines,
     failReason: params.failReason,
-    podFileId: params.podFileId,
+    podFileId: params.podFileId ?? delivery.podFileId,
+    receivedBy: params.receivedBy ?? delivery.receivedBy,
     updatedAt: ts,
     deliveredAt: params.status === 'Delivered' || params.status === 'PartiallyDelivered' ? ts : delivery.deliveredAt,
     statusHistory: [...delivery.statusHistory, { from: delivery.status, to: params.status, at: ts, actorId: params.actor.id, reason: params.failReason }],
@@ -418,6 +682,17 @@ export async function updateDeliveryStatus(params: {
     await notifyBusinessUsers(delivery.pharmacyId, 'N-024', { deliveryNo: delivery.deliveryNo }, { type: 'Delivery', id: delivery.id });
   }
 
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Delivery',
+    entityId: delivery.id,
+    action: 'delivery.status',
+    reason: params.failReason,
+    after: { status: params.status, deliveryNo: delivery.deliveryNo, podFileId: params.podFileId },
+  });
+
   return ok((await db.deliveries.get(delivery.id))!);
 }
 
@@ -425,8 +700,17 @@ export async function recordGrn(params: {
   actor: User;
   pharmacy: Business;
   orderId: string;
-  received: { lineId: string; receivedQty: number; discrepancyReason?: string }[];
+  received: {
+    lineId: string;
+    receivedQty: number;
+    discrepancyReason?: string;
+    batchNumber?: string;
+    expiryDate?: string;
+  }[];
 }): Promise<Result<Order>> {
+  const perm = assertCan(params.actor, params.pharmacy, 'inventory.adjust');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'GRN was not recorded.');
+
   const order = await db.orders.get(params.orderId);
   if (!order || order.pharmacyId !== params.pharmacy.id) {
     return fail('NotFound', 'ORD_MISSING', 'Order not found.', 'GRN was not recorded.');
@@ -434,19 +718,80 @@ export async function recordGrn(params: {
   if (!['Delivered', 'PartiallyDelivered'].includes(order.status)) {
     return fail('StateConflict', 'GRN_STATE', 'GRN is only allowed after delivery.', 'GRN was not recorded.');
   }
+  if (order.grnRecordedAt) {
+    return fail('StateConflict', 'GRN_ONCE', 'GRN already recorded for this order.', 'Stock was not counted again.');
+  }
+
+  let totalReceived = 0;
+  for (const r of params.received) {
+    const line = order.lines.find((l) => l.id === r.lineId);
+    if (!line) {
+      return fail('Validation', 'GRN_LINE', 'Unknown order line in GRN.', 'GRN was not recorded.');
+    }
+    const maxQty = line.deliveredQty ?? line.qty;
+    if (!Number.isFinite(r.receivedQty) || r.receivedQty < 0 || r.receivedQty > maxQty) {
+      return fail(
+        'Validation',
+        'GRN_QTY',
+        `Received qty for ${line.productName} must be between 0 and ${maxQty}.`,
+        'GRN was not recorded.',
+      );
+    }
+    if (r.receivedQty < maxQty && !r.discrepancyReason?.trim()) {
+      return fail(
+        'Validation',
+        'GRN_REASON',
+        `Discrepancy reason required for short receipt of ${line.productName}.`,
+        'GRN was not recorded.',
+      );
+    }
+    totalReceived += r.receivedQty;
+  }
+  if (totalReceived < 1) {
+    return fail('Validation', 'GRN_MIN', 'Receive at least 1 unit to record a GRN.', 'GRN was not recorded.');
+  }
+
   const ts = new Date().toISOString();
   const lines = order.lines.map((l) => {
     const r = params.received.find((x) => x.lineId === l.id);
-    return r ? { ...l, receivedQty: r.receivedQty } : l;
+    if (!r) return l;
+    const batchNumber = r.batchNumber?.trim() || l.batchAllocations?.[0]?.batchNumber;
+    const expiryDate = r.expiryDate?.trim() || l.batchAllocations?.[0]?.expiryDate;
+    return {
+      ...l,
+      receivedQty: r.receivedQty,
+      discrepancyReason: r.discrepancyReason?.trim() || l.discrepancyReason,
+      batchAllocations:
+        batchNumber || expiryDate
+          ? [
+              {
+                batchId: l.batchAllocations?.[0]?.batchId ?? `grn-${l.id}`,
+                batchNumber: batchNumber ?? '',
+                qty: r.receivedQty,
+                expiryDate: expiryDate ?? '',
+              },
+            ]
+          : l.batchAllocations,
+    };
   });
-  await db.orders.update(order.id, { lines, updatedAt: ts });
 
-  for (const l of lines) {
-    if ((l.receivedQty ?? 0) > 0) {
+  await db.transaction('rw', db.orders, db.pharmacyInventory, db.inventoryMovements, async () => {
+    await db.orders.update(order.id, { lines, updatedAt: ts, grnRecordedAt: ts, version: order.version + 1 });
+
+    for (const l of lines) {
+      const qty = l.receivedQty ?? 0;
+      if (qty <= 0) continue;
+      const r = params.received.find((x) => x.lineId === l.id);
+      const batchNumber = r?.batchNumber?.trim() || l.batchAllocations?.[0]?.batchNumber;
+      const expiryDate = r?.expiryDate?.trim() || l.batchAllocations?.[0]?.expiryDate;
       const existing = await db.pharmacyInventory.where({ pharmacyId: params.pharmacy.id, productId: l.productId }).first();
+      const prevQty = existing?.onHand ?? 0;
+      const newQty = prevQty + qty;
       if (existing) {
         await db.pharmacyInventory.update(existing.id, {
-          onHand: existing.onHand + (l.receivedQty ?? 0),
+          onHand: newQty,
+          batchNumber: batchNumber ?? existing.batchNumber,
+          expiryDate: expiryDate ?? existing.expiryDate,
           updatedAt: ts,
         });
       } else {
@@ -455,14 +800,38 @@ export async function recordGrn(params: {
           pharmacyId: params.pharmacy.id,
           productId: l.productId,
           productName: l.productName,
-          batchNumber: l.batchAllocations?.[0]?.batchNumber,
-          expiryDate: l.batchAllocations?.[0]?.expiryDate,
-          onHand: l.receivedQty ?? 0,
+          batchNumber,
+          expiryDate,
+          onHand: qty,
           updatedAt: ts,
         });
       }
+      await db.inventoryMovements.add({
+        id: newId(),
+        businessId: params.pharmacy.id,
+        productId: l.productId,
+        type: 'GRNIn',
+        qty,
+        reason: l.discrepancyReason || 'Goods receipt',
+        sourceDocType: 'Order',
+        sourceDocId: order.id,
+        actorId: params.actor.id,
+        prevQty,
+        newQty,
+        at: ts,
+      });
     }
-  }
+  });
+
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.pharmacy.id,
+    entityType: 'Order',
+    entityId: order.id,
+    action: 'order.grn',
+    after: { grnRecordedAt: ts, received: params.received },
+  });
 
   const shortage = params.received.some((r) => {
     const line = order.lines.find((l) => l.id === r.lineId);

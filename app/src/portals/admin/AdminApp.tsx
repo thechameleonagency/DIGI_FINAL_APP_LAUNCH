@@ -1,27 +1,36 @@
 import {
   Activity,
-  Bell,
   Building2,
   ClipboardCheck,
   FileText,
   Home,
+  AlertTriangle,
   LifeBuoy,
-  Megaphone,
+  PackageMinus,
   Settings,
-  Shield,
 } from 'lucide-react';
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { RequirePermission } from '../../app/guards';
 import { AppShell } from '../../ui/layout/AppShell';
+import { ProfileSecurityPage } from '../../ui/components/ProfileSecurityPage';
 import {
   AdminAnalytics,
   AdminAnnouncements,
   AdminAudit,
+  AdminBanners,
+  AdminBusinessDetail,
+  AdminCounterfeit,
   AdminHome,
   AdminNetwork,
   AdminNotifications,
   AdminOrders,
   AdminPayments,
+  AdminPlans,
+  AdminReports,
+  AdminHelp,
+  AdminReturns,
   AdminSettings,
+  AdminStaff,
   AdminSupport,
   AdminSuspensions,
   AdminVerifications,
@@ -29,23 +38,20 @@ import {
 
 const nav = [
   { to: '/admin', label: 'Home', icon: Home, end: true },
-  { to: '/admin/verifications', label: 'Verifications', icon: ClipboardCheck },
-  { to: '/admin/network', label: 'Network', icon: Building2 },
-  { to: '/admin/analytics', label: 'Analytics', icon: Activity },
-  { to: '/admin/orders', label: 'Orders', icon: FileText },
-  { to: '/admin/payments', label: 'Payments', icon: Activity },
-  { to: '/admin/support', label: 'Support', icon: LifeBuoy },
-  { to: '/admin/announcements', label: 'Announcements', icon: Megaphone },
-  { to: '/admin/suspensions', label: 'Suspensions', icon: Shield },
-  { to: '/admin/audit', label: 'Audit', icon: FileText },
-  { to: '/admin/settings', label: 'Settings', icon: Settings },
-  { to: '/admin/notifications', label: 'Notifications', icon: Bell },
+  { to: '/admin/verifications', label: 'Verifications', icon: ClipboardCheck, requires: 'verification.review' as const },
+  { to: '/admin/network', label: 'Network', icon: Building2, requires: 'read.platform' as const },
+  { to: '/admin/orders', label: 'Orders', icon: FileText, requires: 'read.platform' as const },
+  { to: '/admin/payments', label: 'Payments', icon: Activity, requires: 'read.platform' as const },
+  { to: '/admin/returns', label: 'Returns', icon: PackageMinus, requires: 'read.platform' as const },
+  { to: '/admin/counterfeit', label: 'Counterfeit', icon: AlertTriangle, requires: 'counterfeit.review' as const },
+  { to: '/admin/support', label: 'Support', icon: LifeBuoy, requires: 'support.manage' as const },
+  { to: '/admin/settings', label: 'More', icon: Settings, requires: 'settings.manage' as const },
 ];
 
 const mobileNav = [
   { to: '/admin', label: 'Home', icon: Home, end: true },
-  { to: '/admin/verifications', label: 'Verify', icon: ClipboardCheck },
-  { to: '/admin/support', label: 'Support', icon: LifeBuoy },
+  { to: '/admin/verifications', label: 'Verify', icon: ClipboardCheck, requires: 'verification.review' as const },
+  { to: '/admin/support', label: 'Support', icon: LifeBuoy, requires: 'support.manage' as const },
   { to: '/admin/network', label: 'Network', icon: Building2 },
   { to: '/admin/settings', label: 'More', icon: Settings },
 ];
@@ -53,19 +59,49 @@ const mobileNav = [
 export function AdminApp() {
   return (
     <Routes>
-      <Route element={<AppShell title="Platform Admin" nav={nav} mobileNav={mobileNav} />}>
+      <Route element={<AppShell title="Platform Admin" nav={nav} mobileNav={mobileNav} portal="admin" />}>
         <Route index element={<AdminHome />} />
-        <Route path="verifications" element={<AdminVerifications />} />
-        <Route path="verifications/:id" element={<AdminVerifications />} />
-        <Route path="network" element={<AdminNetwork />} />
-        <Route path="analytics" element={<AdminAnalytics />} />
-        <Route path="orders" element={<AdminOrders />} />
-        <Route path="payments" element={<AdminPayments />} />
-        <Route path="support" element={<AdminSupport />} />
-        <Route path="announcements" element={<AdminAnnouncements />} />
-        <Route path="suspensions" element={<AdminSuspensions />} />
-        <Route path="audit" element={<AdminAudit />} />
-        <Route path="settings" element={<AdminSettings />} />
+        <Route element={<RequirePermission action="verification.review" />}>
+          <Route path="verifications" element={<AdminVerifications />} />
+          <Route path="verifications/:id" element={<AdminVerifications />} />
+        </Route>
+        <Route element={<RequirePermission action="read.platform" />}>
+          <Route path="network" element={<AdminNetwork />} />
+          <Route path="network/:id" element={<AdminBusinessDetail />} />
+          <Route path="analytics" element={<AdminAnalytics />} />
+          <Route path="orders" element={<AdminOrders />} />
+          <Route path="orders/:orderNo" element={<AdminOrders />} />
+          <Route path="payments" element={<AdminPayments />} />
+          <Route path="payments/:paymentNo" element={<AdminPayments />} />
+          <Route path="plans" element={<AdminPlans />} />
+          <Route path="returns" element={<AdminReturns />} />
+        </Route>
+        <Route element={<RequirePermission action="support.manage" />}>
+          <Route path="support" element={<AdminSupport />} />
+          <Route path="support/:id" element={<AdminSupport />} />
+        </Route>
+        <Route element={<RequirePermission action="announcement.manage" />}>
+          <Route path="announcements" element={<AdminAnnouncements />} />
+          <Route path="banners" element={<AdminBanners />} />
+        </Route>
+        <Route element={<RequirePermission action="counterfeit.review" />}>
+          <Route path="counterfeit" element={<AdminCounterfeit />} />
+        </Route>
+        <Route element={<RequirePermission action="business.suspend" />}>
+          <Route path="suspensions" element={<AdminSuspensions />} />
+        </Route>
+        <Route element={<RequirePermission action="audit.export" />}>
+          <Route path="audit" element={<AdminAudit />} />
+          <Route path="reports" element={<AdminReports />} />
+        </Route>
+        <Route element={<RequirePermission action="settings.manage" />}>
+          <Route path="settings" element={<AdminSettings />} />
+        </Route>
+        <Route element={<RequirePermission action="staff.manage" />}>
+          <Route path="staff" element={<AdminStaff />} />
+        </Route>
+        <Route path="profile" element={<ProfileSecurityPage />} />
+        <Route path="help" element={<AdminHelp />} />
         <Route path="notifications" element={<AdminNotifications />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>

@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { portalFor } from '../domain/permissions';
-import { useSession } from '../store/session';
+import { portalFor, type Action } from '../domain/permissions';
+import { useCan, useSession } from '../store/session';
 
 export function RequireAuth() {
   const { user, business, hydrated } = useSession();
@@ -15,9 +15,7 @@ export function RequireAuth() {
   if (!user || !business) {
     return <Navigate to="/auth/login" replace state={{ from: location }} />;
   }
-  if (business.accountStatus === 'Suspended' && !location.pathname.startsWith('/auth')) {
-    return <Navigate to="/auth/suspended" replace />;
-  }
+  // AD-11: suspended businesses may enter the portal read-only; trade stays permission-gated.
   return <Outlet />;
 }
 
@@ -27,8 +25,24 @@ export function RequirePortal({ type }: { type: 'Pharmacy' | 'Stockist' | 'Platf
   if (business.type !== type) {
     return <Navigate to={`/${portalFor(business.type)}`} replace />;
   }
-  if (type !== 'Platform' && business.verificationStatus !== 'Approved') {
+  // Trade stays permission-gated until Approved. Allow portal entry for resubmit/profile (PH-27/ST-11).
+  if (
+    type !== 'Platform' &&
+    business.verificationStatus !== 'Approved' &&
+    !['DocumentsRequested', 'Rejected'].includes(business.verificationStatus)
+  ) {
     return <Navigate to="/auth/pending" replace />;
+  }
+  return <Outlet />;
+}
+
+/** Route guard for financial / fulfilment permission gates (F6). */
+export function RequirePermission({ action, fallback }: { action: Action; fallback?: string }) {
+  const allowed = useCan(action);
+  const { business, impersonation } = useSession();
+  // CF-25: view-as may open gated routes read-only; mutations stay blocked in services/UI.
+  if (!allowed && !impersonation) {
+    return <Navigate to={fallback ?? `/${portalFor(business!.type)}`} replace />;
   }
   return <Outlet />;
 }

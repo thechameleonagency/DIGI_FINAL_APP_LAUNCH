@@ -3,11 +3,18 @@ import type { AccountStatus, BusinessType, OperationalRole, VerificationStatus }
 export type Action =
   | 'trade.create'
   | 'order.place'
+  | 'order.recordManual'
   | 'order.accept'
   | 'order.reject'
   | 'order.cancel'
   | 'order.allocate'
   | 'order.pack'
+  | 'partner.invite'
+  | 'payment.recordOffline'
+  | 'reminder.send'
+  | 'supplier.manage'
+  | 'po.manage'
+  | 'route.manage'
   | 'invoice.issue'
   | 'invoice.void'
   | 'payment.submit'
@@ -31,21 +38,32 @@ export type Action =
   | 'support.manage'
   | 'announcement.manage'
   | 'settings.manage'
+  | 'plan.manage'
+  | 'counterfeit.report'
+  | 'counterfeit.review'
+  | 'impersonate'
   | 'read.own'
-  | 'read.platform';
+  | 'read.platform'
+  | 'sale.record'
+  | 'sale.view';
 
 const pharmacyMatrix: Record<OperationalRole, Action[]> = {
   Owner: [
     'trade.create', 'order.place', 'order.cancel', 'payment.submit', 'return.raise', 'credit.apply',
     'connection.request', 'staff.manage', 'verification.submit', 'inventory.adjust', 'read.own', 'support.manage',
+    'sale.record', 'sale.view', 'counterfeit.report',
   ],
   Manager: [
     'trade.create', 'order.place', 'order.cancel', 'payment.submit', 'return.raise', 'credit.apply',
     'connection.request', 'staff.manage', 'verification.submit', 'inventory.adjust', 'read.own', 'support.manage',
+    'sale.record', 'sale.view', 'counterfeit.report',
   ],
-  Staff: ['order.place', 'order.cancel', 'return.raise', 'connection.request', 'inventory.adjust', 'read.own', 'support.manage'],
-  Accountant: ['payment.submit', 'credit.apply', 'read.own', 'support.manage'],
-  DeliveryBoy: ['delivery.update', 'read.own'],
+  Staff: [
+    'order.place', 'order.cancel', 'return.raise', 'connection.request', 'inventory.adjust', 'read.own', 'support.manage',
+    'sale.record', 'sale.view', 'counterfeit.report',
+  ],
+  Accountant: ['payment.submit', 'credit.apply', 'read.own', 'support.manage', 'sale.view'],
+  DeliveryBoy: ['delivery.update', 'read.own', 'sale.view'],
   SupportAgent: [],
   Admin: [],
   SuperAdmin: [],
@@ -53,22 +71,27 @@ const pharmacyMatrix: Record<OperationalRole, Action[]> = {
 
 const stockistMatrix: Record<OperationalRole, Action[]> = {
   Owner: [
-    'trade.create', 'order.accept', 'order.reject', 'order.cancel', 'order.allocate', 'order.pack',
-    'invoice.issue', 'invoice.void', 'payment.approve', 'payment.reject', 'return.approve', 'credit.issue', 'credit.apply',
-    'delivery.assign', 'delivery.update', 'catalogue.manage', 'inventory.adjust', 'connection.respond',
-    'staff.manage', 'verification.submit', 'read.own', 'support.manage',
+    'trade.create', 'order.recordManual', 'order.accept', 'order.reject', 'order.cancel', 'order.allocate', 'order.pack',
+    'invoice.issue', 'invoice.void', 'payment.approve', 'payment.reject', 'payment.recordOffline', 'reminder.send',
+    'return.approve', 'credit.issue', 'credit.apply', 'delivery.assign', 'delivery.update', 'catalogue.manage',
+    'inventory.adjust', 'connection.respond', 'partner.invite', 'supplier.manage', 'po.manage', 'route.manage',
+    'staff.manage', 'verification.submit', 'read.own', 'support.manage', 'counterfeit.report',
   ],
   Manager: [
-    'trade.create', 'order.accept', 'order.reject', 'order.cancel', 'order.allocate', 'order.pack',
-    'invoice.issue', 'payment.approve', 'payment.reject', 'return.approve', 'credit.issue', 'credit.apply',
-    'delivery.assign', 'delivery.update', 'catalogue.manage', 'inventory.adjust', 'connection.respond',
-    'staff.manage', 'verification.submit', 'read.own', 'support.manage',
+    'trade.create', 'order.recordManual', 'order.accept', 'order.reject', 'order.cancel', 'order.allocate', 'order.pack',
+    'invoice.issue', 'payment.approve', 'payment.reject', 'payment.recordOffline', 'reminder.send', 'return.approve',
+    'credit.issue', 'credit.apply', 'delivery.assign', 'delivery.update', 'catalogue.manage', 'inventory.adjust',
+    'connection.respond', 'partner.invite', 'supplier.manage', 'po.manage', 'route.manage', 'staff.manage',
+    'verification.submit', 'read.own', 'support.manage', 'counterfeit.report',
   ],
   Staff: [
     'order.accept', 'order.reject', 'order.allocate', 'order.pack', 'delivery.assign', 'delivery.update',
-    'catalogue.manage', 'inventory.adjust', 'read.own', 'support.manage',
+    'catalogue.manage', 'inventory.adjust', 'read.own', 'support.manage', 'counterfeit.report',
   ],
-  Accountant: ['invoice.issue', 'payment.approve', 'payment.reject', 'credit.issue', 'credit.apply', 'read.own', 'support.manage'],
+  Accountant: [
+    'invoice.issue', 'payment.approve', 'payment.reject', 'payment.recordOffline', 'reminder.send', 'credit.issue',
+    'credit.apply', 'read.own', 'support.manage',
+  ],
   DeliveryBoy: ['delivery.update', 'read.own'],
   SupportAgent: [],
   Admin: [],
@@ -79,11 +102,12 @@ const adminMatrix: Record<OperationalRole, Action[]> = {
   SupportAgent: ['support.manage', 'read.platform'],
   Admin: [
     'verification.review', 'business.suspend', 'support.manage', 'announcement.manage',
-    'read.platform', 'audit.export',
+    'read.platform', 'audit.export', 'staff.manage', 'counterfeit.review',
   ],
   SuperAdmin: [
     'verification.review', 'business.suspend', 'support.manage', 'announcement.manage',
-    'settings.manage', 'read.platform', 'audit.export',
+    'settings.manage', 'plan.manage', 'read.platform', 'audit.export', 'staff.manage', 'counterfeit.review',
+    'impersonate',
   ],
   Owner: [],
   Manager: [],
@@ -100,9 +124,15 @@ export interface PermissionContext {
   overrides?: Record<string, boolean>;
   targetBusinessId?: string;
   actorBusinessId?: string;
+  /** CF-25: view-as sessions may only read */
+  impersonationReadOnly?: boolean;
 }
 
 export function can(action: Action, ctx: PermissionContext): { allow: boolean; reason?: string } {
+  if (ctx.impersonationReadOnly) {
+    if (action === 'read.own' || action === 'read.platform') return { allow: true };
+    return { allow: false, reason: 'View-as session is read-only. Exit to admin to make changes.' };
+  }
   if (ctx.overrides?.[action] === false) return { allow: false, reason: 'Explicit deny override.' };
   if (ctx.overrides?.[action] === true) {
     // still respect suspension for trade
@@ -116,8 +146,9 @@ export function can(action: Action, ctx: PermissionContext): { allow: boolean; r
   }
 
   const tradeActions: Action[] = [
-    'order.place', 'order.accept', 'connection.request', 'connection.respond', 'catalogue.manage',
-    'invoice.issue', 'payment.submit', 'payment.approve', 'return.raise', 'return.approve',
+    'order.place', 'order.recordManual', 'order.accept', 'connection.request', 'connection.respond', 'catalogue.manage',
+    'invoice.issue', 'payment.submit', 'payment.approve', 'payment.recordOffline', 'return.raise', 'return.approve',
+    'partner.invite',
   ];
   if (
     tradeActions.includes(action) &&

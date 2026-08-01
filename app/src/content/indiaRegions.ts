@@ -1,0 +1,43 @@
+/** Indian states + UTs with sample cities (city remains free-text). */
+export const STATE_CITIES: Record<string, string[]> = {
+  'Andaman and Nicobar Islands': ['Port Blair'],
+  'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Tirupati', 'Nellore', 'Kurnool'],
+  'Arunachal Pradesh': ['Itanagar', 'Naharlagun', 'Tawang'],
+  Assam: ['Guwahati', 'Dibrugarh', 'Silchar', 'Jorhat'],
+  Bihar: ['Patna', 'Gaya', 'Bhagalpur', 'Muzaffarpur', 'Purnia'],
+  Chandigarh: ['Chandigarh'],
+  Chhattisgarh: ['Raipur', 'Bhilai', 'Bilaspur', 'Durg'],
+  'Dadra and Nagar Haveli and Daman and Diu': ['Daman', 'Diu', 'Silvassa'],
+  Delhi: ['New Delhi', 'Dwarka', 'Rohini', 'Saket', 'Karol Bagh', 'Laxmi Nagar'],
+  Goa: ['Panaji', 'Margao', 'Vasco da Gama', 'Mapusa'],
+  Gujarat: ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Bhavnagar', 'Gandhinagar'],
+  Haryana: ['Gurugram', 'Faridabad', 'Panipat', 'Ambala', 'Hisar', 'Karnal'],
+  'Himachal Pradesh': ['Shimla', 'Dharamshala', 'Mandi', 'Solan'],
+  'Jammu and Kashmir': ['Srinagar', 'Jammu', 'Anantnag', 'Baramulla'],
+  Jharkhand: ['Ranchi', 'Jamshedpur', 'Dhanbad', 'Bokaro'],
+  Karnataka: ['Bengaluru', 'Mysuru', 'Mangaluru', 'Hubli', 'Belagavi'],
+  Kerala: ['Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam'],
+  Ladakh: ['Leh', 'Kargil'],
+  Lakshadweep: ['Kavaratti'],
+  'Madhya Pradesh': ['Bhopal', 'Indore', 'Jabalpur', 'Gwalior', 'Ujjain'],
+  Maharashtra: ['Mumbai', 'Pune', 'Nagpur', 'Nashik', 'Thane', 'Aurangabad', 'Solapur', 'Kolhapur'],
+  Manipur: ['Imphal', 'Thoubal'],
+  Meghalaya: ['Shillong', 'Tura'],
+  Mizoram: ['Aizawl', 'Lunglei'],
+  Nagaland: ['Kohima', 'Dimapur'],
+  Odisha: ['Bhubaneswar', 'Cuttack', 'Rourkela', 'Puri', 'Sambalpur'],
+  Puducherry: ['Puducherry', 'Karaikal', 'Mahe', 'Yanam'],
+  Punjab: ['Ludhiana', 'Amritsar', 'Jalandhar', 'Patiala', 'Mohali'],
+  Rajasthan: ['Jaipur', 'Jodhpur', 'Udaipur', 'Kota', 'Ajmer', 'Bikaner'],
+  Sikkim: ['Gangtok', 'Namchi'],
+  'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Salem', 'Tiruchirappalli'],
+  Telangana: ['Hyderabad', 'Warangal', 'Nizamabad', 'Karimnagar'],
+  Tripura: ['Agartala', 'Udaipur'],
+  'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Varanasi', 'Agra', 'Noida', 'Ghaziabad'],
+  Uttarakhand: ['Dehradun', 'Haridwar', 'Haldwani', 'Roorkee'],
+  'West Bengal': ['Kolkata', 'Howrah', 'Durgapur', 'Siliguri', 'Asansol'],
+};
+
+export const INDIAN_STATES = Object.keys(STATE_CITIES);
+
+export const PHARMACY_TYPES = ['Retail', 'Hospital', 'Chain', 'Wholesale'] as const;

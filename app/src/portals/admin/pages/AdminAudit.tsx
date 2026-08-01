@@ -1,0 +1,170 @@
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { can } from '../../../domain/permissions';
+import { db } from '../../../data/db';
+import { useUi } from '../../../store/ui';
+import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { EmptyState, Field, Input, PageHeader } from '../../../ui/components/primitives';
+import { useBiz } from './useBiz';
+
+function dayKey(iso?: string): string {
+  return iso ? iso.slice(0, 10) : '';
+}
+
+export function AdminAudit() {
+  const { business, user } = useBiz();
+  const { pushToast } = useUi();
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const logs = useLiveQuery(() => db.auditLogs.orderBy('at').reverse().toArray()) ?? [];
+  const canExport = can('audit.export', {
+    businessType: business.type,
+    role: user.role,
+    accountStatus: business.accountStatus,
+    verificationStatus: business.verificationStatus,
+    overrides: user.permissionOverrides,
+  }).allow;
+
+  const rows = useMemo(() => {
+    return logs
+      .filter((l) => {
+        const d = dayKey(l.at);
+        if (from && d < from) return false;
+        if (to && d > to) return false;
+        return true;
+      })
+      .map((l) => ({
+        ...l,
+        entityLabel: `${l.entityType}:${l.entityId.slice(0, 8)}`,
+        when: l.at,
+      }));
+  }, [logs, from, to]);
+
+  const entityTypes = useMemo(() => [...new Set(logs.map((l) => l.entityType))].sort(), [logs]);
+
+  const columns = useMemo(
+    () => [
+      {
+        key: 'when',
+        label: 'When',
+        getValue: (l: (typeof rows)[0]) => l.at,
+        render: (l: (typeof rows)[0]) => <span className="muted">{new Date(l.at).toLocaleString()}</span>,
+      },
+      { key: 'actorName', label: 'Actor', getValue: (l: (typeof rows)[0]) => l.actorName },
+      { key: 'action', label: 'Action', getValue: (l: (typeof rows)[0]) => l.action },
+      { key: 'entityLabel', label: 'Entity', getValue: (l: (typeof rows)[0]) => l.entityLabel },
+      { key: 'entityType', label: 'Entity type', getValue: (l: (typeof rows)[0]) => l.entityType },
+      { key: 'reason', label: 'Reason', getValue: (l: (typeof rows)[0]) => l.reason ?? '' },
+    ],
+    [],
+  );
+
+  const list = useListControls(rows, {
+    columns,
+    searchKeys: [(l) => `${l.actorName} ${l.action} ${l.entityType} ${l.entityId} ${l.reason ?? ''}`],
+    filters: [
+      {
+        key: 'entityType',
+        label: 'Entity',
+        options: entityTypes.map((t) => ({ value: t, label: t })),
+      },
+    ],
+    defaultSortKey: 'when',
+    defaultSortDir: 'desc',
+    pageSize: 50,
+  });
+
+  const open = expanded ? rows.find((r) => r.id === expanded) : undefined;
+
+  return (
+    <div className="stack">
+      <PageHeader title="Audit log" subtitle="Search, date + entity filters, expand before/after, CSV gated by audit.export" />
+      <div className="row" style={{ alignItems: 'flex-end' }}>
+        <Field label="From">
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </Field>
+        <Field label="To">
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </Field>
+      </div>
+      {!logs.length ? (
+        <EmptyState
+          title="No audit entries"
+          description="Actions across the platform are logged here as users trade and admins decide."
+          action={
+            <Link className="btn btn-primary" to="/admin">
+              Go to home
+            </Link>
+          }
+        />
+      ) : (
+        <>
+          <ListToolbar
+            query={list.query}
+            onQuery={list.setQuery}
+            placeholder="Search actor / action / entity / reason"
+            filters={[
+              {
+                key: 'entityType',
+                label: 'Entity',
+                options: entityTypes.map((t) => ({ value: t, label: t })),
+              },
+            ]}
+            filterValues={list.filterValues}
+            onFilter={list.setFilter}
+            onExport={() => {
+              if (!canExport) {
+                pushToast({ tone: 'error', title: 'Export denied', message: 'Requires audit.export permission.' });
+                return;
+              }
+              const ok = list.doExport('audit-log.csv', true);
+              pushToast(ok ? { tone: 'success', title: 'Audit CSV exported' } : { tone: 'error', title: 'Export failed' });
+            }}
+            exportLabel={canExport ? 'Export CSV' : 'Export (no permission)'}
+          />
+          <DataListTable
+            columns={columns.filter((c) => c.key !== 'entityType')}
+            rows={list.pageRows}
+            sortKey={list.sortKey}
+            sortDir={list.sortDir}
+            onSort={list.toggleSort}
+            onRowClick={(l) => setExpanded((id) => (id === l.id ? null : l.id))}
+          />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+            Showing page of {list.total} filtered entries (full history, not capped at 200). Click a row to expand
+            before/after.
+          </p>
+        </>
+      )}
+
+      {open ? (
+        <div className="card card-pad stack">
+          <strong>
+            {open.action} · {open.entityType}/{open.entityId}
+          </strong>
+          <div className="muted" style={{ fontSize: 13 }}>
+            {open.actorName} · {new Date(open.at).toLocaleString()}
+            {open.reason ? ` · ${open.reason}` : ''}
+          </div>
+          <div className="grid-2">
+            <div>
+              <strong style={{ fontSize: 12 }}>Before</strong>
+              <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: '6px 0 0' }}>
+                {open.before ? JSON.stringify(open.before, null, 2) : '—'}
+              </pre>
+            </div>
+            <div>
+              <strong style={{ fontSize: 12 }}>After</strong>
+              <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: '6px 0 0' }}>
+                {open.after ? JSON.stringify(open.after, null, 2) : '—'}
+              </pre>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

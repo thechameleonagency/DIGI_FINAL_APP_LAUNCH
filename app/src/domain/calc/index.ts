@@ -92,11 +92,16 @@ export function lowStock(available: number, threshold = 10): boolean {
 export function calcPaymentAllocationValidity(
   amount: number,
   allocations: { amount: number; outstanding: number }[],
+  opts?: { allowSurplus?: boolean },
 ): { ok: boolean; reason?: string } {
   const sum = roundMoney(allocations.reduce((s, a) => s + a.amount, 0));
   if (allocations.some((a) => a.amount <= 0)) return { ok: false, reason: 'Allocation amounts must be positive.' };
   if (allocations.some((a) => a.amount > a.outstanding + 0.005))
     return { ok: false, reason: 'Allocation exceeds invoice outstanding.' };
+  if (opts?.allowSurplus) {
+    if (sum - amount > 0.005) return { ok: false, reason: 'Allocations cannot exceed payment amount.' };
+    return { ok: true };
+  }
   if (Math.abs(sum - amount) > 0.005) return { ok: false, reason: 'Allocations must equal payment amount.' };
   return { ok: true };
 }

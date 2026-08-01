@@ -13,6 +13,12 @@ export async function emitNotification(params: {
   try {
     const tpl = NOTIFICATION_CATALOG[params.code];
     if (!tpl) return;
+    const user = await db.users.get(params.userId);
+    const muted = user?.notificationPreferences?.mutedCategories ?? [];
+    const category = params.entityType ?? 'System';
+    // Critical/action-required categories cannot be muted (CF-30)
+    const critical = category === 'Verification' || category === 'Business';
+    if (!critical && (muted.includes(category) || muted.includes(params.code))) return;
     await db.notifications.add({
       id: newId(),
       userId: params.userId,

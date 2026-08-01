@@ -1,11 +1,13 @@
 import type {
   BatchStatus,
+  CatalogueStatus,
   ConnectionStatus,
   CreditNoteStatus,
   DeliveryStatus,
   InvoiceStatus,
   OrderStatus,
   PaymentStatus,
+  ProductStatus,
   ReturnStatus,
   TicketStatus,
   VerificationStatus,
@@ -36,7 +38,7 @@ const connection: Record<ConnectionStatus, ConnectionStatus[]> = {
   Active: ['Disconnected', 'Blocked'],
   Rejected: ['Requested'],
   Disconnected: ['Requested', 'Blocked'],
-  Blocked: [],
+  Blocked: ['Active'],
   Cancelled: ['Requested'],
 };
 
@@ -120,6 +122,18 @@ const batch: Record<BatchStatus, BatchStatus[]> = {
   Depleted: [],
 };
 
+const product: Record<ProductStatus, ProductStatus[]> = {
+  Active: ['Inactive', 'Discontinued'],
+  Inactive: ['Active', 'Discontinued'],
+  Discontinued: [],
+};
+
+const catalogue: Record<CatalogueStatus, CatalogueStatus[]> = {
+  Active: ['Maintenance', 'Inactive'],
+  Maintenance: ['Active', 'Inactive'],
+  Inactive: ['Active', 'Maintenance'],
+};
+
 export const machines = {
   verification: (from: VerificationStatus, to: VerificationStatus) => allow(verification, from, to),
   connection: (from: ConnectionStatus, to: ConnectionStatus) => allow(connection, from, to),
@@ -131,6 +145,8 @@ export const machines = {
   creditNote: (from: CreditNoteStatus, to: CreditNoteStatus) => allow(creditNote, from, to),
   ticket: (from: TicketStatus, to: TicketStatus) => allow(ticket, from, to),
   batch: (from: BatchStatus, to: BatchStatus) => allow(batch, from, to),
+  product: (from: ProductStatus, to: ProductStatus) => allow(product, from, to),
+  catalogue: (from: CatalogueStatus, to: CatalogueStatus) => allow(catalogue, from, to),
 };
 
 export function canTransition(

@@ -1,0 +1,548 @@
+import { useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../../../data/db';
+import { pairOutstanding } from '../../../domain/calc';
+import { formatINR } from '../../../domain/utils/money';
+import { acceptOrder, cancelOrder, closeOrder, editOrderLines, rejectOrder } from '../../../services/orderService';
+import {
+  allocateOrder,
+  createAndDispatchDelivery,
+  issueInvoice,
+  packOrder,
+} from '../../../services/fulfilmentService';
+import { useCan } from '../../../store/session';
+import { useUi } from '../../../store/ui';
+import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
+import { PharmacyDeliveryPrefs } from '../../../ui/components/PharmacyDeliveryPrefs';
+import { Button, EmptyState, Field, Input, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { useBiz } from './useBiz';
+
+export function StockistOrderDetail() {
+  const { orderNo } = useParams();
+  const { business, user } = useBiz();
+  const { pushToast } = useUi();
+  const canAccept = useCan('order.accept');
+  const canReject = useCan('order.reject');
+  const canAllocate = useCan('order.allocate');
+  const canPack = useCan('order.pack');
+  const canInvoice = useCan('invoice.issue');
+  const canDispatch = useCan('delivery.assign');
+  const canCancel = useCan('order.cancel');
+  const order = useLiveQuery(() => db.orders.where('orderNo').equals(orderNo!).first(), [orderNo]);
+  const pharmacy = useLiveQuery(
+    () => (order ? db.businesses.get(order.pharmacyId) : undefined),
+    [order?.pharmacyId],
+  );
+  const invoice = useLiveQuery(
+    () => (order?.invoiceId ? db.invoices.get(order.invoiceId) : undefined),
+    [order?.invoiceId],
+  );
+  const connection = useLiveQuery(
+    () => (order ? db.connections.get(order.connectionId) : undefined),
+    [order?.connectionId],
+  );
+  const pairInvoices =
+    useLiveQuery(
+      () =>
+        order
+          ? db.invoices.where({ pharmacyId: order.pharmacyId, stockistId: business.id }).toArray()
+          : [],
+      [order?.pharmacyId, business.id],
+    ) ?? [];
+  const staff = useLiveQuery(
+    () => db.users.where('businessId').equals(business.id).filter((u) => u.role === 'DeliveryBoy').toArray(),
+    [business.id],
+  ) ?? [];
+  const routes =
+    useLiveQuery(() => db.stockistRoutes.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [creditWarn, setCreditWarn] = useState<'accept' | 'invoice' | null>(null);
+  const [assignee, setAssignee] = useState('');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [dispatchRouteId, setDispatchRouteId] = useState('');
+  const [acceptedQtys, setAcceptedQtys] = useState<Record<string, number>>({});
+  const [editQtys, setEditQtys] = useState<Record<string, number>>({});
+  const [editingLines, setEditingLines] = useState(false);
+  const [allocOpen, setAllocOpen] = useState(false);
+  const [overrides, setOverrides] = useState<Record<string, { batchId: string; qty: number }[]>>({});
+
+  const batches = useLiveQuery(
+    () => (order ? db.batches.where('stockistId').equals(business.id).toArray() : []),
+    [order?.id, business.id],
+  ) ?? [];
+
+  if (!order) return <EmptyState title="Order not found" description="" />;
+
+  const addr = order.deliveryAddress;
+  const cancellable = ['Pending', 'Accepted', 'PartiallyAccepted', 'Allocated'].includes(order.status);
+  const linesEditable = ['Pending', 'Accepted', 'PartiallyAccepted'].includes(order.status);
+  const outstanding = pairOutstanding(pairInvoices, order.pharmacyId, business.id);
+  const creditLimit = connection?.creditLimit;
+  const wouldExceed =
+    creditLimit != null && outstanding + order.grandTotal > creditLimit;
+
+  const act = async (
+    fn: () => Promise<{
+      ok: boolean;
+      message?: string;
+      businessImpact?: string;
+      data?: { orderNo?: string; invoiceNo?: string; deliveryNo?: string };
+    }>,
+    okTitle: string,
+  ) => {
+    const res = await fn();
+    pushToast(
+      res.ok
+        ? { tone: 'success', title: okTitle, message: res.data?.orderNo || res.data?.invoiceNo || res.data?.deliveryNo }
+        : { tone: 'error', title: res.message!, message: res.businessImpact },
+    );
+  };
+
+  return (
+    <div className="stack">
+      <PageHeader title={order.orderNo} subtitle={`${order.status} · ${pharmacy?.name ?? order.pharmacyId}`} />
+      <div className="row">
+        <StatusBadge status={order.status} />
+        {order.source === 'Manual' ? <StatusBadge status="Manual" /> : null}
+      </div>
+      {order.source === 'Manual' ? (
+        <div className="muted" style={{ fontSize: 13 }}>
+          Recorded by stockist on behalf of pharmacy — creator permanently on audit trail.
+        </div>
+      ) : null}
+      <ConfirmDialog
+        open={rejectOpen}
+        title="Reject order"
+        body={`Reject ${order.orderNo}? Reserved stock will be released.`}
+        requireReason
+        tone="danger"
+        confirmLabel="Reject order"
+        onClose={() => setRejectOpen(false)}
+        onConfirm={async (reason) => {
+          await act(() => rejectOrder({ actor: user, stockist: business, orderId: order.id, reason: reason! }), 'Order rejected');
+          setRejectOpen(false);
+        }}
+      />
+      <ConfirmDialog
+        open={cancelOpen}
+        title="Cancel order"
+        body={`Cancel ${order.orderNo}? Reservations will be released.`}
+        requireReason
+        tone="danger"
+        confirmLabel="Cancel order"
+        onClose={() => setCancelOpen(false)}
+        onConfirm={async (reason) => {
+          await act(() => cancelOrder({ actor: user, business, orderId: order.id, reason: reason! }), 'Order cancelled');
+          setCancelOpen(false);
+        }}
+      />
+      <ConfirmDialog
+        open={!!creditWarn}
+        title="Credit limit exceeded"
+        body={`Outstanding ${formatINR(outstanding)} + order ${formatINR(order.grandTotal)} exceeds limit ${formatINR(creditLimit ?? 0)}. Continue anyway?`}
+        confirmLabel="Continue"
+        onClose={() => setCreditWarn(null)}
+        onConfirm={async () => {
+          if (creditWarn === 'accept') {
+            await act(
+              () =>
+                acceptOrder({
+                  actor: user,
+                  stockist: business,
+                  orderId: order.id,
+                  acceptedQtys: Object.keys(acceptedQtys).length ? acceptedQtys : undefined,
+                }),
+              'Order accepted',
+            );
+          } else if (creditWarn === 'invoice') {
+            await act(() => issueInvoice({ actor: user, stockist: business, orderId: order.id }), 'Invoice issued');
+          }
+          setCreditWarn(null);
+        }}
+      />
+
+      <div className="grid-2">
+        <div className="card card-pad stack">
+          <strong>Pharmacy & delivery</strong>
+          <PharmacyDeliveryPrefs pharmacy={pharmacy} />
+          <div style={{ fontSize: 13 }}>
+            <div>
+              <strong>{pharmacy?.name ?? '—'}</strong>
+            </div>
+            <div className="muted">
+              {pharmacy?.phone ?? '—'} · {pharmacy?.email ?? '—'}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <div className="muted">Delivery address</div>
+              {addr ? (
+                <div>
+                  {addr.label ? <div>{addr.label}</div> : null}
+                  <div>{addr.line1}</div>
+                  {addr.line2 ? <div>{addr.line2}</div> : null}
+                  <div>
+                    {addr.city}, {addr.state} {addr.pincode}
+                  </div>
+                </div>
+              ) : (
+                <div>—</div>
+              )}
+            </div>
+            {order.notes ? (
+              <div style={{ marginTop: 8 }}>
+                <div className="muted">Notes</div>
+                <div>{order.notes}</div>
+              </div>
+            ) : null}
+            {order.preferredDeliveryDate || order.preferredDate ? (
+              <div style={{ marginTop: 8 }} className="muted">
+                Preferred date: {order.preferredDeliveryDate ?? order.preferredDate}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="card card-pad stack">
+          <strong>Totals</strong>
+          <div className="row" style={{ justifyContent: 'space-between', fontSize: 13 }}>
+            <span>Subtotal</span>
+            <Money value={order.subtotal} />
+          </div>
+          <div className="row" style={{ justifyContent: 'space-between', fontSize: 13 }}>
+            <span>Tax</span>
+            <Money value={order.taxTotal} />
+          </div>
+          <div className="row" style={{ justifyContent: 'space-between', fontSize: 14, fontWeight: 600 }}>
+            <span>Grand total</span>
+            <Money value={order.grandTotal} />
+          </div>
+          {creditLimit != null ? (
+            <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+              Pair outstanding {formatINR(outstanding)} / limit {formatINR(creditLimit)}
+              {wouldExceed ? ' · over limit' : ''}
+            </div>
+          ) : null}
+          {invoice ? (
+            <div style={{ marginTop: 8 }}>
+              Invoice: <Link to={`/stockist/invoices/${invoice.invoiceNo}`}>{invoice.invoiceNo}</Link>
+              <span className="muted"> · </span>
+              <StatusBadge status={invoice.status} />
+            </div>
+          ) : order.invoiceId ? (
+            <div className="muted">Invoice linked</div>
+          ) : (
+            <div className="muted">No invoice yet</div>
+          )}
+        </div>
+      </div>
+
+      <div className="row">
+        {order.status === 'Pending' && canAccept ? (
+          <Button
+            onClick={() => {
+              if (wouldExceed) setCreditWarn('accept');
+              else
+                void act(
+                  () =>
+                    acceptOrder({
+                      actor: user,
+                      stockist: business,
+                      orderId: order.id,
+                      acceptedQtys: Object.keys(acceptedQtys).length ? acceptedQtys : undefined,
+                    }),
+                  'Order accepted',
+                );
+            }}
+          >
+            Accept
+          </Button>
+        ) : null}
+        {order.status === 'Pending' && canReject ? (
+          <Button variant="danger" onClick={() => setRejectOpen(true)}>
+            Reject
+          </Button>
+        ) : null}
+        {canAllocate && ['Accepted', 'PartiallyAccepted'].includes(order.status) ? (
+          <>
+            <Button onClick={() => act(() => allocateOrder({ actor: user, stockist: business, orderId: order.id }), 'Allocated (FEFO)')}>
+              Allocate (FEFO)
+            </Button>
+            <Button variant="secondary" onClick={() => setAllocOpen(true)}>
+              Manual allocate…
+            </Button>
+          </>
+        ) : null}
+        {canPack && order.status === 'Allocated' ? (
+          <Button onClick={() => act(() => packOrder({ actor: user, stockist: business, orderId: order.id }), 'Packed')}>Pack</Button>
+        ) : null}
+        {canInvoice && order.status === 'Packed' && !order.invoiceId ? (
+          <Button
+            onClick={() => {
+              if (wouldExceed) setCreditWarn('invoice');
+              else void act(() => issueInvoice({ actor: user, stockist: business, orderId: order.id }), 'Invoice issued');
+            }}
+          >
+            Issue invoice
+          </Button>
+        ) : null}
+        {canDispatch && order.status === 'Packed' && order.invoiceId ? (
+          <>
+            <Select value={assignee} onChange={(e) => setAssignee(e.target.value)} style={{ maxWidth: 200 }}>
+              <option value="">Assign delivery boy…</option>
+              {staff.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+            <Input
+              type="date"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+              aria-label="Scheduled delivery date"
+              style={{ maxWidth: 180 }}
+            />
+            <Select value={dispatchRouteId} onChange={(e) => setDispatchRouteId(e.target.value)} style={{ maxWidth: 180 }}>
+              <option value="">No route</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+            <Button
+              onClick={() =>
+                act(
+                  () =>
+                    createAndDispatchDelivery({
+                      actor: user,
+                      stockist: business,
+                      orderId: order.id,
+                      assigneeId: assignee || undefined,
+                      scheduledDate: scheduleDate || undefined,
+                      routeId: dispatchRouteId || undefined,
+                    }),
+                  'Dispatched',
+                )
+              }
+            >
+              Dispatch
+            </Button>
+          </>
+        ) : null}
+        {canCancel && cancellable ? (
+          <Button variant="danger" onClick={() => setCancelOpen(true)}>
+            Cancel order
+          </Button>
+        ) : null}
+        {canAccept && ['Delivered', 'PartiallyDelivered'].includes(order.status) ? (
+          <Button
+            variant="secondary"
+            onClick={() => act(() => closeOrder({ actor: user, stockist: business, orderId: order.id }), 'Order closed')}
+          >
+            Close order
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="card card-pad">
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <strong>Lines</strong>
+          {linesEditable ? (
+            editingLines ? (
+              <div className="row">
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    const res = await editOrderLines({
+                      actor: user,
+                      business,
+                      orderId: order.id,
+                      qtys: Object.fromEntries(order.lines.map((l) => [l.id, editQtys[l.id] ?? l.qty])),
+                    });
+                    pushToast(
+                      res.ok
+                        ? { tone: 'success', title: 'Lines updated' }
+                        : { tone: 'error', title: res.message!, message: res.businessImpact },
+                    );
+                    if (res.ok) setEditingLines(false);
+                  }}
+                >
+                  Save lines
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setEditingLines(false)}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setEditQtys(Object.fromEntries(order.lines.map((l) => [l.id, l.qty])));
+                  setEditingLines(true);
+                }}
+              >
+                Edit items
+              </Button>
+            )
+          ) : (
+            <span className="muted" style={{ fontSize: 12 }}>
+              Locked after pack — adjust via returns after delivery
+            </span>
+          )}
+        </div>
+        <div className="table-wrap" style={{ marginTop: 10 }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Qty</th>
+                {order.status === 'Pending' && canAccept ? <th>Accept qty</th> : null}
+                <th>Accepted</th>
+                <th>Allocated</th>
+                <th>Unit</th>
+                <th>GST%</th>
+                <th>Line total</th>
+                <th>Batches</th>
+              </tr>
+            </thead>
+            <tbody>
+              {order.lines.map((l) => (
+                <tr key={l.id}>
+                  <td>
+                    {l.productName}
+                    <div className="muted" style={{ fontSize: 11 }}>
+                      {l.sku} · {l.packSize}
+                    </div>
+                  </td>
+                  <td>
+                    {editingLines ? (
+                      <Input
+                        type="number"
+                        min={1}
+                        value={editQtys[l.id] ?? l.qty}
+                        onChange={(e) => setEditQtys((prev) => ({ ...prev, [l.id]: Number(e.target.value) }))}
+                        style={{ width: 80 }}
+                      />
+                    ) : (
+                      l.qty
+                    )}
+                  </td>
+                  {order.status === 'Pending' && canAccept ? (
+                    <td>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={editingLines ? editQtys[l.id] ?? l.qty : l.qty}
+                        value={acceptedQtys[l.id] ?? l.qty}
+                        onChange={(e) => setAcceptedQtys((prev) => ({ ...prev, [l.id]: Number(e.target.value) }))}
+                        style={{ width: 80 }}
+                      />
+                    </td>
+                  ) : null}
+                  <td>{l.acceptedQty ?? '—'}</td>
+                  <td>{l.allocatedQty ?? '—'}</td>
+                  <td>
+                    <Money value={l.unitPrice} />
+                  </td>
+                  <td>{l.gstPercent}%</td>
+                  <td>
+                    <Money value={l.lineTotal} />
+                  </td>
+                  <td style={{ fontSize: 12 }}>
+                    {l.batchAllocations?.map((b) => `${b.batchNumber}×${b.qty}`).join(', ') || '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {allocOpen ? (
+        <div className="card card-pad stack">
+          <strong>Manual batch allocation</strong>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            Override FEFO by picking sellable batches per line. Empty lines fall back to FEFO.
+          </p>
+          {order.lines.map((l) => {
+            const need = l.acceptedQty ?? l.qty;
+            const sellable = batches.filter((b) => b.productId === l.productId && b.status === 'Available' && new Date(b.expiryDate) > new Date());
+            const row = overrides[l.id]?.[0] ?? { batchId: sellable[0]?.id ?? '', qty: need };
+            return (
+              <div key={l.id} className="row" style={{ alignItems: 'flex-end' }}>
+                <div style={{ flex: 1 }}>
+                  <Field label={`${l.productName} (need ${need})`}>
+                    <Select
+                      value={row.batchId}
+                      onChange={(e) => setOverrides((prev) => ({ ...prev, [l.id]: [{ batchId: e.target.value, qty: row.qty }] }))}
+                    >
+                      <option value="">Select batch…</option>
+                      {sellable.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.batchNumber} · exp {b.expiryDate} · avail {b.onHand - b.reserved}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+                <Field label="Qty">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={need}
+                    value={row.qty}
+                    onChange={(e) =>
+                      setOverrides((prev) => ({
+                        ...prev,
+                        [l.id]: [{ batchId: row.batchId, qty: Number(e.target.value) }],
+                      }))
+                    }
+                    style={{ width: 90 }}
+                  />
+                </Field>
+              </div>
+            );
+          })}
+          <div className="row">
+            <Button
+              onClick={() => {
+                const clean: Record<string, { batchId: string; qty: number }[]> = {};
+                for (const [lineId, allocs] of Object.entries(overrides)) {
+                  if (allocs[0]?.batchId && allocs[0].qty > 0) clean[lineId] = allocs;
+                }
+                void act(
+                  () => allocateOrder({ actor: user, stockist: business, orderId: order.id, overrides: Object.keys(clean).length ? clean : undefined }),
+                  'Allocated (manual)',
+                );
+                setAllocOpen(false);
+              }}
+            >
+              Apply allocation
+            </Button>
+            <Button variant="secondary" onClick={() => setAllocOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="card card-pad">
+        <strong>Timeline</strong>
+        <div className="timeline" style={{ marginTop: 12 }}>
+          {order.statusHistory.map((h, i) => (
+            <div key={i} className="timeline-item">
+              <div className="timeline-dot" />
+              <div>
+                {h.from} → <strong>{h.to}</strong>
+                {h.reason ? <div className="muted">{h.reason}</div> : null}
+                <div className="muted">{new Date(h.at).toLocaleString()}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

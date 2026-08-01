@@ -115,6 +115,8 @@ export interface Business {
   legalName?: string;
   gstNumber?: string;
   drugLicenseNumber?: string;
+  panNumber?: string;
+  pharmacyType?: string;
   phone: string;
   email: string;
   city: string;
@@ -131,6 +133,20 @@ export interface Business {
   accountHolderName?: string;
   servicePins?: string[];
   creditDaysDefault?: number;
+  holidays?: string[];
+  preferences?: {
+    deliverySlots?: string[];
+    instructions?: string;
+    defaultReceiver?: string;
+    /** CF-18: optional delivery fee applied at invoice issue (immutable thereafter) */
+    deliveryFeeFlat?: number;
+    deliveryFeeFreeAbove?: number;
+    /** CF-23 Premium convenience — saved analytics period presets */
+    reportPresets?: { id: string; name: string; periodDays: number }[];
+  };
+  plan?: 'Free' | 'Premium';
+  locations?: { id: string; name: string; address?: string }[];
+  deliveryAddresses?: Address[];
   createdAt: string;
   updatedAt: string;
   suspendedAt?: string;
@@ -143,6 +159,8 @@ export interface User {
   name: string;
   email: string;
   phone: string;
+  /** Session-only CF-25 flag — never persisted to Dexie */
+  impersonationReadOnly?: boolean;
   role: OperationalRole;
   status: UserStatus;
   passwordSalt: string;
@@ -150,9 +168,26 @@ export interface User {
   inviteToken?: string;
   inviteExpiresAt?: string;
   permissionOverrides?: Record<string, boolean>;
+  notificationPreferences?: { mutedCategories?: string[] };
+  /** CF-30 UI preferences (persist with user) */
+  uiPreferences?: {
+    theme?: 'light' | 'dark';
+    language?: 'en';
+    showLocalFirstHint?: boolean;
+  };
+  onboardingSeenAt?: string;
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
+}
+
+export type VerificationDocKind = 'DrugLicense' | 'GstinCert' | 'WholesaleLicense' | 'Fssai' | 'PharmacyCert';
+
+export interface VerificationDocument {
+  kind: VerificationDocKind;
+  fileId: string;
+  licenseNumber?: string;
+  label: string;
 }
 
 export interface Verification {
@@ -166,6 +201,7 @@ export interface Verification {
   requestDocsNote?: string;
   internalNotes?: string;
   documentIds: string[];
+  documents?: VerificationDocument[];
   decisionHistory: StatusHistoryEntry[];
   createdAt: string;
   updatedAt: string;
@@ -205,6 +241,14 @@ export interface Product {
   gstPercent: number;
   moq: number;
   maxQty?: number;
+  reorderLevel?: number;
+  purchaseRate?: number;
+  manufacturer?: string;
+  genericName?: string;
+  /** Required for trade pricing — Generic % vs Ethical flat per line. */
+  pricingClass: 'Generic' | 'Ethical';
+  rxRequired?: boolean;
+  narcotic?: boolean;
   status: ProductStatus;
   description?: string;
   createdAt: string;
@@ -244,7 +288,12 @@ export type MovementType =
   | 'Expiry'
   | 'Quarantine'
   | 'GRNIn'
-  | 'Transfer';
+  | 'Transfer'
+  | 'TransferOut'
+  | 'TransferIn'
+  | 'SaleOut'
+  | 'SaleVoidIn'
+  | 'SaleReturnIn';
 
 export interface InventoryMovement {
   id: string;
@@ -274,12 +323,20 @@ export interface OrderLine {
   packedQty?: number;
   deliveredQty?: number;
   receivedQty?: number;
+  /** Inclusive unit price shown to pharmacy (PTR + commission baked in). */
   unitPrice: number;
+  /** Stockist PTR snapshot at order time. */
+  basePtr?: number;
+  /** Total commission for this line (not shown to pharmacy). */
+  commissionAmount?: number;
+  pricingClass?: 'Generic' | 'Ethical';
+  commissionMode?: 'PlatformGeneric' | 'PlatformEthical' | 'OfflineManaged';
   mrp: number;
   gstPercent: number;
   lineSubtotal: number;
   lineTax: number;
   lineTotal: number;
+  discrepancyReason?: string;
   batchAllocations?: { batchId: string; batchNumber: string; qty: number; expiryDate: string }[];
 }
 
@@ -297,10 +354,16 @@ export interface Order {
   deliveryAddress: Address;
   preferredDate?: string;
   notes?: string;
+  source?: 'Platform' | 'Manual' | 'QuickInvoice';
+  createdByBusinessId?: string;
+  /** When order is for a stockist-managed offline pharmacy. */
+  managedPharmacyId?: string;
+  preferredDeliveryDate?: string;
   idempotencyKey: string;
   statusHistory: StatusHistoryEntry[];
   invoiceId?: string;
   deliveryId?: string;
+  grnRecordedAt?: string;
   placedBy: string;
   placedAt: string;
   createdAt: string;
@@ -326,9 +389,13 @@ export interface Delivery {
   pharmacyId: string;
   status: DeliveryStatus;
   assignedTo?: string;
+  routeId?: string;
+  scheduledDate?: string;
   lines: DeliveryLine[];
   podFileId?: string;
+  receivedBy?: string;
   failReason?: string;
+  returnedToStockistAt?: string;
   statusHistory: StatusHistoryEntry[];
   createdAt: string;
   updatedAt: string;
@@ -397,6 +464,7 @@ export interface Payment {
   submittedAt?: string;
   reviewedBy?: string;
   reviewedAt?: string;
+  recordedBy?: 'Pharmacy' | 'Stockist';
   idempotencyKey: string;
   statusHistory: StatusHistoryEntry[];
   createdAt: string;
@@ -444,13 +512,16 @@ export interface CreditApplication {
 export interface CreditNote {
   id: string;
   creditNoteNo: string;
-  returnId: string;
+  returnId?: string;
   stockistId: string;
   pharmacyId: string;
   status: CreditNoteStatus;
   amount: number;
   remaining: number;
   applications: CreditApplication[];
+  source?: 'Return' | 'Goodwill' | 'Advance';
+  reason?: string;
+  paymentId?: string;
   issuedAt: string;
   issuedBy: string;
   createdAt: string;
@@ -500,6 +571,8 @@ export interface SupportTicket {
   category: string;
   status: TicketStatus;
   priority: 'Low' | 'Medium' | 'High';
+  relatedEntityType?: string;
+  relatedEntityId?: string;
   updates: { at: string; actorId: string; body: string; status?: TicketStatus }[];
   createdAt: string;
   updatedAt: string;
@@ -511,6 +584,7 @@ export interface Announcement {
   body: string;
   targetRoles: string[];
   placements: string[];
+  priority?: 'Low' | 'Medium' | 'High';
   startsAt: string;
   endsAt?: string;
   active: boolean;
@@ -558,6 +632,22 @@ export interface PlatformSettings {
   expiryCriticalDays: number;
   creditNoteAutoExpire: boolean;
   creditNoteExpiryDays?: number;
+  /** Platform Generic rate % (default 0.5). */
+  genericCommissionPercent?: number;
+  /** Ethical flat ₹ per product line (default 1). */
+  ethicalCommissionFlatPerProduct?: number;
+  /** Offline/managed pharmacy flat ₹ per line (default 1). */
+  offlineManagedFlatPerLine?: number;
+  /** Flag payments larger than this × pair average. */
+  largePaymentMultiple?: number;
+  /** CF-23 admin-editable Premium plan copy */
+  premiumPlan?: {
+    priceText: string;
+    benefits: string[];
+    upiId: string;
+  };
+  defaultGstPercent?: number;
+  maintenanceMode?: boolean;
   lastPolicyRunAt?: string;
 }
 
@@ -575,6 +665,8 @@ export interface CartLine {
   productId: string;
   stockistId: string;
   qty: number;
+  /** PTR when line was last added/updated — used for price-change confirm at checkout */
+  unitPriceAtAdd?: number;
 }
 
 export interface Cart {
@@ -608,4 +700,271 @@ export interface SeedMeta {
   id: 'meta';
   seedVersion: number;
   seededAt: string;
+}
+
+/** Canvas-derived tables (docs/22 / PLAN/04 §9) — Dexie version(2) */
+
+export type SmartOrderRuleTag = 'LowStock' | 'Frequent' | 'NearExpiry';
+
+export interface SmartOrderSellerOption {
+  stockistId: string;
+  stockistName: string;
+  productId: string;
+  ptr: number;
+  available: number;
+  moq: number;
+  maxQty?: number;
+}
+
+export interface SmartOrderSuggestionLine {
+  key: string;
+  productName: string;
+  brand: string;
+  rules: SmartOrderRuleTag[];
+  suggestedQty: number;
+  sellers: SmartOrderSellerOption[];
+  selectedStockistId?: string;
+  selectedProductId?: string;
+  unavailableReason?: string;
+}
+
+export interface SmartOrderAcceptedLine {
+  key: string;
+  productName: string;
+  stockistId: string;
+  productId: string;
+  qty: number;
+  unitPrice: number;
+}
+
+export interface SmartOrderRun {
+  id: string;
+  pharmacyId: string;
+  /** Comma-joined scopes: lowStock,frequent,nearExpiry */
+  scope: string;
+  suggestions: SmartOrderSuggestionLine[];
+  acceptedLines: SmartOrderAcceptedLine[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export type CustomerSaleStatus = 'Completed' | 'PartiallyReturned' | 'Returned' | 'Voided';
+export type CustomerSalePaymentMode = 'Cash' | 'UPI' | 'Credit';
+
+export interface CustomerSaleLine {
+  productRef: string;
+  productName: string;
+  batchAllocations: { inventoryId: string; batchNumber?: string; expiryDate?: string; qty: number }[];
+  qty: number;
+  unitPrice: number;
+  returnedQty: number;
+}
+
+export interface CustomerSaleReturnLine {
+  productRef: string;
+  qty: number;
+  reason: string;
+  at: string;
+}
+
+export type CustomerSaleDeliveryStatus = 'Unassigned' | 'Assigned' | 'Delivered' | 'Failed';
+
+export interface CustomerSale {
+  id: string;
+  saleNo: string;
+  pharmacyId: string;
+  customerName: string;
+  phone?: string;
+  lines: CustomerSaleLine[];
+  paymentMode: CustomerSalePaymentMode;
+  homeDelivery?: boolean;
+  address?: string;
+  /** B2C home-delivery logistics state (CF-06); independent of financial sale status */
+  deliveryStatus?: CustomerSaleDeliveryStatus;
+  routeId?: string;
+  status: CustomerSaleStatus;
+  returnedLines: CustomerSaleReturnLine[];
+  voidReason?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface DeliveryArea {
+  id: string;
+  pharmacyId: string;
+  name: string;
+  pins: string[];
+}
+
+export type PharmacyRouteStopStatus = 'Pending' | 'Delivered' | 'Failed';
+
+export interface PharmacyRouteStop {
+  saleId: string;
+  seq: number;
+  status: PharmacyRouteStopStatus;
+  failReason?: string;
+}
+
+export interface PharmacyRoute {
+  id: string;
+  pharmacyId: string;
+  name: string;
+  areaId?: string;
+  assigneeUserId?: string;
+  stops: PharmacyRouteStop[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManagedPharmacy {
+  id: string;
+  stockistId: string;
+  name: string;
+  phone: string;
+  email?: string;
+  gst?: string;
+  drugLicense?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  creditLimit?: number;
+  creditDays?: number;
+  note?: string;
+  status: 'OfflineOnly' | 'Invited' | 'Linked';
+  inviteId?: string;
+  linkedBusinessId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PartnerInvite {
+  id: string;
+  stockistId: string;
+  name: string;
+  phone: string;
+  email?: string;
+  gst?: string;
+  status: 'Sent' | 'Registered' | 'Connected' | 'Withdrawn';
+  /** Optional link to ManagedPharmacy when invite originates from offline ops. */
+  managedPharmacyId?: string;
+  createdAt: string;
+}
+
+export interface Supplier {
+  id: string;
+  stockistId: string;
+  name: string;
+  contact: string;
+  gst?: string;
+  terms?: string;
+  active: boolean;
+}
+
+export type PurchaseOrderStatus =
+  | 'Draft'
+  | 'Sent'
+  | 'PartiallyReceived'
+  | 'Received'
+  | 'Closed'
+  | 'Cancelled';
+
+export interface PurchaseOrder {
+  id: string;
+  poNo: string;
+  stockistId: string;
+  supplierId: string;
+  lines: { productId: string; productName?: string; qty: number; expectedCost: number; receivedQty: number }[];
+  status: PurchaseOrderStatus;
+  statusHistory: StatusHistoryEntry[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseBill {
+  id: string;
+  billNo: string;
+  stockistId: string;
+  supplierId: string;
+  date: string;
+  amount: number;
+  fileId?: string;
+  poIds: string[];
+  notes?: string;
+  createdAt: string;
+}
+
+export interface SupplierReturn {
+  id: string;
+  retNo: string;
+  stockistId: string;
+  supplierId: string;
+  lines: { batchId: string; productId?: string; qty: number; reason: string }[];
+  status: 'Draft' | 'Sent' | 'Settled' | 'Cancelled';
+  settledNote?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StockistRoute {
+  id: string;
+  stockistId: string;
+  name: string;
+  pins: string[];
+  assigneeId?: string;
+  stops: { deliveryId: string; seq: number }[];
+}
+
+export interface UpgradeRequest {
+  id: string;
+  businessId: string;
+  plan: string;
+  utr: string;
+  proofFileId?: string;
+  status: 'Submitted' | 'Approved' | 'Rejected';
+  decisionReason?: string;
+  decidedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CounterfeitReport {
+  id: string;
+  reportNo?: string;
+  reporterBusinessId: string;
+  productId?: string;
+  batchId?: string;
+  sellerBusinessId?: string;
+  description: string;
+  evidenceFileIds: string[];
+  status: 'Reported' | 'Investigating' | 'RecallIssued' | 'Resolved' | 'Dismissed';
+  assigneeId?: string;
+  internalNotes: string[];
+  outcome?: string;
+  decisionReason?: string;
+  /** E-CF-24b: linked into another investigation */
+  linkedReportId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PriceChange {
+  id: string;
+  stockistId: string;
+  productId: string;
+  oldPtr: number;
+  newPtr: number;
+  oldMrp?: number;
+  newMrp?: number;
+  source: 'manual' | 'bulk' | 'import';
+  actorId: string;
+  at: string;
+}
+
+export interface Favourite {
+  id: string;
+  pharmacyId: string;
+  stockistId: string;
+  rating?: number;
+  note?: string;
 }

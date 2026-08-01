@@ -74,4 +74,17 @@ export const NOTIFICATION_CATALOG: Record<string, NotificationTemplate> = {
   'N-058': t('N-058', 'Export ready', 'Your export of {dataset} is ready.'),
   'N-059': t('N-059', 'Policy clock run', 'Platform policy jobs completed at {at}.'),
   'N-060': t('N-060', 'System notice', '{message}'),
+  // Canvas-derived (docs/22) — N-301…N-316 (OTC N-301/302 retired)
+  'N-303': t('N-303', 'Order recorded on your behalf', 'Stockist recorded order {orderNo} for your pharmacy.'),
+  'N-304': t('N-304', 'Invited pharmacy registered', '{pharmacy} registered from your partner invite.'),
+  'N-305': t('N-305', 'Payment recorded on your account', 'Payment {paymentNo} was recorded against your account.'),
+  'N-307': t('N-307', 'Payment reminder', 'Reminder: invoice {invoiceNo} is outstanding ({amount}).'),
+  'N-308': t('N-308', 'Purchase order received', 'PO {poNo} is fully received.'),
+  'N-309': t('N-309', 'Upgrade requested', '{businessName} requested a plan upgrade.'),
+  'N-310': t('N-310', 'Upgrade decision', 'Your upgrade request was {status}.'),
+  'N-311': t('N-311', 'Counterfeit report filed', 'Counterfeit report {reportNo} was filed.'),
+  'N-313': t('N-313', 'Batch recall notice', 'Batch {batchNumber} for {productName} has been recalled.'),
+  'N-314': t('N-314', 'Counterfeit report outcome', 'Counterfeit report {reportNo} was {status}.'),
+  'N-315': t('N-315', 'Workspace viewed by support', 'Platform support is viewing your workspace. Reason: {reason}'),
+  'N-316': t('N-316', 'Delivery scheduled', 'Delivery for order {orderNo} scheduled for {date}.'),
 };

@@ -162,7 +162,7 @@ export async function pharmacyAnalytics(pharmacyId: string): Promise<AnalyticsBu
   };
 }
 
-export async function stockistAnalytics(stockistId: string): Promise<AnalyticsBundle> {
+export async function stockistAnalytics(stockistId: string, periodDays = 14): Promise<AnalyticsBundle> {
   const [orders, invoices, payments, returns, products, batches] = await Promise.all([
     db.orders.where('stockistId').equals(stockistId).toArray(),
     db.invoices.where('stockistId').equals(stockistId).toArray(),
@@ -177,17 +177,19 @@ export async function stockistAnalytics(stockistId: string): Promise<AnalyticsBu
   const pending = orders.filter((o) => o.status === 'Pending');
   const fulfilment = orders.filter((o) => ['Accepted', 'Allocated', 'Packed', 'Dispatched'].includes(o.status));
   const payQueue = payments.filter((p) => ['Submitted', 'UnderReview', 'OnHold'].includes(p.status));
-  const gmv = orders.reduce((s, o) => s + o.grandTotal, 0);
+  const cutoff = Date.now() - periodDays * 86400000;
+  const periodOrders = orders.filter((o) => new Date(o.placedAt).getTime() >= cutoff);
+  const gmv = periodOrders.reduce((s, o) => s + o.grandTotal, 0);
   const lowStock = products.filter((p) => {
     const avail = batches.filter((b) => b.productId === p.id && b.status === 'Available').reduce((s, b) => s + Math.max(0, b.onHand - b.reserved), 0);
-    return avail <= 10;
+    return avail <= (p.reorderLevel ?? 10);
   });
 
   return {
     calculatedAt: new Date().toISOString(),
     stale: false,
     outstandingCheck: { dashboard: receivables, invoiceSum, matches: Math.abs(receivables - invoiceSum) < 0.01 },
-    series: [{ key: 'sales', label: 'Sales (14d)', points: seriesFromOrders(orders) }],
+    series: [{ key: 'sales', label: `Sales (${periodDays}d)`, points: seriesFromOrders(periodOrders, periodDays) }],
     kpis: [
       {
         key: 'receivables',
@@ -285,7 +287,8 @@ export async function platformAnalytics(): Promise<AnalyticsBundle> {
   ]);
 
   const traders = businesses.filter((b) => b.type !== 'Platform');
-  const gmv = orders.reduce((s, o) => s + o.grandTotal, 0);
+  /** AD-19: GMV = Σ non-void issued invoices (not order totals). */
+  const gmv = invoices.filter((i) => i.status !== 'Draft' && i.status !== 'Void').reduce((s, i) => s + i.grandTotal, 0);
   const outstanding = roundMoney(invoices.filter((i) => i.status !== 'Void').reduce((s, i) => s + invoiceOutstanding(i), 0));
   const pendingVer = verifications.filter((v) => ['Submitted', 'UnderReview', 'DocumentsRequested'].includes(v.status));
   const openTickets = tickets.filter((t) => ['Open', 'InProgress', 'Reopened', 'WaitingOnUser'].includes(t.status));
@@ -305,7 +308,7 @@ export async function platformAnalytics(): Promise<AnalyticsBundle> {
           id: b.id,
           label: b.name,
           value: b.type,
-          href: '/admin/network',
+          href: `/admin/network/${b.id}`,
           meta: b.accountStatus,
         })),
       },
@@ -323,13 +326,16 @@ export async function platformAnalytics(): Promise<AnalyticsBundle> {
         label: 'GMV (local)',
         value: gmv,
         format: 'money',
-        drill: orders.slice(0, 40).map((o) => ({
-          id: o.id,
-          label: o.orderNo,
-          value: o.grandTotal,
-          href: '/admin/orders',
-          meta: o.status,
-        })),
+        drill: invoices
+          .filter((i) => i.status !== 'Draft' && i.status !== 'Void')
+          .slice(0, 40)
+          .map((i) => ({
+            id: i.id,
+            label: i.invoiceNo,
+            value: i.grandTotal,
+            href: '/admin/orders',
+            meta: i.status,
+          })),
       },
       {
         key: 'verifications',

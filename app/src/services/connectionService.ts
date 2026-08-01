@@ -111,6 +111,8 @@ export async function respondConnection(params: {
   const pharmacy = (await db.businesses.get(conn.pharmacyId))!;
   if (params.decision === 'Active') {
     await notifyBusinessUsers(pharmacy.id, 'N-011', { pharmacy: pharmacy.name, stockist: params.stockist.name }, { type: 'Connection', id: conn.id });
+    const { markPartnerInvitesConnected } = await import('./partnerInviteService');
+    await markPartnerInvitesConnected({ pharmacyId: pharmacy.id, stockistId: params.stockist.id });
   } else {
     await notifyBusinessUsers(pharmacy.id, 'N-012', { reason: params.reason ?? '' }, { type: 'Connection', id: conn.id });
   }
@@ -131,6 +133,8 @@ export async function cancelConnectionRequest(params: {
   pharmacy: Business;
   connectionId: string;
 }): Promise<Result<Connection>> {
+  const perm = assertCan(params.actor, params.pharmacy, 'connection.request');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Request was not cancelled.');
   const conn = await db.connections.get(params.connectionId);
   if (!conn || conn.pharmacyId !== params.pharmacy.id) {
     return fail('NotFound', 'CONN_MISSING', 'Connection not found.', 'Request was not cancelled.');
@@ -153,6 +157,12 @@ export async function disconnectConnection(params: {
   connectionId: string;
   reason?: string;
 }): Promise<Result<Connection>> {
+  const action = params.business.type === 'Stockist' ? 'connection.respond' : 'connection.request';
+  const perm = assertCan(params.actor, params.business, action);
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Connection was not disconnected.');
+  if (!params.reason?.trim()) {
+    return fail('Validation', 'CONN_REASON', 'Disconnect reason is required.', 'Connection was not disconnected.');
+  }
   const conn = await db.connections.get(params.connectionId);
   if (!conn) return fail('NotFound', 'CONN_MISSING', 'Connection not found.', 'Connection was not disconnected.');
   if (conn.pharmacyId !== params.business.id && conn.stockistId !== params.business.id) {
@@ -168,5 +178,78 @@ export async function disconnectConnection(params: {
   });
   const otherId = conn.pharmacyId === params.business.id ? conn.stockistId : conn.pharmacyId;
   await notifyBusinessUsers(otherId, 'N-014', {}, { type: 'Connection', id: conn.id });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.business.id,
+    entityType: 'Connection',
+    entityId: conn.id,
+    action: 'connection.disconnect',
+    reason: params.reason,
+  });
+  return ok((await db.connections.get(conn.id))!);
+}
+
+export async function blockConnection(params: {
+  actor: User;
+  stockist: Business;
+  connectionId: string;
+  reason?: string;
+}): Promise<Result<Connection>> {
+  const perm = assertCan(params.actor, params.stockist, 'connection.respond');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Connection was not blocked.');
+  const conn = await db.connections.get(params.connectionId);
+  if (!conn || conn.stockistId !== params.stockist.id) {
+    return fail('NotFound', 'CONN_MISSING', 'Connection not found.', 'Connection was not blocked.');
+  }
+  const t = machines.connection(conn.status, 'Blocked');
+  if (!t.ok) return fail('StateConflict', 'CONN_BAD_STATE', t.reason!, 'Connection was not blocked.');
+  const ts = new Date().toISOString();
+  await db.connections.update(conn.id, {
+    status: 'Blocked',
+    updatedAt: ts,
+    statusHistory: [...conn.statusHistory, { from: conn.status, to: 'Blocked', at: ts, actorId: params.actor.id, reason: params.reason }],
+  });
+  await notifyBusinessUsers(conn.pharmacyId, 'N-015', { reason: params.reason ?? '' }, { type: 'Connection', id: conn.id });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Connection',
+    entityId: conn.id,
+    action: 'connection.block',
+    reason: params.reason,
+  });
+  return ok((await db.connections.get(conn.id))!);
+}
+
+export async function unblockConnection(params: {
+  actor: User;
+  stockist: Business;
+  connectionId: string;
+}): Promise<Result<Connection>> {
+  const perm = assertCan(params.actor, params.stockist, 'connection.respond');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Connection was not unblocked.');
+  const conn = await db.connections.get(params.connectionId);
+  if (!conn || conn.stockistId !== params.stockist.id) {
+    return fail('NotFound', 'CONN_MISSING', 'Connection not found.', 'Connection was not unblocked.');
+  }
+  const t = machines.connection(conn.status, 'Active');
+  if (!t.ok) return fail('StateConflict', 'CONN_BAD_STATE', t.reason!, 'Connection was not unblocked.');
+  const ts = new Date().toISOString();
+  await db.connections.update(conn.id, {
+    status: 'Active',
+    updatedAt: ts,
+    statusHistory: [...conn.statusHistory, { from: conn.status, to: 'Active', at: ts, actorId: params.actor.id }],
+  });
+  await notifyBusinessUsers(conn.pharmacyId, 'N-011', { pharmacy: '', stockist: params.stockist.name }, { type: 'Connection', id: conn.id });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Connection',
+    entityId: conn.id,
+    action: 'connection.unblock',
+  });
   return ok((await db.connections.get(conn.id))!);
 }

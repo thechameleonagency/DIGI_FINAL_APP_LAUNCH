@@ -1,33 +1,51 @@
-import type { Business, User, Verification, VerificationStatus } from '../domain/entities/types';
+import type {
+  Business,
+  User,
+  Verification,
+  VerificationDocument,
+  VerificationStatus,
+} from '../domain/entities/types';
 import { fail, ok, type Result } from '../domain/errors/types';
 import { machines } from '../domain/machines/transitions';
 import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
-import { notifyBusinessUsers } from './notifications';
+import { emitNotification, notifyBusinessUsers } from './notifications';
 
 async function getCurrentVerification(businessId: string): Promise<Verification | undefined> {
   return db.verifications.where('businessId').equals(businessId).reverse().sortBy('updatedAt').then((rows) => rows[0]);
 }
 
-export async function submitVerification(actor: User, business: Business): Promise<Result<Verification>> {
+export async function submitVerification(
+  actor: User,
+  business: Business,
+  extras?: { documents?: VerificationDocument[]; documentIds?: string[] },
+): Promise<Result<Verification>> {
   const perm = assertCan(actor, business, 'verification.submit');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Verification was not submitted.');
   const current = await getCurrentVerification(business.id);
   const from = (current?.status ?? 'NotStarted') as VerificationStatus;
-  const to: VerificationStatus = from === 'DocumentsRequested' || from === 'Rejected' || from === 'NotStarted' ? 'Submitted' : from;
+  const to: VerificationStatus =
+    from === 'DocumentsRequested' || from === 'Rejected' || from === 'NotStarted' ? 'Submitted' : from;
   if (from !== to) {
     const t = machines.verification(from, to);
     if (!t.ok) return fail('StateConflict', 'VER_BAD_STATE', t.reason!, 'Verification was not submitted.');
   }
+  if (from !== 'DocumentsRequested' && from !== 'Rejected' && from !== 'NotStarted' && from !== 'Submitted') {
+    return fail('BusinessRule', 'VER_NOT_RESUBMITTABLE', 'Verification cannot be resubmitted in this state.', 'No change made.');
+  }
   const ts = new Date().toISOString();
+  const nextDocs = extras?.documents ?? current?.documents;
+  const nextIds = extras?.documentIds ?? nextDocs?.map((d) => d.fileId) ?? current?.documentIds ?? [];
+
   if (!current) {
     const v: Verification = {
       id: crypto.randomUUID(),
       businessId: business.id,
       status: 'Submitted',
       submittedAt: ts,
-      documentIds: [],
+      documentIds: nextIds,
+      documents: nextDocs,
       decisionHistory: [{ from: 'NotStarted', to: 'Submitted', at: ts, actorId: actor.id }],
       createdAt: ts,
       updatedAt: ts,
@@ -40,9 +58,22 @@ export async function submitVerification(actor: User, business: Business): Promi
     status: 'Submitted',
     submittedAt: ts,
     updatedAt: ts,
+    documentIds: nextIds,
+    documents: nextDocs,
+    rejectReason: undefined,
+    requestDocsNote: undefined,
     decisionHistory: [...current.decisionHistory, { from, to: 'Submitted', at: ts, actorId: actor.id }],
   });
   await db.businesses.update(business.id, { verificationStatus: 'Submitted', updatedAt: ts });
+  await writeAudit({
+    actorId: actor.id,
+    actorName: actor.name,
+    businessId: business.id,
+    entityType: 'Verification',
+    entityId: current.id,
+    action: 'verification.resubmit',
+    after: { status: 'Submitted', documentCount: nextIds.length },
+  });
   return ok((await db.verifications.get(current.id))!);
 }
 
@@ -51,8 +82,12 @@ export async function adminReviewVerification(params: {
   business: Business;
   verificationId: string;
   decision: 'UnderReview' | 'Approved' | 'Rejected' | 'DocumentsRequested';
+  /** Business-visible reason (reject / docs request). */
   reason?: string;
+  /** Business-visible docs-request note (defaults to reason). */
   note?: string;
+  /** Admin-only internal note — never shown to the business. */
+  internalNotes?: string;
 }): Promise<Result<Verification>> {
   const perm = assertCan(params.actor, params.business, 'verification.review');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Verification decision was not saved.');
@@ -62,8 +97,8 @@ export async function adminReviewVerification(params: {
 
   const t = machines.verification(v.status, params.decision);
   if (!t.ok) return fail('StateConflict', 'VER_BAD_STATE', t.reason!, 'Verification decision was not saved.');
-  if ((params.decision === 'Rejected' || params.decision === 'DocumentsRequested') && !params.reason && !params.note) {
-    return fail('Validation', 'VER_REASON', 'Reason/note is required.', 'Verification decision was not saved.');
+  if ((params.decision === 'Rejected' || params.decision === 'DocumentsRequested') && !params.reason?.trim() && !params.note?.trim()) {
+    return fail('Validation', 'VER_REASON', 'Business-visible reason is required.', 'Verification decision was not saved.');
   }
 
   const ts = new Date().toISOString();
@@ -74,8 +109,9 @@ export async function adminReviewVerification(params: {
     updatedAt: ts,
     decisionHistory: [...v.decisionHistory, { from: v.status, to: params.decision, at: ts, actorId: params.actor.id, reason: params.reason }],
   };
-  if (params.decision === 'Rejected') patch.rejectReason = params.reason;
-  if (params.decision === 'DocumentsRequested') patch.requestDocsNote = params.note ?? params.reason;
+  if (params.internalNotes !== undefined) patch.internalNotes = params.internalNotes.trim() || undefined;
+  if (params.decision === 'Rejected') patch.rejectReason = params.reason?.trim();
+  if (params.decision === 'DocumentsRequested') patch.requestDocsNote = (params.note ?? params.reason)?.trim();
 
   await db.transaction('rw', db.verifications, db.businesses, async () => {
     const fresh = await db.verifications.get(v.id);
@@ -149,6 +185,38 @@ export async function suspendBusiness(params: {
   return ok((await db.businesses.get(biz.id))!);
 }
 
+/** Pharmacy/stockist owner requests reactivation → N-057 to platform admins. */
+export async function requestReactivation(params: {
+  actor: User;
+  business: Business;
+  note?: string;
+}): Promise<Result<true>> {
+  if (params.business.accountStatus !== 'Suspended') {
+    return fail('BusinessRule', 'NOT_SUSPENDED', 'Business is not suspended.', 'No request sent.');
+  }
+  const admins = await db.users.filter((u) => ['Admin', 'SuperAdmin', 'SupportAgent'].includes(u.role)).toArray();
+  for (const a of admins) {
+    await emitNotification({
+      userId: a.id,
+      businessId: a.businessId,
+      code: 'N-057',
+      vars: { businessName: params.business.name },
+      entityType: 'Business',
+      entityId: params.business.id,
+    });
+  }
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.business.id,
+    entityType: 'Business',
+    entityId: params.business.id,
+    action: 'business.request_reactivation',
+    reason: params.note,
+  });
+  return ok(true);
+}
+
 export async function reactivateBusiness(params: {
   actor: User;
   adminBusiness: Business;
@@ -158,6 +226,10 @@ export async function reactivateBusiness(params: {
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Business was not reactivated.');
   const biz = await db.businesses.get(params.targetBusinessId);
   if (!biz) return fail('NotFound', 'BIZ_MISSING', 'Business not found.', 'Business was not reactivated.');
+  if (biz.type === 'Platform') return fail('BusinessRule', 'REACTIVATE_PLATFORM', 'Cannot change platform account.', 'Business was not reactivated.');
+  if (biz.accountStatus !== 'Suspended' && biz.accountStatus !== 'Deactivated') {
+    return fail('BusinessRule', 'NOT_INACTIVE', 'Business is already active.', 'No change made.');
+  }
   const ts = new Date().toISOString();
   await db.businesses.update(biz.id, {
     accountStatus: 'Active',
@@ -174,5 +246,40 @@ export async function reactivateBusiness(params: {
     action: 'business.reactivate',
   });
   await notifyBusinessUsers(biz.id, 'N-006', { businessName: biz.name });
+  return ok((await db.businesses.get(biz.id))!);
+}
+
+/** Permanent-style deactivation: login blocked, historical records retained (AD-20/AD-21). */
+export async function deactivateBusiness(params: {
+  actor: User;
+  adminBusiness: Business;
+  targetBusinessId: string;
+  reason: string;
+}): Promise<Result<Business>> {
+  const perm = assertCan(params.actor, params.adminBusiness, 'business.suspend');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Business was not deactivated.');
+  if (!params.reason.trim()) return fail('Validation', 'DEACTIVATE_REASON', 'Reason is required.', 'Business was not deactivated.');
+  const biz = await db.businesses.get(params.targetBusinessId);
+  if (!biz) return fail('NotFound', 'BIZ_MISSING', 'Business not found.', 'Business was not deactivated.');
+  if (biz.type === 'Platform') return fail('BusinessRule', 'DEACTIVATE_PLATFORM', 'Cannot deactivate platform.', 'Business was not deactivated.');
+  if (biz.accountStatus === 'Deactivated') {
+    return fail('BusinessRule', 'ALREADY_DEACTIVATED', 'Business is already deactivated.', 'No change made.');
+  }
+  const ts = new Date().toISOString();
+  await db.businesses.update(biz.id, {
+    accountStatus: 'Deactivated',
+    suspendedAt: undefined,
+    suspendReason: params.reason.trim(),
+    updatedAt: ts,
+  });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.adminBusiness.id,
+    entityType: 'Business',
+    entityId: biz.id,
+    action: 'business.deactivate',
+    reason: params.reason.trim(),
+  });
   return ok((await db.businesses.get(biz.id))!);
 }

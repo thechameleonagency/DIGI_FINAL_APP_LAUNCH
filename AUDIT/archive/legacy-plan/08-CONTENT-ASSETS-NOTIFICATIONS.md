@@ -36,6 +36,10 @@ Full specs in `docs/13`. Every code must have template title/body with placehold
 
 Store templates in `content/notifications.json`.
 
+### App codes ↔ docs/13 (AD-33)
+
+The React app’s `NOTIFICATION_CATALOG` uses **N-001…N-060** labels that are **not always 1:1 with docs/13 section numbering**. Treat app codes as the runtime source of truth. Deep links must route by **`entityType` / `entityId`** (see `resolveNotificationLink`), never by parsing the N-code. When docs and catalog diverge, keep both; do not renumber production templates mid-journey.
+
 ---
 
 ## 3. FAQ / Help Copy (Minimum)

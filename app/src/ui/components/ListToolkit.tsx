@@ -44,10 +44,14 @@ export function useListControls<T>(
     defaultSortKey?: string;
     defaultSortDir?: SortDir;
     pageSize?: number;
+    /** Opt-in initial search (state initializer only — F9). */
+    initialQuery?: string;
+    /** Opt-in initial filter map (state initializer only — F9). */
+    initialFilters?: Record<string, string>;
   },
 ) {
-  const [query, setQuery] = useState('');
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [query, setQuery] = useState(opts.initialQuery ?? '');
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(opts.initialFilters ?? {});
   const [sortKey, setSortKey] = useState(opts.defaultSortKey ?? opts.columns[0]?.key ?? '');
   const [sortDir, setSortDir] = useState<SortDir>(opts.defaultSortDir ?? 'desc');
   const [page, setPage] = useState(0);
