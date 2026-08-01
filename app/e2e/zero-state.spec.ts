@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { login, quickLogin, signOut } from './helpers';
 
-test.describe('Zero-state boot', () => {
+test.describe('Demo seed boot', () => {
   test('login fields default blank; invalid login stays on auth', async ({ page }) => {
     await page.goto('/auth/login');
     await expect(page.getByLabel('Email or phone')).toBeVisible({ timeout: 30_000 });
@@ -28,31 +28,40 @@ test.describe('Zero-state boot', () => {
     await expect(page).toHaveURL(/\/admin/, { timeout: 15_000 });
   });
 
-  test('empty states render on key zero-data lists', async ({ page }) => {
+  test('seeded demo data is present on key lists', async ({ page }) => {
     await login(page, 'neha@careplus.pune.in', 'Pharmacy@2026');
-    await page.goto('/pharmacy/returns');
-    await expect(page.getByRole('heading', { name: 'No returns yet' })).toBeVisible({ timeout: 15_000 });
-    await page.goto('/pharmacy/inventory');
-    await expect(page.getByRole('heading', { name: 'Inventory empty' })).toBeVisible();
     await page.goto('/pharmacy/connections');
-    await expect(page.getByRole('heading', { name: 'No connections yet' })).toBeVisible();
-    await page.goto('/pharmacy/notifications');
-    await expect(page.getByRole('heading', { name: 'No notifications' })).toBeVisible();
+    await expect(page.getByText('MedRoute Distributors').first()).toBeVisible({ timeout: 15_000 });
+    await page.goto('/pharmacy/orders');
+    await expect(page.getByText(/ORD-2026-/).first()).toBeVisible({ timeout: 15_000 });
     await signOut(page);
 
     await login(page, 'vikram@medroute.in', 'Stockist@2026');
     await page.goto('/stockist/pharmacies');
-    await expect(page.getByRole('heading', { name: /No .* connections/i })).toBeVisible({ timeout: 15_000 });
-    await page.goto('/stockist/inventory');
-    await expect(page.getByRole('heading', { name: 'No stock yet' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Pharmacies' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('CarePlus Chemists').first()).toBeVisible({ timeout: 15_000 });
+    await page.goto('/stockist/catalogue');
+    await expect(page.getByText('Dolo 650 Tablet').first()).toBeVisible({ timeout: 15_000 });
     await page.goto('/stockist/payments');
-    await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
+    await expect(page.getByText(/PAY-2026-/).first()).toBeVisible({ timeout: 15_000 });
     await signOut(page);
 
     await login(page, 'admin@digiswasthya.in', 'Admin@2026');
     await page.goto('/admin/support');
-    await expect(page.getByRole('heading', { name: 'No tickets yet' })).toBeVisible({ timeout: 15_000 });
-    await page.goto('/admin/audit');
-    await expect(page.getByRole('heading', { name: 'No audit entries' })).toBeVisible();
+    await expect(page.getByText(/TKT-2026-|Payments/i).first()).toBeVisible({ timeout: 15_000 });
+    await page.goto('/admin/settings');
+    await expect(page.getByRole('heading', { name: /Platform settings/i })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/Generic commission/i).first()).toBeVisible();
+  });
+
+  test('login page lists demo accounts for all seeded users', async ({ page }) => {
+    await page.goto('/auth/login');
+    await expect(page.getByText('Demo accounts').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: /^Pharmacy —/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Stockist —/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Admin —/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Sunita Menon/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Rohan Kulkarni/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Anita Desai/i })).toBeVisible();
   });
 });

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
 import { setCartLine, toggleWishlist } from '../../../services/catalogueService';
+import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useUi } from '../../../store/ui';
 import { Button, EmptyState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
@@ -14,6 +15,7 @@ export function PharmacyWishlist() {
   const products = useLiveQuery(() => db.products.toArray()) ?? [];
   const stockists = useLiveQuery(() => db.businesses.where('type').equals('Stockist').toArray()) ?? [];
   const connections = useLiveQuery(() => db.connections.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
+  const settings = useLiveQuery(() => db.platformSettings.get('platform'));
 
   const rows = items.map((i) => {
     const product = products.find((p) => p.id === i.productId);
@@ -100,7 +102,8 @@ export function PharmacyWishlist() {
                 <div className="muted" style={{ fontSize: 13 }}>
                   {active ? (
                     <>
-                      PTR <Money value={product.ptr} /> · MRP {formatINR(product.mrp)}
+                      Price <Money value={priceForPlatformPharmacy(product, settings).unitPrice} /> · MRP{' '}
+                      {formatINR(product.mrp)}
                     </>
                   ) : (
                     'Connect to see price'

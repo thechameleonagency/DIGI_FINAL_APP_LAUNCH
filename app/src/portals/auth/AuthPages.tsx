@@ -6,6 +6,7 @@ import type { VerificationDocument } from '../../domain/entities/types';
 import { portalFor } from '../../domain/permissions';
 import { DEMO_OTP } from '../../domain/utils/crypto';
 import { acceptInvite, getInvitePreview, login, resetPassword } from '../../services/authService';
+import { DEMO_ACCOUNTS } from '../../data/seed';
 import { storeFile } from '../../services/fileService';
 import { requestReactivation, submitVerification } from '../../services/verificationService';
 import {
@@ -132,18 +133,35 @@ export function LoginPage() {
         </Button>
       </form>
       <div className="card card-pad" style={{ marginTop: 18, fontSize: 12, color: 'var(--muted)' }}>
-        <strong style={{ color: 'var(--text)' }}>Demo accounts</strong>
-        <div style={{ marginTop: 8 }} className="stack">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setEmail('neha@careplus.pune.in'); setPassword('Pharmacy@2026'); }}>
-            Pharmacy — neha@careplus.pune.in · Pharmacy@2026
-          </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setEmail('vikram@medroute.in'); setPassword('Stockist@2026'); }}>
-            Stockist — vikram@medroute.in · Stockist@2026
-          </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setEmail('admin@digiswasthya.in'); setPassword('Admin@2026'); }}>
-            Admin — admin@digiswasthya.in · Admin@2026
-          </button>
-        </div>
+        <strong style={{ color: 'var(--text)' }}>Demo accounts — click to fill, then Sign in</strong>
+        <p style={{ margin: '6px 0 10px' }}>Rich seed (v5): 5 pharmacies · 5 stockists · full trade lifecycles</p>
+        {(['Pharmacy', 'Stockist', 'Admin'] as const).map((group) => {
+          const accounts = DEMO_ACCOUNTS.filter((a) => a.roleGroup === group);
+          return (
+            <div key={group} className="stack" style={{ marginTop: 10 }}>
+              <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 12 }}>{group}</div>
+              {accounts.map((a, idx) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ textAlign: 'left', height: 'auto', padding: '8px 10px', whiteSpace: 'normal' }}
+                  onClick={() => {
+                    setEmail(a.email);
+                    setPassword(a.password);
+                  }}
+                >
+                  {idx === 0 ? `${group} — ` : ''}
+                  {a.name} · {a.role} · {a.businessName}
+                  <br />
+                  <span style={{ opacity: 0.85 }}>
+                    {a.email} · {a.password}
+                  </span>
+                </button>
+              ))}
+            </div>
+          );
+        })}
       </div>
     </AuthShell>
   );

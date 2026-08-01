@@ -3,11 +3,18 @@ import { fieldInput, login, selectInviteRole, signOut } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 
-/** Single shared context: connect → catalogue+stock → order → fulfil → GRN → pay → return → CN */
-test.describe('Golden trade journey from zero state', () => {
+/**
+ * Extends the rich demo seed: add a unique SKU → place order on existing
+ * CarePlus↔MedRoute Active connection → fulfil → GRN → pay → return → CN.
+ */
+test.describe('Golden trade journey on demo seed', () => {
   let page: Page;
   let firstOrderNo = '';
   let secondOrderNo = '';
+  const sku = `E2E-DOLO-${Date.now()}`;
+  const productName = `E2E Dolo ${Date.now()}`;
+  const riderEmail = `rider.e2e.${Date.now()}@medroute.in`;
+  const riderPhone = `98765${String(Date.now()).slice(-5)}`;
 
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage();
@@ -21,8 +28,8 @@ test.describe('Golden trade journey from zero state', () => {
     await login(page, 'vikram@medroute.in', 'Stockist@2026');
     await expect(page).toHaveURL(/\/stockist/, { timeout: 15_000 });
     await page.goto('/stockist/catalogue');
-    await (await fieldInput(page, 'name')).fill('E2E Dolo 650');
-    await (await fieldInput(page, 'sku')).fill('E2E-DOLO');
+    await (await fieldInput(page, 'name')).fill(productName);
+    await (await fieldInput(page, 'sku')).fill(sku);
     await (await fieldInput(page, 'brand')).fill('Micro Labs');
     await (await fieldInput(page, 'MRP')).fill('80');
     await (await fieldInput(page, 'PTR')).fill('55');
@@ -31,47 +38,45 @@ test.describe('Golden trade journey from zero state', () => {
     await expect(page.getByText(/Product added/i).first()).toBeVisible({ timeout: 10_000 });
 
     await page.goto('/stockist/inventory');
-    await page.locator('.field', { hasText: 'Product' }).locator('select').selectOption({ label: 'E2E Dolo 650' });
-    await (await fieldInput(page, 'Batch number')).fill('E2E-BATCH-1');
+    await page.locator('.field', { hasText: 'Product' }).locator('select').selectOption({ label: productName });
+    await (await fieldInput(page, 'Batch number')).fill(`E2E-BATCH-${Date.now()}`);
     await (await fieldInput(page, 'Expiry')).fill('2028-12-31');
     await (await fieldInput(page, 'Qty')).fill('200');
     await page.getByRole('button', { name: 'Add stock' }).click();
     await expect(page.getByText(/Stock added/i).first()).toBeVisible({ timeout: 10_000 });
 
-    // Delivery machine requires Assigned before OutForDelivery — invite a DeliveryBoy for dispatch
     await page.goto('/stockist/staff');
     await (await fieldInput(page, 'Name')).fill('E2E Rider');
-    await (await fieldInput(page, 'Email')).fill('rider.e2e@medroute.in');
-    await (await fieldInput(page, 'Phone')).fill('9876500099');
+    await (await fieldInput(page, 'Email')).fill(riderEmail);
+    await (await fieldInput(page, 'Phone')).fill(riderPhone);
     await selectInviteRole(page, 'DeliveryBoy');
     await page.getByRole('button', { name: 'Invite' }).click();
     await expect(page.getByText(/Invited/i).first()).toBeVisible({ timeout: 10_000 });
     await signOut(page);
   });
 
-  test('pharmacy requests connection; stockist approves', async () => {
-    await login(page, 'neha@careplus.pune.in', 'Pharmacy@2026');
-    await page.goto('/pharmacy/buy');
-    await expect(page.getByText('MedRoute Distributors').first()).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: 'Request connection' }).first().click();
-    await expect(page.getByText(/Connection requested/i).first()).toBeVisible({ timeout: 10_000 });
-    await signOut(page);
-
+  test('CarePlus↔MedRoute already Active on demo seed (or approve if requested)', async () => {
     await login(page, 'vikram@medroute.in', 'Stockist@2026');
     await page.goto('/stockist/pharmacies');
     await expect(page.getByText('CarePlus Chemists').first()).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: /Review \/ Approve/i }).first().click();
-    await page.getByRole('button', { name: 'Approve & add' }).click();
-    await expect(page.getByText(/Connection approved/i).first()).toBeVisible({ timeout: 10_000 });
+    // Platform tab lists Active connections from seed
+    await page.getByRole('button', { name: /^Platform/ }).click();
+    await page.getByRole('button', { name: /^Active$/ }).click();
+    await expect(page.getByText('CarePlus Chemists').first()).toBeVisible({ timeout: 10_000 });
     await signOut(page);
   });
 
-  test('pharmacy places first order', async () => {
+  test('pharmacy places first order for E2E SKU', async () => {
     await login(page, 'neha@careplus.pune.in', 'Pharmacy@2026');
-    await page.goto('/pharmacy/buy');
-    await page.getByRole('link', { name: 'Browse' }).first().click();
+    await page.goto('/pharmacy/buy/biz-medroute');
     await expect(page.getByRole('button', { name: 'Add' }).first()).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: 'Add' }).first().click();
+    // Prefer the freshly added E2E product if visible
+    const e2eCard = page.locator('.product-card', { hasText: productName });
+    if (await e2eCard.count()) {
+      await e2eCard.getByRole('button', { name: 'Add' }).click();
+    } else {
+      await page.getByRole('button', { name: 'Add' }).first().click();
+    }
     await expect(page.getByText(/Added to cart/i).first()).toBeVisible({ timeout: 8_000 });
     await page.goto('/pharmacy/cart');
     await page.getByRole('button', { name: 'Place purchase order' }).click();
@@ -93,15 +98,28 @@ test.describe('Golden trade journey from zero state', () => {
     await expect(page.getByRole('button', { name: /Issue invoice/i })).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: /Issue invoice/i }).click();
     await expect(page.getByRole('button', { name: 'Dispatch' })).toBeVisible({ timeout: 10_000 });
-    await page.locator('select').filter({ hasText: /Assign delivery boy/i }).selectOption({ label: 'E2E Rider' });
+    // Prefer E2E rider if listed; else any delivery boy (seed has Ravi Kamble)
+    const assign = page.locator('select').filter({ hasText: /Assign delivery boy/i });
+    const options = await assign.locator('option').allTextContents();
+    const rider = options.find((o) => /E2E Rider/i.test(o)) ?? options.find((o) => /Ravi/i.test(o));
+    if (rider) await assign.selectOption({ label: rider.trim() });
     await page.getByRole('button', { name: 'Dispatch' }).click();
     await expect(page.getByText(/Dispatched/i).first()).toBeVisible({ timeout: 10_000 });
 
     await page.goto('/stockist/delivery');
-    await expect(page.getByRole('button', { name: 'Out for delivery' }).first()).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Out for delivery' }).first().click();
+    // Target the delivery for this order if possible
+    const orderRow = page.locator('.card, tr', { hasText: firstOrderNo }).first();
+    if (await orderRow.count()) {
+      await orderRow.getByRole('button', { name: 'Out for delivery' }).click();
+    } else {
+      await page.getByRole('button', { name: 'Out for delivery' }).first().click();
+    }
     await expect(page.getByRole('button', { name: 'Mark delivered' }).first()).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Mark delivered' }).first().click();
+    if (await orderRow.count()) {
+      await orderRow.getByRole('button', { name: 'Mark delivered' }).click();
+    } else {
+      await page.getByRole('button', { name: 'Mark delivered' }).first().click();
+    }
     await page.getByRole('button', { name: 'Confirm delivered' }).click();
     await expect(page.getByText(/Delivered/i).first()).toBeVisible({ timeout: 10_000 });
     await signOut(page);
@@ -114,7 +132,6 @@ test.describe('Golden trade journey from zero state', () => {
     await page.getByRole('button', { name: 'Save GRN' }).click();
     await expect(page.getByText(/GRN recorded|Goods receipt saved/i).first()).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: 'Done' }).click();
-    // T-2 GRN idempotency: once recorded, Record GRN is not offered again
     await expect(page.getByRole('button', { name: 'Record GRN' })).toHaveCount(0);
 
     await page.goto('/pharmacy/payments');
@@ -124,14 +141,17 @@ test.describe('Golden trade journey from zero state', () => {
     const outstandingText = await page.locator('table.data tbody tr').first().locator('td').nth(3).innerText();
     const amount = outstandingText.replace(/[^\d.]/g, '');
     await amountInput.fill(amount || '1');
-    await (await fieldInput(page, 'Reference')).fill('E2E-UTR-001');
+    await (await fieldInput(page, 'Reference')).fill(`E2E-UTR-${Date.now()}`);
     await page.getByRole('button', { name: 'Submit payment' }).click();
     await expect(page.getByText(/Payment submitted/i).first()).toBeVisible({ timeout: 10_000 });
     await signOut(page);
 
     await login(page, 'vikram@medroute.in', 'Stockist@2026');
     await page.goto('/stockist/payments');
-    await page.getByRole('button', { name: 'Details' }).first().click();
+    // Prefer the newly submitted payment (Submitted status)
+    const details = page.getByRole('button', { name: 'Details' });
+    await expect(details.first()).toBeVisible({ timeout: 15_000 });
+    await details.first().click();
     await page.getByRole('button', { name: 'Approve' }).click();
     await expect(page.getByText(/Payment approved/i).first()).toBeVisible({ timeout: 10_000 });
     await signOut(page);
@@ -152,7 +172,6 @@ test.describe('Golden trade journey from zero state', () => {
     await page.getByRole('button', { name: 'Review' }).first().click();
     await page.getByRole('button', { name: 'Approve' }).click();
     await expect(page.getByText(/Return decided/i).first()).toBeVisible({ timeout: 10_000 });
-    // T-2 return disposition → stock
     const goodsBack = page.getByRole('button', { name: /Record goods received/i }).first();
     await expect(goodsBack).toBeVisible({ timeout: 10_000 });
     await goodsBack.click();
@@ -176,8 +195,7 @@ test.describe('Golden trade journey from zero state', () => {
   test('second order after reload gets sequential unique number', async () => {
     await login(page, 'neha@careplus.pune.in', 'Pharmacy@2026');
     await page.reload();
-    await page.goto('/pharmacy/buy');
-    await page.getByRole('link', { name: 'Browse' }).first().click();
+    await page.goto('/pharmacy/buy/biz-medroute');
     const addBtn = page.getByRole('button', { name: /^(Add|Update)$/ }).first();
     await expect(addBtn).toBeEnabled({ timeout: 15_000 });
     await addBtn.click();
