@@ -73,3 +73,17 @@ Every section of every source doc maps to plan artifacts. **PDD wins** over canv
 | Pass/fail audits | `10` |
 | Future boundary | `00`,`01`,`12` |
 | Vocabulary | `08` |
+
+---
+
+## Addendum Coverage (2026-07-31)
+
+| Source | Covered by plan file(s) |
+|---|---|
+| `docs/22` (Part 21 — Canvas-Derived Feature Specifications, NEW) | `01` §Q, `02` §7, `03` §H, `04` §§5+9, `05` §9, `07` §6, `08` §8, `10` §Q, `13`, `14` |
+| Canvas: `PharmacyPanel.dc.html` (all 44 views + 9 modals) | `14` §1 (item-level), `13` Phases 6–7+11 |
+| Canvas: `StockistPanel.dc.html` (all 70 inventory entries) | `14` §2, `13` Phases 3–5+12 |
+| Canvas: `PlatformAdmin.dc.html` (21 views + 7 overlays) | `14` §3, `13` Phases 9+13 |
+| Canvas: `DigiSwasthya.dc.html` + `index.html` (auth/wizard/shell) | `14` §4, `13` Phases 1+8+14 |
+
+New plan files to keep in sync: **13-GAP-CLOSURE-PLAN.md** (living ledger — update statuses as items close) and **14-CANVAS-COVERAGE-MATRIX.md** (update "Now" column with 13). `BUILD-STATUS.md` is the summary only.

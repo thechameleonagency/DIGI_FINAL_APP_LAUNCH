@@ -153,3 +153,14 @@ Kernel → Auth/Verify/Staff → Connections → Catalogue/Cart
     → Orders+Inventory → Delivery+Invoice → Payments+Returns
     → Notifications+Dashboards → Edges/AC
 ```
+
+---
+
+## Post-Audit Addendum (2026-07-31)
+
+Phases 0–9 above were executed once; the 2026-07-31 audit found **every phase Partial** (details in `BUILD-STATUS.md`). The active plan of record for sequencing is now **[13-GAP-CLOSURE-PLAN.md](./13-GAP-CLOSURE-PLAN.md)**:
+
+- Gap Phases 1–10 close the audited gaps (seed reset to zero-state per PLAN/04 §5, verified bug fixes, shared foundations, per-portal completion, permission gating, notifications, tests).
+- Gap Phases 11–14 deliver the canvas-derived modules CF-01…CF-39 specified in `docs/22`, with the completeness guarantee in `14-CANVAS-COVERAGE-MATRIX.md`.
+
+Exit criteria per gap phase live in file 13; AC gates extended by PLAN/10 §Q. This file's Phase 0–9 definitions remain useful as the original scope reference — do not re-plan against them.

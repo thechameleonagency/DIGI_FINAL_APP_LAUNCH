@@ -119,22 +119,32 @@ Caches allowed only with invalidation on source writes.
 
 ---
 
-## 5. Seed Dataset (Demo Golden Path)
+## 5. Seed Dataset — ZERO-STATE (REVISED 2026-07-31, supersedes the golden-path seed)
 
-Must include (extend canvas seeds CarePlus ↔ MedRoute):
+**Binding user directive:** all demo/dummy data deleted; the app starts empty and every dataset is created through the UI. `SEED_VERSION = 3` (the bump wipes existing local DBs once — that is the delete-all mechanism).
 
-1. Admin user `admin@digiswasthya.in`  
-2. Verified Stockist + Owner/Manager/Accountant/Delivery Boy  
-3. Verified Pharmacy + Owner/Staff/Accountant  
-4. One Active connection  
-5. Catalogue ≥ 20 products across categories with batches (healthy, near-expiry, one expired for negative tests)  
-6. Sample orders in multiple statuses  
-7. Issued invoice partially paid  
-8. One returnable delivered order  
-9. One open support ticket  
-10. Sample announcements/banners  
+Seed EXACTLY (nothing else):
 
-Unverified second pharmacy for verification queue demos.
+1. **3 businesses** — Platform (`DigiSwasthya Ops`), Stockist (`MedRoute Distributors`), Pharmacy (`CarePlus Chemists`) — all `Active` + **`Approved`** (owners must land in their portals, not `/auth/pending`). Identity fields kept (GST/DL/city/state for GST inference); bank/UPI/servicePins left empty (filled via UI).
+2. **3 owner users** matching the login quick-fill buttons verbatim: `admin@digiswasthya.in`/`Admin@2026` (SuperAdmin), `vikram@medroute.in`/`Stockist@2026` (Owner), `neha@careplus.pune.in`/`Pharmacy@2026` (Owner).
+3. **2 Approved verification rows** (one per trading business; `documentIds: []`, decision history retained).
+4. **1 empty stockist catalogue** (`upsertProduct` fails `CAT_MISSING` without it).
+5. **Full `platformSettings` row** (AdminSettings, invite TTL, policy clock depend on it).
+6. **`seedMeta` v3** written last.
+
+All other tables **empty**: connections, products, batches, movements, orders, deliveries, invoices, payments, returns, creditNotes, notifications, threads/messages, tickets, announcements, banners, auditLogs, files, carts, wishlists, pharmacyInventory (+ every new table in §9).
+
+`ensureSeeded()` skip condition: `meta.seedVersion === SEED_VERSION && users.count() >= 3` — the old `orderCount >= 3` clause MUST be dropped (with a zero-order seed it re-wipes on every load).
+
+**Document-number counters are derived at boot, not stored:** `hydrateCounters()` scans the max existing `PREFIX-YYYY-NNNN` per series from Dexie and floors the in-memory generators (`nextNumber` stays synchronous). Re-run after `importWorkspace` (which must also stamp `seedMeta` v3, or an imported old export triggers a wipe on next reload). Single-tab assumption logged as G22 in PLAN/12.
+
+**Quick-login panel:** retained on the login page, showing the 3 credentials; login fields default blank.
+
+---
+
+## 5b. Zero-state UI requirement
+
+Every list/dashboard must render a guiding `EmptyState` (CTA toward the next action) at zero data — enumerated sweep in PLAN/13 item P1-5; empty-state copy bank in PLAN/08.
 
 ---
 
@@ -160,7 +170,7 @@ Implement as DB write middleware:
 2. Invoice requires billable basis.  
 3. Payment allocations ≤ payment & ≤ outstanding.  
 4. Return qty ≤ delivered − returned.  
-5. Credit ≤ approved return (+ authorised adjustment none in v1).  
+5. Credit ≤ approved return; goodwill/advance CNs require reason/confirm + source flag (CF-39, docs/22).  
 6. Inventory never negative; reserved ≤ onHand.  
 7. Expired/recalled/quarantined not newly allocated.  
 8. Users single-business.  
@@ -181,3 +191,33 @@ password reset → mock OTP → update hash → N-051
 ```
 
 **Assumption:** Demo OTP is constant `123456` for all users (documented in UI). Not production security (`docs/18` acknowledges product-level security; client demo cannot be real IdP).
+
+---
+
+## 9. New Tables & Field Additions for Canvas-Derived Features (docs/22) — added 2026-07-31
+
+All land in **one** Dexie `version(2)` schema bump (PLAN/13 item P2-20). Workspace export/import iterates `db.tables`, so it inherits them — verify round-trip in e2e. Internal UUID PKs; indexes listed.
+
+| Table | Key fields | Indexes | Feature |
+|---|---|---|---|
+| `smartOrderRuns` | id, pharmacyId, scope, suggestions[], acceptedLines[], createdBy, createdAt | pharmacyId | CF-01 |
+| `customerSales` | id, saleNo (`SALE-YYYY-NNNN`), pharmacyId, customerName, phone?, lines[{productRef, batchAllocations[], qty, unitPrice}], paymentMode, homeDelivery?, address?, status, returnedLines[], createdBy, createdAt | pharmacyId, saleNo | CF-05 |
+| `deliveryAreas` | id, pharmacyId, name, pins[] | pharmacyId | CF-06 |
+| `pharmacyRoutes` | id, pharmacyId, name, areaId?, assignee?, stops[{saleId, seq, status, failReason?}] | pharmacyId | CF-06 |
+| `partnershipApplications` | id, pharmacyId, categories[], volumeBand, consent, status, decisionReason?, decidedBy?, timestamps | pharmacyId, status | CF-07 |
+| `partnerInvites` | id, stockistId, name, phone, email?, gst?, status (Sent/Registered/Connected/Withdrawn), createdAt | stockistId, phone | CF-12 |
+| `suppliers` | id, stockistId, name, contact, gst?, terms?, active | stockistId | CF-17 |
+| `purchaseOrders` | id, poNo, stockistId, supplierId, lines[{productId, qty, expectedCost, receivedQty}], status, statusHistory[], createdAt | stockistId, supplierId, status | CF-17 |
+| `purchaseBills` | id, billNo, stockistId, supplierId, date, amount, fileId?, poIds[] | stockistId, supplierId | CF-17 |
+| `supplierReturns` | id, retNo, stockistId, supplierId, lines[{batchId, qty, reason}], status, settledNote? | stockistId, status | CF-17 |
+| `stockistRoutes` | id, stockistId, name, pins[], assigneeId?, stops[{deliveryId, seq}] | stockistId | CF-18 |
+| `upgradeRequests` | id, businessId, plan, utr, proofFileId?, status, decisionReason?, decidedBy?, timestamps | businessId, status, utr | CF-23 |
+| `counterfeitReports` | id, reporterBusinessId, productId?, batchId?, sellerBusinessId?, description, evidenceFileIds[], status, assigneeId?, internalNotes[], outcome?, timestamps | status, batchId | CF-24 |
+| `priceChanges` | id, stockistId, productId, oldPtr, newPtr, oldMrp?, newMrp?, source (manual/bulk/import), actorId, at | stockistId, productId | CF-20 |
+| `favourites` | id, pharmacyId, stockistId, rating?, note? | [pharmacyId+stockistId] | CF-10 |
+
+**Field additions to existing tables:** `orders.source` ('Platform'|'Manual'|'QuickInvoice') + `orders.createdByBusinessId` + `orders.deliveryAddress` + `orders.preferredDeliveryDate` + `orders.grnRecordedAt` (GRN idempotency); `payments.recordedBy` ('Pharmacy'|'Stockist'); `creditNotes.source` ('Return'|'Goodwill'|'Advance') + `creditNotes.paymentId?`; `deliveries.routeId?` + `deliveries.scheduledDate?` + `deliveries.podFileId?` + `deliveries.receivedBy?`; `products.reorderLevel?` + `products.purchaseRate?` + `products.hsn?` + `products.manufacturer?` + `products.genericName?` + `products.rxRequired?` + `products.narcotic?`; `batches.location?` (CF-33 locations-lite); `businesses.holidays[]` + `businesses.preferences{deliverySlots, instructions, defaultReceiver}` + `businesses.plan` ('Free'|'Premium') + `businesses.locations[]`; `users.notificationPreferences{mutedCategories[]}` + `users.onboardingSeenAt?`; `platformSettings.commissionPercent` + `platformSettings.commissionOverrides{}` + `platformSettings.defaultGstPercent` + `platformSettings.maintenanceMode`.
+
+**Static content (no tables):** help/FAQ articles, onboarding slides, medicine reference dataset (CF-36), legal texts — versioned files under `src/content`.
+
+Derived, never stored: commission ledger (CF-22), per-pair ledgers (CF-08/ST-34), transactions register, batch-ordering cycles (CF-35), QR payload (computed from invoice fields).

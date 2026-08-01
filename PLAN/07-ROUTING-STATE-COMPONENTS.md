@@ -165,3 +165,36 @@ No React imports inside `domain/`.
 - `usePolicyClock()` → triggers SLA jobs  
 - `useMoneyFormatter()`  
 - `useStatusLabel(entityType, status)` — glossary-aligned labels (map canvas synonyms like `confirmed`→Accepted)
+
+---
+
+## 6. Canvas-Derived Route & Component Additions (docs/22) — added 2026-07-31
+
+### Route additions (extend §1 trees; same guard rules)
+
+```
+/pharmacy: smart-order, smart-order/history, quick-order, compare, market, market/:stockistId,
+           product/:productId, sales, sales/:saleNo, areas, routes, checkout, invoices, invoices/:invoiceNo,
+           ledger/:stockistId, stockists/:id, inventory/expiry, inventory/movements, returns/new,
+           otc, upgrade, help, profile, reports
+/stockist: orders/batch-view, pharmacies/:id, invoices/:invoiceNo, record-payment, bulk-bill, create-bill,
+           suppliers, purchase-orders, purchase-orders/:poNo, purchase-bills, required-stock, supplier-returns,
+           catalogue/bulk-price, catalogue/price-history, catalogue/share, inventory/movements, inventory/transfer,
+           delivery/routes, delivery/routes/:routeId, delivery/settings, holidays, subscription, activity,
+           help, profile, reports
+/admin:    network/:id, orders/:orderNo, payments/:paymentNo, returns, transactions, commission, plans,
+           counterfeit, flags, help, profile, reports
+public:    /verify-bill, /catalogue-share/:stockistId
+```
+
+### New shared components (existing design system only)
+
+`ConfirmDialog` (F1) · `FileUpload`/`FileLink` (F2) · `NotificationsPage` (F5) · `GlobalSearch` (F13) · `InvoiceDocument` w/ QR (F15/CF-15) · `StaffManager` (F8) · `ProfileSecurityPage` (F10) · `AnnouncementBanner(placement)` · `TicketPanel` · `EmptyState` sweep · `SuccessSummary` (CF-32) · `SetupChecklist` (CF-32) · `KpiLink`/`KpiDetail` (CF-32) · `OnboardingWalkthrough` (CF-28) · `RolePreviewBanner` (CF-34) · `QrBlock` (CF-15/21) · `TextOrderParser` UI (CF-02).
+
+### New services
+
+`fileService`, `notificationService`, `inventoryService`, `staffService`, `salesService` (CF-05/06), `procurementService` (CF-17), `routeService` (CF-18), `partnerService` (CF-12), `commissionService` (derived reads, CF-22), `planService` (CF-23), `counterfeitService` (CF-24), `impersonationService` (CF-25), `reportService` (CF-26), `referenceData` (CF-36 static). All follow the Result/assertCan/machine/audit/notify pattern.
+
+### State notes
+
+Impersonation = session flag `{impersonating, targetBusinessId, reason, readOnly: true}` honored by every service (mutations blocked). Role preview = UI-only session flag (CF-34). Counters hydrate at bootstrap (PLAN/04 §5).

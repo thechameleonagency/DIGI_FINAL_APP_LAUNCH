@@ -95,3 +95,36 @@ Documents/uploads are user-provided blobs — no CDN.
 
 v1: **English + INR + en-IN number/date formats**.  
 `preferredLanguage` field stored but single UI language (`docs/18` §12). Timezone: single `Asia/Kolkata` business timezone in settings.
+
+---
+
+## 8. Canvas-Derived Additions (docs/22) — added 2026-07-31
+
+### 8.1 New notification codes N-301…N-316
+
+Templates also live in `content/notifications.json`. Full triggers/recipients table in `docs/22` (Part 21): N-301/302 OTC application submitted/decided · N-303 order recorded on your behalf · N-304 invited pharmacy registered · N-305 payment recorded on your account · N-307 payment reminder · N-308 PO fully received · N-309/310 upgrade requested/decided · N-311/313/314 counterfeit filed / batch recall notice / report outcome · N-315 workspace viewed by platform support · N-316 delivery scheduled/rescheduled. (N-306/312 reserved.)
+
+### 8.2 App-code ↔ docs/13 mapping rule (AD-33)
+
+The app's internal N-code numbering diverges from `docs/13` in places (e.g. app N-002 = "verification submitted to admin"). **Rule:** all routing/deep-links key off `entityType`/`entityId`, never N-codes; audits map by meaning. A `content/notification-code-map.md` table must accompany the catalog when built.
+
+### 8.3 Empty-state copy bank — extension (zero-state seed makes these mandatory)
+
+| Context | CTA |
+|---|---|
+| Pharmacy returns | No returns yet — raise one from a delivered order |
+| Pharmacy inventory | Receive an order (GRN) or add stock to start tracking |
+| Pharmacy buy: connected stockist w/ empty catalogue | This stockist hasn't published products yet |
+| Pharmacy payments history / credits | Payments and credit notes appear after your first settlement |
+| Pharmacy support / notifications / connections | Guiding CTA per module (create ticket / actions appear here / find stockists) |
+| POS sales | Record your first walk-in sale with New Sale |
+| Smart/Quick order results | No suggestions yet — order history builds them |
+| Stockist pharmacies / inventory / invoices / payments / credit notes / staff / support / notifications | Guiding CTA per module (share profile / stock in / issue after fulfilment / etc.) |
+| Stockist suppliers / POs / routes / holidays | Add your first supplier / raise a PO / create a route / add a holiday |
+| Admin support / audit / announcements / banners / counterfeit / plans / notifications | "No tickets yet" / "Actions appear here" / create-first CTAs |
+| Marketplace no results | Try another name, brand, or stockist |
+| Bill verification not found | No matching invoice on this installation |
+
+### 8.4 New static content
+
+Help Center FAQ + per-journey guides (CF-27), onboarding slides per role (CF-28), legal texts (T&C/Privacy for registration consent), medicine reference dataset (CF-36) — all under `src/content`, versioned with the app.

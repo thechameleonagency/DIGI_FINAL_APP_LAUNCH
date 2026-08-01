@@ -186,3 +186,43 @@ Because no backend, run a **foreground scheduler** on app focus/interval:
 - Draft order TTL discard  
 
 Document that timers pause when tab closed — acceptable for demo; show “last policy run at” in admin settings.
+
+---
+
+## 9. Canvas-Derived Feature Rules (docs/22) — added 2026-07-31
+
+### 9.1 New state machines (same `canTransition`/`applyTransition` contract)
+
+| Machine | States | Notes |
+|---|---|---|
+| PurchaseOrder (CF-17) | Draft → Sent → PartiallyReceived → Received → Closed; Cancelled from Draft/Sent | Cancel blocked once PartiallyReceived; receive writes stock-in movements |
+| CustomerSale (CF-05) | Recorded → Delivered (home delivery) → Returned (partial ok); Voided terminal from Recorded/Delivered | Void/return restores same batches |
+| UpgradeRequest (CF-23) | Submitted → Approved / Rejected | One open per business; resubmit after Reject |
+| PartnershipApplication (CF-07) | Submitted → UnderReview → Approved / Rejected | Review frozen while business suspended |
+| CounterfeitReport (CF-24) | Reported → Investigating → RecallIssued → Resolved; Investigating → Dismissed | RecallIssued drives existing Batch machine → Recalled |
+| SupplierReturn (CF-17) | Draft → Sent → Settled; Cancelled from Draft | Sent decrements stock w/ movement |
+
+Existing machines unchanged — Manual orders (CF-11) use the Order machine with `source` flag; recorded payments (CF-13) use the Payment machine with `recordedBy` flag.
+
+### 9.2 New calculations
+
+- **Commission (CF-22):** `commission(invoice) = grandTotal × ratePercent/100` (per-stockist override wins); ledger = Σ over non-void Issued invoices in period. Derived only.
+- **QR integrity code (CF-15):** deterministic hash over immutable invoice fields (invoiceNo, stockistId, pharmacyId, grandTotal, issuedAt).
+- **Smart-order suggestions (CF-01):** low-stock (onHand ≤ threshold), frequency (≥2 past orders → avg qty rounded), near-expiry replacement (qty of expiring batch); merge same product at max qty.
+- **Quick-order parser (CF-02):** line → {phrase, qty}; qty patterns `x10`, `-10`, `qty:10`, trailing/leading count; contains-match on name/brand/SKU of connected active products; tie-break cheapest then alphabetical.
+- **Delivery fee (CF-18):** first matching rule in priority order (flat / free-above-threshold); applied as invoice line at issue only.
+- **Advance CN amount (CF-39):** `paymentAmount − Σ allocations` (must be > 0, requires confirm).
+
+### 9.3 New permission actions (add rows to matrices in §3; roles per docs/22)
+
+`sale.record` (Ph Owner/Manager/Staff) · `partner.invite` (St Owner/Manager) · `order.recordManual` (St Owner/Manager) · `payment.recordOffline` (St Owner/Manager/Accountant) · `reminder.send` (St Owner/Manager/Accountant) · `supplier.manage`, `po.manage` (St Owner/Manager) · `route.manage` (St Owner/Manager) · `plan.manage` (SuperAdmin) · `counterfeit.report` (business users) · `counterfeit.review` (Admin/SuperAdmin) · `impersonate` (SuperAdmin) · `commission.view` (Admin/SuperAdmin) · `activity.viewOwn` (Owner/Manager).
+
+Rule: UI gating (useCan) may only use actions enforced by services (PLAN/13 risk 7).
+
+### 9.4 Edge-case registry additions
+
+E-CF-01a…E-CF-39b per docs/22 feature sections (empty-input runs, merged suggestions, unmatched-line preservation, gated marketplace, negative-stock sale block, void-after-partial-return, single open application, duplicate invite, disputed recorded payment, reminder throttle, QR mismatch naming, batch-receive expiry match, over-receipt confirm, unassigned route stop, fee-rule immutability, rate-change non-retroactivity, duplicate UTR flag, recall with open reservations, impersonation read-only, number-shaped search priority, transfer ≤ un-reserved, advance ≤ surplus).
+
+### 9.5 Clock additions
+
+Reminder throttling (CF-14, 1/day/invoice) and announcement/banner expiry remain in the §8 scheduler; all new emitters dedupe by (code, entityId).

@@ -1,6 +1,6 @@
 # Feature Inventory (Mapped to Source Docs)
 
-Every capability below must ship in the no-backend build unless marked **Future (Part 19)**. Citations use `docs/` paths.
+Every capability below must ship in the no-backend build. Citations use `docs/` paths. (2026-07-31: canvas-derived features added as §Q; the former "Future (Part 19)" deferrals of canvas features are superseded — see §O.)
 
 ---
 
@@ -235,19 +235,24 @@ KPI formulas: `docs/11` §§17–24; dictionary `docs/15` §14.
 
 ---
 
-## O. Prototype Canvas Features — Classification
+## O. Prototype Canvas Features — Classification (REVISED 2026-07-31)
 
-These appear in `.dc.html` but are **not** core PDD capabilities. Handling:
+**Superseding decision (user directive):** every canvas feature is IN SCOPE — nothing deferred or omitted. Features clashing with PDD rules are **adapted** (normative specs in `docs/22`, Part 21); only real external integrations get local equivalents. Item-by-item guarantee: [14-CANVAS-COVERAGE-MATRIX.md](./14-CANVAS-COVERAGE-MATRIX.md).
 
-| Canvas feature | Plan decision |
+| Canvas feature | Revised decision |
 |---|---|
-| Smart Order / AI parsing | **Defer** (Part 19 §11) — optional non-binding demo flag OFF by default |
-| Pharmacy Customer Orders (B2C) | **Out of scope** (Foundation §7) |
-| Stockist Purchase Orders to manufacturers / Mfr Returns / Suppliers | **Out of scope** (Part 19 §§3–4) |
-| Platform Commission / Ledger / Settlements as marketplace fees | **Out of scope** (Part 19 §20) unless treated as mock display-only — prefer omit |
-| Counterfeit Management module | Map only to **Batch Recall** governance + admin investigation; no separate counterfeit commerce engine |
-| Upgrade / Subscription / Premium | **Out of scope** (Part 19 §20) |
-| OTC marketplace | **Out of scope** |
+| Smart Order / AI parsing | **In scope, adapted** — deterministic rule-based reorder assistant + text parser; never auto-places (CF-01, CF-02) |
+| Pharmacy Customer Orders (B2C) | **In scope, adapted** — local retail sales ledger (POS) + customer delivery areas/routes; not platform trade (CF-05, CF-06) |
+| Stockist POs / Mfr Returns / Suppliers / purchase GRN / bill history | **In scope, adapted** — supplier procurement module; suppliers are local records; inventory effects via movements (CF-17) |
+| Platform Commission / Ledger / Transactions | **In scope, adapted** — derived read-only monitoring over invoices/payments; documents remain the only financial truth (CF-22) |
+| Counterfeit Management module | **In scope** — report → investigate → batch recall → resolve (CF-24) |
+| Upgrade / Subscription / Premium | **In scope, adapted** — plan tiers + UTR/proof upgrade requests, admin-approved; conveniences only (CF-23) |
+| OTC Partnership | **In scope, adapted** — application wizard + admin review (CF-07) |
+| Marketplace cross-stockist browse | **In scope, adapted** — connection-gated pricing/ordering (CF-04) |
+| Stockist "New Order" / "Quick invoice" / "Add Pharmacy" / "Mark Paid" / "Record Payment" | **In scope, adapted** — manual order on behalf (CF-11), partner invite (CF-12), offline payment recording w/ dual-entry (CF-13) |
+| QR on bill + verification page | **In scope** — local integrity QR + public verify route (CF-15) |
+| Impersonation ("Log in as") | **In scope, adapted** — SuperAdmin-only, read-only, reason + audit (CF-25) |
+| Offline mode toggle | **In scope, adapted** — local-first indicator; the app is already fully local (CF-30) |
 
 ---
 
@@ -256,3 +261,50 @@ These appear in `.dc.html` but are **not** core PDD capabilities. Handling:
 `docs/6` defines the **specification template** and fully specifies only **Place Purchase Order**. `docs/7` (promised full capability specs) is **missing**.
 
 **Plan resolution:** Implement behaviour from the combination of Parts 5, 7–entity (`docs/8`), 8–journeys (`docs/9`), 9–machines (`docs/10`), 10–calcs (`docs/11`), 11–permissions (`docs/12`), 15–edges (`docs/16`), 16–errors (`docs/17`), 18–AC (`docs/19`). Treat Place Purchase Order in `docs/6` as the gold-standard pattern for every service method.
+
+---
+
+## Q. Canvas-Derived Features (docs/22, Part 21) — added 2026-07-31
+
+All normatively specified in `docs/22`; build sequencing in [13-GAP-CLOSURE-PLAN.md](./13-GAP-CLOSURE-PLAN.md) Phases 11–14.
+
+| Feature ID | Feature | Roles | Source |
+|---|---|---|---|
+| CF-01 | Smart Order — rule-based reorder assistant (adds to cart only) + run history | Pharmacy order-placers | `docs/22` §CF-01; canvas smart-order |
+| CF-02 | Quick Order — pasted text → parsed cart lines (matched/unmatched review) | Pharmacy order-placers | `docs/22` §CF-02 |
+| CF-03 | Compare Prices across connected stockists (lowest highlight) | Pharmacy | `docs/22` §CF-03; F-BUY | 
+| CF-04 | Marketplace discovery — cross-stockist browse, connection-gated pricing | Pharmacy | `docs/22` §CF-04 |
+| CF-05 | Customer Sales / POS — walk-in sales from pharmacy stock (FEFO), void/return | Pharmacy (`sale.record`) | `docs/22` §CF-05 |
+| CF-06 | Customer delivery areas & routes (home delivery of sales) | Pharmacy | `docs/22` §CF-06 |
+| CF-07 | OTC Partnership application + admin review | Pharmacy Owner / Admin | `docs/22` §CF-07 |
+| CF-08 | Per-stockist ledger (derived statement) | Pharmacy | `docs/22` §CF-08 |
+| CF-09 | Delivery preferences (slots/instructions/receiver, shown to stockist) | Pharmacy | `docs/22` §CF-09 |
+| CF-10 | Favourite stockists + private supplier rating | Pharmacy | `docs/22` §CF-10 |
+| CF-11 | Manual order on behalf of connected pharmacy (source=Manual, notified) + Quick Invoice variant | Stockist Owner/Manager | `docs/22` §CF-11 |
+| CF-12 | Partner invite ("Add Pharmacy" adapted — registration invites, no records created) | Stockist | `docs/22` §CF-12 |
+| CF-13 | Offline payment recording (recordedBy=Stockist, dual-entry preserved) | Stockist | `docs/22` §CF-13 |
+| CF-14 | Payment reminders (throttled, logged) | Stockist | `docs/22` §CF-14 |
+| CF-15 | QR on bill + public bill-verification route | Stockist issues; public verifies | `docs/22` §CF-15 |
+| CF-16 | Bulk bill generation + invoice-from-orders builder (incl. discount at issue) | Stockist billing roles | `docs/22` §CF-16 |
+| CF-17 | Supplier procurement: suppliers, POs, receive→stock-in, purchase bills, required stock, supplier returns, bill quick-entry | Stockist | `docs/22` §CF-17 |
+| CF-18 | Delivery routes, route execution (maps deep-links), scheduling, delivery-fee rule | Stockist / Delivery Boy | `docs/22` §CF-18 |
+| CF-19 | Business holidays (informational) | Stockist | `docs/22` §CF-19 |
+| CF-20 | Price history log + view | Stockist | `docs/22` §CF-20 |
+| CF-21 | Public catalogue share (no PTR/stock) + link/QR | Stockist | `docs/22` §CF-21 |
+| CF-22 | Commission monitor + Transactions view (derived, read-only) + config | Platform Admin | `docs/22` §CF-22 |
+| CF-23 | Premium plans + upgrade requests (UTR/proof, admin decision) | Businesses / Admin | `docs/22` §CF-23 |
+| CF-24 | Counterfeit management (report → investigate → recall → resolve) | All report; Admin handles | `docs/22` §CF-24 |
+| CF-25 | Impersonation — read-only view-as w/ reason + audit | SuperAdmin | `docs/22` §CF-25 |
+| CF-26 | Reports hubs (admin / pharmacy / stockist canned CSV exports) | Per matrix | `docs/22` §CF-26 |
+| CF-27 | Help Center (FAQ, guides, contact, tickets link, walkthrough replay) | All | `docs/22` §CF-27 |
+| CF-28 | Onboarding walkthrough (first login, replayable) | All | `docs/22` §CF-28 |
+| CF-29 | Global search (scoped) | All | `docs/22` §CF-29 |
+| CF-30 | Preferences & settings toggles (notification mutes, theme, language, local-first indicator, session panel) | All | `docs/22` §CF-30 |
+| CF-31 | Profile menu + sign-out confirmation | All | `docs/22` §CF-31 |
+| CF-32 | Dashboard interaction parity (actionable KPIs, Today's Work, quick actions, success summaries, checklists) | All | `docs/22` §CF-32 |
+| CF-33 | Stock transfer between own locations (paired movements) | Stockist | `docs/22` §CF-33 |
+| CF-34 | Role preview (Owner-only, presentation-only) | Owners | `docs/22` §CF-34 |
+| CF-35 | Consolidated batch-ordering planning view | Stockist | `docs/22` §CF-35 |
+| CF-36 | Product reference autofill (local dataset) | Stockist | `docs/22` §CF-36 |
+| CF-37 | Business activity log (own scope) | Owner/Manager | `docs/22` §CF-37 |
+| CF-39 | Goodwill & advance credit notes | Stockist | `docs/22` §CF-39 |

@@ -1,9 +1,10 @@
 # DigiSwasthya — Complete Build Plan (No Backend)
 
-**Status:** Plan only — implementation not started  
+**Status (updated 2026-07-31):** Build executed once, then fully audited — every original phase is Partial; the active plan of record is [13-GAP-CLOSURE-PLAN.md](./13-GAP-CLOSURE-PLAN.md) (see `BUILD-STATUS.md` for honest status)  
 **Product:** DigiSwasthya B2B pharmaceutical commerce & operations platform  
 **Constraint:** Client-side only (local/mock/static data; no server API)  
-**Authority:** Product Definition Document (PDD) in `docs/` is the single source of truth for product behaviour. Design canvases (`.dc.html`) inform UI/IA and seed patterns but must not override PDD rules when they conflict.
+**Authority:** PDD Parts 1–20 in `docs/` + **Part 21 addendum `docs/22`** (canvas-derived feature specs) are the source of truth. Design canvases (`.dc.html`) are binding for feature/flow coverage — **nothing in them is skipped or deferred** (user directive 2026-07-31; adaptations specified in `docs/22`, item-by-item guarantee in [14-CANVAS-COVERAGE-MATRIX.md](./14-CANVAS-COVERAGE-MATRIX.md)); PDD principles prevail on conflicts via adaptation, never omission.  
+**Seed policy (user directive):** zero-state seed — exactly 3 users (1 per role), no business data, quick-login panel retained (PLAN/04 §5, PLAN/12 G21).
 
 ---
 
@@ -31,7 +32,10 @@ Success (from `docs/App Overview`): a pharmacy and stockist complete onboarding 
 | [09-BUILD-PHASES.md](./09-BUILD-PHASES.md) | Milestone order for full app |
 | [10-ACCEPTANCE-CHECKLIST.md](./10-ACCEPTANCE-CHECKLIST.md) | Per-feature AC (from Part 18 + expansion) |
 | [11-DOC-COVERAGE-MATRIX.md](./11-DOC-COVERAGE-MATRIX.md) | Every doc section → plan item |
-| [12-ASSUMPTIONS-CONTRADICTIONS.md](./12-ASSUMPTIONS-CONTRADICTIONS.md) | Gaps resolved + PDD vs canvas conflicts |
+| [12-ASSUMPTIONS-CONTRADICTIONS.md](./12-ASSUMPTIONS-CONTRADICTIONS.md) | Gaps resolved + PDD vs canvas conflicts (C3–C9 superseded 2026-07-31) |
+| [13-GAP-CLOSURE-PLAN.md](./13-GAP-CLOSURE-PLAN.md) | **Plan of record**: audited gap ledger (~130 items) + canvas modules CF-01…CF-39, phased 1–14 |
+| [14-CANVAS-COVERAGE-MATRIX.md](./14-CANVAS-COVERAGE-MATRIX.md) | Every canvas screen/modal/action → plan item (zero deferred) |
+| [BUILD-STATUS.md](./BUILD-STATUS.md) | Honest current status summary |
 
 ---
 
@@ -178,20 +182,18 @@ From `docs/App Overview` + `docs/4` + Glossary:
 
 All capabilities in `docs/5`, journeys in `docs/9` (A–R), entities in `docs/8`, state machines in `docs/10`, calculations in `docs/11`, permissions in `docs/12`, notifications in `docs/13`, search/export in `docs/14`, dashboards in `docs/15`, edge cases in `docs/16`, error behaviour in `docs/17`, NFRs applicable to client-only in `docs/18`, AC in `docs/19`.
 
-### Out of scope (only what PDD Part 19 / Foundation explicitly exclude)
+### Out of scope — REVISED 2026-07-31
 
-From `docs/App Overview` §7 and `docs/20`:
+**User directive:** every canvas feature ships (adapted per `docs/22`; ledger in PLAN/13 Phases 11–14; guarantee in PLAN/14). Genuinely out of scope now only:
 
-- Patient / doctor / e-Rx / clinical / hospital ERP / insurance / lab / manufacturing ops  
-- Consumer medicine delivery marketplace / public e-commerce  
-- Multi-warehouse, manufacturers as first-class traders, inter-stockist transfers  
-- Payment gateway automation, accounting sync, logistics partner APIs, ABDM  
-- AI ordering as authoritative automation (canvas “Smart Order” = **prototype-only**, defer or demote to non-binding demo)  
-- SaaS subscription / platform commission ledger as product truth (canvas admin Money/Commission = **prototype extras** unless re-specified)  
-- Full offline mode (`docs/18` §3)  
-- Multi-currency / cross-border  
+- Patient / doctor / e-Rx / clinical / hospital ERP / insurance / lab / manufacturing ops (not in canvases)  
+- Real external integrations — SMS/email/payment gateways, OCR/AI services, maps APIs, accounting sync, 3PL, ABDM — each with a defined **local equivalent** (`docs/22` exclusions table)  
+- Open/public consumer e-commerce with unauthenticated ordering (marketplace browse is in scope, connection-gated — CF-04; POS retail ledger in scope — CF-05)  
+- Full multi-warehouse allocation (locations-lite transfers in scope — CF-33)  
+- AI as *authoritative* automation (assistive deterministic Smart/Quick Order in scope — CF-01/02)  
+- Multi-currency / cross-border; multi-device sync/backend  
 
-See [12-ASSUMPTIONS-CONTRADICTIONS.md](./12-ASSUMPTIONS-CONTRADICTIONS.md) for canvas vs PDD handling.
+Formerly-deferred canvas features (Smart Order, B2C sales, procurement, commission monitor, premium, OTC, impersonation, offline toggle) are now **in scope, adapted** — see [12-ASSUMPTIONS-CONTRADICTIONS.md](./12-ASSUMPTIONS-CONTRADICTIONS.md) C3–C9 supersede notes + G23.
 
 ---
 

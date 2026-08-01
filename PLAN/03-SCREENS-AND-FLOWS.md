@@ -211,3 +211,66 @@ When PDD says “per policy”, v1 defaults:
 ## G. Screen ↔ Journey Traceability
 
 Every journey ID in `docs/9` (A1–R15 and short-form catalogue) must map to ≥1 screen interaction in the test matrix (`10-ACCEPTANCE-CHECKLIST.md`). Engineering must not ship a journey as “API-only” without UI for its actor.
+
+---
+
+## H. Canvas-Derived Screens & Flows (docs/22) — added 2026-07-31
+
+Same global UI states (§Global) apply. UI uses the existing design system only.
+
+### H-B Pharmacy screens (extend section B)
+
+| Screen | Behaviours | Edge exits |
+|---|---|---|
+| B11 Smart Order wizard + history | scope pick → suggestion lines (rule tags, editable qty/stockist, cheapest preselect) → adds to cart only; runs saved + re-applicable | zero suggestions empty state; unavailable products unacceptable (E-CF-01a) |
+| B12 Quick Order | paste text → matched/unmatched table → manual pick or discard per unmatched → cart | wholly unparseable → all rows preserved as unmatched (E-CF-02a) |
+| B13 Product detail + Compare | spec rows, per-stockist prices (connection-gated), lowest highlight, add per row | single seller = no "lowest" badge |
+| B14 Marketplace + seller detail | cross-stockist product search; price/add gated; "connect to see price" CTA | suspended sellers hidden |
+| B15 Customer Sales (POS) + sale detail | New Sale modal (customer, FEFO lines, payment mode, home-delivery flag); day totals; void/return w/ reason + restock | negative stock blocked; expired unsellable |
+| B16 Customer delivery areas & routes | area/PIN CRUD; route stops; per-stop delivered/failed (reason) | failed stop → unassigned pool |
+| B17 OTC Partnership wizard | prefilled identity → programme inputs + consent → submit; status badge on Business | one open application (E-CF-07a) |
+| B18 Per-stockist Ledger | tiles (purchases/paid/credits/outstanding) + signed entries linking documents; export | disconnected pair still viewable |
+| B19 Checkout | address book picker + preferred date + payment method + credit-headroom banner + GST breakdown review | over-credit soft-warn confirm |
+| B20 Expiry management | band tiles, write-off (movement), mark-return prefill | — |
+| B21 Help Center | FAQ accordion, guides, contact, tickets panel, walkthrough replay | — |
+
+### H-C Stockist screens (extend section C)
+
+| Screen | Behaviours | Edge exits |
+|---|---|---|
+| C10 Manual order / Quick invoice | connected-pharmacy pick → lines (picker or parser) → Pending Manual order (notify) / auto-progress to Invoiced w/ guards | inactive connection blocked; suspended pharmacy blocked (E-CF-11b) |
+| C11 Partner invites | invite form → shareable link/text; Sent/Registered/Connected tracking | existing GST/phone → connection deep-link (E-CF-12a) |
+| C12 Record offline payment | amount/mode/reference/date/proof + allocation (FIFO prefill) → Submitted (recordedBy) → review | duplicate ref flagged; surplus → Advance CN confirm (CF-39) |
+| C13 Bulk billing + invoice-from-orders | multi-select ready orders → batch issue w/ per-order report; discount at issue | raced duplicate invoice fails its row only (E-CF-16a) |
+| C14 Supplier procurement suite | suppliers CRUD; PO lifecycle; receive → stock-in w/ batch/expiry/cost; bills history w/ file; required-stock → draft PO; supplier returns; bill quick-entry parser | over-receipt confirm; partial-received PO cannot cancel; return ≤ on-hand |
+| C15 Routes + route execution + delivery settings | route CRUD/stops/assignee; execution view w/ maps deep-links + per-stop actions; scheduled dates; fee rules (dates/areas/fees tabs) | unassigned stop unexecutable; fee changes never retroactive |
+| C16 Price history + bulk price update | change log per product; scope→adjust→preview→apply (notifies once per batch) | — |
+| C17 Public catalogue share | read-only snapshot (no PTR/stock) + copy link/QR | — |
+| C18 Expiry calendar + stock transfer | month-grouped expiries; from/to location transfer w/ paired movements | transfer ≤ un-reserved on-hand |
+| C19 Batch-ordering planning view | cycle grouping (week/date/route), totals, shortcuts to fulfilment/bulk-invoice/routes | view-only over live orders |
+| C20 Holidays | date+label CRUD; shown on profile; checkout info banner | never blocks orders |
+| C21 Help Center + activity log | as B21 + own-scope audit trail w/ filters/export | scope strictly own business |
+
+### H-D Admin screens (extend section D)
+
+| Screen | Behaviours | Edge exits |
+|---|---|---|
+| D9 Commission & Transactions | rate config (+overrides); derived ledger w/ period/stockist filters + export; transactions register w/ anomaly flags → documents | reconciles exactly with invoice register (E-CF-22b) |
+| D10 Plans & upgrade requests | plan copy editor; request queue (UTR/proof) → approve/reject w/ reason; revoke | duplicate UTR flagged (E-CF-23b) |
+| D11 Counterfeit console | report queue → investigate (assignee/notes) → issue batch recall (notifies holders) → resolve/dismiss | recall releases reservations + flags orders (E-CF-24a) |
+| D12 Impersonation | reason modal → read-only view-as w/ banner → exit; audited both ends | zero mutations possible (service-enforced) |
+| D13 Reports hub | canned CSVs w/ timestamp + filter summary; export audited | — |
+
+### H-E Shared shell
+
+Global search dropdown (scoped, number-priority); profile menu + sign-out confirm; onboarding walkthrough (4 slides/role + replay); notification preferences/theme/language/local-first toggles; dashboard interaction parity (actionable KPIs, Today's Work, quick actions, success summary cards, setup checklists); role preview banner (Owner).
+
+### Flows 8–14 (extend section E)
+
+- **Flow 8 — Smart/Quick Order:** suggestions/paste → review → cart → standard order placement (never auto-places).
+- **Flow 9 — POS sale & customer delivery:** record sale (FEFO) → optional route stop → delivered; void/return restores stock.
+- **Flow 10 — Manual order & offline payment:** stockist records order on behalf (pharmacy notified, cancellable) → fulfil → invoice; stockist records offline payment → pharmacy notified → approve → outstanding reduces; surplus → advance CN.
+- **Flow 11 — Procurement:** low stock → draft PO → sent → receive (stock-in w/ batches) → purchase bill; expiring stock → supplier return → settle.
+- **Flow 12 — Counterfeit → recall:** report → investigate → recall batch (holders notified, reservations released) → resolve.
+- **Flow 13 — Premium/OTC:** request w/ UTR/proof (or application) → admin decision → badge/status.
+- **Flow 14 — Verify a bill:** scan/paste QR payload → local check → Genuine/Mismatch/Not found.

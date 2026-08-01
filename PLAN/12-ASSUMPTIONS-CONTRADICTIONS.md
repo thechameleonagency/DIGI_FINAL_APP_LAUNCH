@@ -35,30 +35,28 @@
 |---|---|---|
 | C1 | `docs/4` Rel 7 lists partial fulfil as “future”; `docs/9`/`docs/10` define partial paths | **Follow journeys/state machines** — partial in scope |
 | C2 | `docs/6` says “No workflow until every capability fully specified”; `docs/7` missing | **Proceed** using reconstructed specs; do not block build |
-| C3 | Canvas includes Smart Order AI; `docs/20` AI is future; Accuracy Over Automation | **Out of scope** for v1 (flag-off). Do not auto-place orders |
-| C4 | Canvas Pharmacy “Customer Orders” B2C; Foundation out-of-scope consumer delivery | **Out of scope** |
-| C5 | Canvas Stockist manufacturer POs / mfr returns; Part 19 manufacturers/transfers | **Out of scope** |
-| C6 | Canvas Admin commission/ledger/settlements; Part 19 SaaS/marketplace commercial | **Out of scope** — admin Money = read-only platform payments monitor + anomaly flags only |
-| C7 | Canvas “Upgrade to Premium” / Subscription | **Out of scope** |
+| C3 | Canvas includes Smart Order AI; `docs/20` AI is future; Accuracy Over Automation | **SUPERSEDED 2026-07-31:** in scope, adapted — deterministic rule-based assistant, adds to cart only, never auto-places (`docs/22` CF-01/CF-02) |
+| C4 | Canvas Pharmacy “Customer Orders” B2C; Foundation out-of-scope consumer delivery | **SUPERSEDED 2026-07-31:** in scope, adapted — local retail sales ledger (POS) + customer delivery routes; not a consumer marketplace (`docs/22` CF-05/CF-06) |
+| C5 | Canvas Stockist manufacturer POs / mfr returns; Part 19 manufacturers/transfers | **SUPERSEDED 2026-07-31:** in scope, adapted — supplier procurement module with local supplier records; suppliers are not platform participants (`docs/22` CF-17) |
+| C6 | Canvas Admin commission/ledger/settlements; Part 19 SaaS/marketplace commercial | **SUPERSEDED 2026-07-31:** in scope, adapted — derived read-only commission monitor + transactions register; documents stay the only financial truth (`docs/22` CF-22) |
+| C7 | Canvas “Upgrade to Premium” / Subscription | **SUPERSEDED 2026-07-31:** in scope, adapted — plan tiers + UTR/proof upgrade requests, admin-approved, conveniences only (`docs/22` CF-23) |
 | C8 | Order status label `confirmed`/`invoiced` in canvas vs PDD states | **Normalize to PDD** (`docs/10` Order states). Invoice is separate entity; show invoice linkage not Order=Invoiced as core status (UI may show secondary badge “Invoiced” derived) |
-| C9 | `docs/18` primarily online; canvas settings toggle `offline:true` | **No full offline mode**; connectivity error behaviour only |
+| C9 | `docs/18` primarily online; canvas settings toggle `offline:true` | **SUPERSEDED 2026-07-31:** toggle in scope as local-first indicator — the app is already fully local; no additional offline engine (`docs/22` CF-30) |
 | C10 | Analytics as entity in `docs/8` vs “never source of truth” | Store only cache; recompute from sources |
 | C11 | Glossary maps Part 6 to files `6 / 7` | Confirms missing file 7; App Overview = Part 1 |
 
 ---
 
-## 3. Explicit Out of Scope (Do Not Build as Product Truth)
+## 3. Explicit Out of Scope — REVISED 2026-07-31
 
-From `docs/App Overview` §7 + `docs/20` — also strip from canvas port:
+**User directive:** nothing that exists in the canvases is skipped/deferred; canvas features are adapted per `docs/22` (see PLAN/01 §O + PLAN/14). What remains genuinely out of scope:
 
-- Clinical/patient/doctor/Rx/insurance/lab/hospital ERP/manufacturing  
-- Consumer marketplace / OTC B2C  
-- Multi-warehouse, manufacturer trading, inter-stockist transfer  
-- Payment gateway automation, Tally sync, 3PL integrations, ABDM  
-- AI authoritative ordering  
-- Multi-currency  
-- Self-serve business merge  
-- SaaS subscription entitlements / platform commission engine  
+- Clinical/patient/doctor/Rx/insurance/lab/hospital ERP/manufacturing operations (not in canvases)  
+- Real external integrations: SMS/email/payment gateways, OCR/AI services, maps APIs, Tally sync, 3PL, ABDM — each replaced by a defined local equivalent (`docs/22` exclusions table)  
+- Open/public consumer marketplace with unauthenticated ordering (marketplace browse is in scope but connection-gated — CF-04; POS retail ledger is in scope — CF-05)  
+- Full multi-warehouse allocation logic (locations-lite transfers are in scope — CF-33)  
+- AI *authoritative* ordering (assistive rule-based suggestions in scope — CF-01)  
+- Multi-currency; multi-device sync/backend; self-serve business merge  
 
 ---
 
@@ -73,8 +71,18 @@ From `docs/App Overview` §7 + `docs/20` — also strip from canvas port:
 
 ---
 
-## 5. Confirmation Statements
+## 5. Confirmation Statements (historical) + status notes
 
-1. **No files under `docs/` were edited, modified, or deleted** while producing this plan.  
-2. Plan artifacts live only under `PLAN/`.  
-3. Implementation has **not** been started as part of this task.
+1. *(original, 2026-07 plan)* No files under `docs/` were edited while producing the plan. **Note 2026-07-31:** `docs/22` (Part 21 addendum) was ADDED by user direction; Parts 1–20 remain untouched.  
+2. Plan artifacts live under `PLAN/`.  
+3. *(superseded)* “Implementation not started” — a build was executed and then audited on 2026-07-31; true status in `BUILD-STATUS.md` + `13-GAP-CLOSURE-PLAN.md`.
+
+---
+
+## 6. New Assumptions (2026-07-31)
+
+| ID | Assumption |
+|---|---|
+| G21 | **Zero-state seed policy** (user directive): seed = 3 owner users + 3 Approved businesses + platformSettings + empty catalogue only; all demo data created through the UI. Supersedes the golden-path seed in PLAN/04 §5. Quick-login panel retained with the 3 credentials. |
+| G22 | **Document-number counters derived at boot** from existing documents (no stored sequence); single-browser-tab assumption; re-hydrate + seedMeta stamp after workspace import. |
+| G23 | **Canvas full-inclusion directive**: every canvas feature ships, adapted per `docs/22`; conflicts resolved by adaptation, never omission (PLAN/14 is the completeness ledger). Admin impersonation is IN scope as read-only + audited (reverses the earlier defer decision). Canvas seed data (SEED_VER 7 golden path) is overridden by G21. |

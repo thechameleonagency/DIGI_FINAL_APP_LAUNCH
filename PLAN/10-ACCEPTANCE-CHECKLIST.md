@@ -236,3 +236,30 @@ For each journey ID in `docs/9` (A1–R15 + short-form list), maintain a spreads
 `JourneyID | Screen | Service | AC IDs | Automated? | Pass`
 
 Phase 9 cannot close with any Critical/High journey lacking AC.
+
+---
+
+## Q. Canvas-Derived Features (docs/22) — added 2026-07-31
+
+**Ledger-honesty rule:** a box is checked ONLY with automated-test evidence (test file/name annotated). Reconciliation note: before 2026-07-31 this file was all-unchecked while BUILD-STATUS claimed "Done" — BUILD-STATUS has been corrected; this file remains the QA ledger.
+
+- [ ] AC-Q01 Smart Order never places an order by itself; accepted lines land in cart only; run history persisted (CF-01)
+- [ ] AC-Q02 Quick-order parser never silently drops a line — every input line ends Matched, Manually-resolved, or Discarded-by-user (CF-02)
+- [ ] AC-Q03 Manual order (source=Manual) is visible to the pharmacy immediately with cancel rights; source/creator permanently visible (CF-11)
+- [ ] AC-Q04 Offline-recorded payment shows recordedBy=Stockist permanently; duplicate-reference guard applies; outstanding changes only on approval (CF-13)
+- [ ] AC-Q05 Tampered QR payload (amount changed) verifies as Mismatch naming the field; unknown invoice → Not found (CF-15)
+- [ ] AC-Q06 POS sale cannot drive stock negative and never sells expired/quarantined/recalled batches; void/return restores the same batches (CF-05)
+- [ ] AC-Q07 PO receive increments stock only via movements (batch/expiry/cost captured); supplier return decrements with movement; totals reconcile (CF-17)
+- [ ] AC-Q08 Commission ledger totals reconcile exactly with the invoice register for identical filters; zero write paths from commission/transactions screens (CF-22)
+- [ ] AC-Q09 Impersonation: zero mutations possible (service-enforced), reason required, enter/exit audited, banner always visible (CF-25)
+- [ ] AC-Q10 Stock transfer writes paired TransferOut/TransferIn movements; total sellable unchanged; cannot exceed un-reserved on-hand (CF-33)
+- [ ] AC-Q11 Goodwill CN requires reason; Advance CN ≤ payment surplus and requires explicit confirmation; both show source to the pharmacy (CF-39)
+- [ ] AC-Q12 Marketplace/compare/product-detail show prices and allow add-to-cart ONLY with an Active connection (CF-03/04)
+- [ ] AC-Q13 Notification preferences mute only non-critical categories; critical/action-required always delivered (CF-30)
+- [ ] AC-Q14 Reminders throttled to 1/day/invoice; blocked on settled invoices (CF-14)
+- [ ] AC-Q15 Role preview changes presentation only — actions executed under preview are authorised and audited as the real user (CF-34)
+- [ ] AC-Q16 Public catalogue share exposes no PTR and no stock counts (CF-21)
+- [ ] AC-Q17 Upgrade approval flips plan + badge without altering any trade rule or document (CF-23)
+- [ ] AC-Q18 Counterfeit recall marks batch Recalled via the batch machine, notifies holders, releases open reservations (CF-24)
+- [ ] AC-Q19 Zero-state boot: exactly 3 users, all trade tables empty, every list shows a guiding empty state, quick-login works for all 3 roles, reload never re-seeds (G21)
+- [ ] AC-Q20 Document numbers remain unique and monotonic across reloads and workspace import (G22)

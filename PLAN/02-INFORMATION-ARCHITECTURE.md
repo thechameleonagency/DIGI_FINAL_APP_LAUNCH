@@ -99,7 +99,7 @@ Aligned with canvas:
 | Support | `/stockist/support` |
 | Holidays / non-delivery days (prefs) | `/stockist/settings/holidays` — maps to delivery settings |
 
-**Omit from nav (out of scope):** Purchase Orders to manufacturers, Mfr Returns, Suppliers factory list, Subscription/Premium, Bulk marketplace features not in PDD.
+**~~Omit from nav~~ SUPERSEDED 2026-07-31:** Purchase Orders / Supplier Returns / Suppliers, Subscription and marketplace features are IN nav — see §7 below (`docs/22` CF-17, CF-23, CF-04).
 
 ### Stockist Home (`docs/15` §5)
 
@@ -136,7 +136,7 @@ Same stockist app, role-filtered: `/stockist/delivery/board` only + notification
 | Reports / Export | `/admin/reports` | P15 |
 | Profile | `/admin/profile` | Shared |
 
-**Omit or demote:** Platform Ledger double-entry, Commission Setup, Counterfeit module as separate product — not in PDD. Replace Counterfeit with **Recall / Safety investigations** view over Batch Recalled events if needed.
+**~~Omit or demote~~ SUPERSEDED 2026-07-31:** Platform Ledger/Commission ship as derived read-only monitoring (CF-22); Counterfeit ships as report→investigate→batch-recall console (CF-24) — see §7 below.
 
 ---
 
@@ -166,3 +166,22 @@ If permission lost → access denied, notification retained (`docs/13` Click Beh
 3. Bottom nav on mobile for Pharmacy/Stockist primary destinations (`docs/18` §10).  
 4. Admin desktop-primary for heavy config; mobile acceptable for ticket triage.  
 5. One primary job per dashboard (`docs/15` principles).
+
+---
+
+## 7. Canvas-Derived IA Additions (docs/22) — added 2026-07-31
+
+### Pharmacy nav additions
+Primary: Buy gains sub-entries **Marketplace** (CF-04), **Compare** (CF-03), **Smart Order** (CF-01), **Quick Order** (CF-02). New primary/More entries: **Sales (POS)** (CF-05) with Areas/Routes (CF-06), **Ledger** per stockist (CF-08, entered from Connections/Stockist detail), **Help** (CF-27). More hub (mobile) lists every secondary page (F14): Wishlist, Invoices, Credit Notes, Returns, Expiry, Addresses, Delivery Preferences (CF-09), Staff, Business, Settings, Privacy/Profile, Notifications, Messages, Support, OTC Partnership (CF-07), Upgrade (CF-23), Reports (CF-26).
+
+### Stockist nav additions
+Orders gains **Batch view** (CF-35); Catalogue gains **Bulk Price** (ST-38/CF-20), **Add Item hub**; Delivery gains **Routes / Route execution / Delivery settings** (CF-18); Payments gains **Record Payment** (CF-13), **Bulk Bill / From Orders** (CF-16). More hub groups: **Purchasing** (Suppliers, Purchase Orders, Purchases/GRN, Bill History, Required Stock, Supplier Returns — CF-17), **Billing** (Invoices, Credit Notes incl. goodwill CF-39, Bulk Bill), **Workspace** (Users & Roles w/ role preview CF-34, Documents, Activity Log CF-37, Reports CF-26, Export Data, Export Catalogue CF-21), **Account** (Business, Settings CF-30, Notifications, Subscription CF-23, Holidays CF-19, Help CF-27).
+
+### Admin nav additions
+Money group gains **Transactions / Commission** (CF-22); More hub groups: **Trust & safety** (Suspensions, Counterfeit CF-24, Audit), **Content** (Announcements, Banners), **Platform** (Reports CF-26, Plans CF-23, Settings, Notifications, Profile). Business detail offers **View as business** (CF-25, SuperAdmin).
+
+### Shared shell
+Topbar: global search (CF-29), messages, bell, profile menu (CF-31). Public (no-login) route: **/verify-bill** (CF-15) and read-only catalogue share route (CF-21).
+
+### Deep-link table additions
+Notification/entity deep links extended to: CustomerSale → POS sale detail; PurchaseOrder → PO detail; UpgradeRequest → plans/queue; PartnershipApplication → OTC status/queue; CounterfeitReport → console; CreditNote(Goodwill/Advance) → CN detail; Delivery(scheduled) → delivery card.
