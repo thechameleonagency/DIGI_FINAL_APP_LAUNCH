@@ -128,6 +128,55 @@ export async function respondConnection(params: {
   return ok(updated);
 }
 
+/** Revise credit days/limit on an Active connection (audited). */
+export async function updateConnectionCreditTerms(params: {
+  actor: User;
+  stockist: Business;
+  connectionId: string;
+  creditDays: number;
+  creditLimit: number;
+  reason: string;
+}): Promise<Result<Connection>> {
+  const perm = assertCan(params.actor, params.stockist, 'connection.respond');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Credit terms were not updated.');
+  if (!params.reason.trim()) {
+    return fail('Validation', 'CONN_TERMS_REASON', 'A reason is required to change credit terms.', 'Credit terms were not updated.');
+  }
+  if (!Number.isFinite(params.creditDays) || params.creditDays < 0) {
+    return fail('Validation', 'CONN_TERMS_DAYS', 'Credit days must be zero or greater.', 'Credit terms were not updated.');
+  }
+  if (!Number.isFinite(params.creditLimit) || params.creditLimit <= 0) {
+    return fail('Validation', 'CONN_TERMS_LIMIT', 'Credit limit must be greater than zero.', 'Credit terms were not updated.');
+  }
+  const conn = await db.connections.get(params.connectionId);
+  if (!conn || conn.stockistId !== params.stockist.id) {
+    return fail('NotFound', 'CONN_MISSING', 'Connection not found.', 'Credit terms were not updated.');
+  }
+  if (conn.status !== 'Active') {
+    return fail('BusinessRule', 'CONN_TERMS_STATE', 'Credit terms can only be edited on Active connections.', 'Credit terms were not updated.');
+  }
+  const ts = new Date().toISOString();
+  const before = { creditDays: conn.creditDays, creditLimit: conn.creditLimit };
+  await db.connections.update(conn.id, {
+    creditDays: params.creditDays,
+    creditLimit: params.creditLimit,
+    updatedAt: ts,
+  });
+  const updated = (await db.connections.get(conn.id))!;
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Connection',
+    entityId: conn.id,
+    action: 'connection.creditTerms',
+    reason: params.reason.trim(),
+    before,
+    after: { creditDays: params.creditDays, creditLimit: params.creditLimit },
+  });
+  return ok(updated);
+}
+
 export async function cancelConnectionRequest(params: {
   actor: User;
   pharmacy: Business;

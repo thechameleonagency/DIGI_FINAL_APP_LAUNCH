@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
@@ -11,26 +11,107 @@ import {
 } from '../../../services/counterfeitService';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileLink } from '../../../ui/components/FileUpload';
-import { Button, EmptyState, Field, Input, PageHeader, StatusBadge, Textarea } from '../../../ui/components/primitives';
+import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import {
+  Button,
+  EmptyState,
+  Field,
+  Input,
+  LoadingState,
+  Modal,
+  PageHeader,
+  StatusBadge,
+  Textarea,
+} from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
+
+const STATUS_OPTS = ['Reported', 'Investigating', 'RecallIssued', 'Dismissed', 'Resolved'].map((s) => ({
+  value: s,
+  label: s,
+}));
 
 export function AdminCounterfeit() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
-  const reports = useLiveQuery(() => db.counterfeitReports.toArray()) ?? [];
+  const { items: reports, loading } = useLiveArray(() => db.counterfeitReports.toArray());
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
   const products = useLiveQuery(() => db.products.toArray()) ?? [];
   const batches = useLiveQuery(() => db.batches.toArray()) ?? [];
-  const [note, setNote] = useState<Record<string, string>>({});
-  const [reason, setReason] = useState<Record<string, string>>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [dismissReason, setDismissReason] = useState('');
+  const [dismissError, setDismissError] = useState<string | undefined>();
+  const [recallOpen, setRecallOpen] = useState(false);
 
   const nameOf = (id?: string) => (id ? businesses.find((b) => b.id === id)?.name ?? id.slice(0, 8) : '—');
   const productName = (id?: string) => (id ? products.find((p) => p.id === id)?.name ?? id.slice(0, 8) : '—');
   const batchNo = (id?: string) => (id ? batches.find((b) => b.id === id)?.batchNumber ?? id.slice(0, 8) : '—');
 
-  const sorted = [...reports].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const rows = useMemo(
+    () =>
+      [...reports]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .map((r) => ({
+          ...r,
+          reportLabel: r.reportNo ?? r.id.slice(0, 8),
+          reporterName: nameOf(r.reporterBusinessId),
+          productLabel: productName(r.productId),
+          batchLabel: batchNo(r.batchId),
+          sellerName: r.sellerBusinessId ? nameOf(r.sellerBusinessId) : '—',
+        })),
+    [reports, businesses, products, batches],
+  );
+
+  const columns = useMemo(
+    () => [
+      { key: 'reportLabel', label: 'Report', getValue: (r: (typeof rows)[0]) => r.reportLabel },
+      {
+        key: 'status',
+        label: 'Status',
+        getValue: (r: (typeof rows)[0]) => r.status,
+        render: (r: (typeof rows)[0]) => <StatusBadge status={r.status} />,
+      },
+      { key: 'reporterName', label: 'Reporter', getValue: (r: (typeof rows)[0]) => r.reporterName },
+      { key: 'productLabel', label: 'Product', getValue: (r: (typeof rows)[0]) => r.productLabel },
+      { key: 'batchLabel', label: 'Batch', getValue: (r: (typeof rows)[0]) => r.batchLabel },
+      { key: 'sellerName', label: 'Seller', getValue: (r: (typeof rows)[0]) => r.sellerName },
+      {
+        key: 'createdAt',
+        label: 'Filed',
+        getValue: (r: (typeof rows)[0]) => r.createdAt,
+        render: (r: (typeof rows)[0]) => (
+          <span className="muted">{new Date(r.createdAt).toLocaleString()}</span>
+        ),
+      },
+    ],
+    [],
+  );
+
+  const list = useListControls(rows, {
+    columns,
+    searchKeys: [
+      (r) =>
+        `${r.reportLabel} ${r.reporterName} ${r.productLabel} ${r.batchLabel} ${r.sellerName} ${r.status} ${r.description}`,
+    ],
+    filters: [{ key: 'status', label: 'Status', options: STATUS_OPTS }],
+    defaultSortKey: 'createdAt',
+    defaultSortDir: 'desc',
+  });
+
+  const selected = selectedId ? rows.find((r) => r.id === selectedId) : undefined;
+
+  const recallImpact = useMemo(() => {
+    if (!selected?.batchId) return { holders: 0, units: 0 };
+    const target = batches.filter((b) => b.id === selected.batchId);
+    return {
+      holders: new Set(target.map((b) => b.stockistId).filter(Boolean)).size,
+      units: target.reduce((s, b) => s + (b.onHand ?? 0), 0),
+    };
+  }, [selected, batches]);
 
   const act = <T,>(fn: () => Promise<{ ok: true; data: T } | { ok: false; message: string }>, okTitle: string) =>
     void run(async () => {
@@ -40,57 +121,148 @@ export function AdminCounterfeit() {
         return;
       }
       pushToast({ tone: 'success', title: okTitle });
+      setNote('');
+      setDismissReason('');
+      setDismissError(undefined);
     });
 
   return (
     <div className="stack">
       <PageHeader title="Counterfeit management" subtitle="Investigate reports → recall batches → resolve" />
-      {!sorted.length ? (
+
+      <ConfirmDialog
+        open={recallOpen && !!selected}
+        title="Issue network recall?"
+        tone="danger"
+        confirmLabel="Issue recall"
+        requireReason
+        reasonLabel="Recall reason"
+        body={
+          selected ? (
+            <div className="stack" style={{ fontSize: 13 }}>
+              <p style={{ margin: 0 }}>
+                This quarantines batch <strong>{selected.batchLabel}</strong> (
+                <strong>{selected.productLabel}</strong>) across the network.
+              </p>
+              <p style={{ margin: 0 }}>
+                Impact estimate: <strong>{recallImpact.holders}</strong> holder business(es),{' '}
+                <strong>{recallImpact.units}</strong> units on hand.
+              </p>
+            </div>
+          ) : null
+        }
+        onClose={() => setRecallOpen(false)}
+        onConfirm={(recallReason) =>
+          act(async () => {
+            const res = await issueCounterfeitRecall({
+              actor: user,
+              platform: business,
+              id: selected!.id,
+              note: [note, recallReason].filter(Boolean).join(' — ') || recallReason,
+            });
+            if (res.ok) setRecallOpen(false);
+            return res;
+          }, 'Recall issued')
+        }
+      />
+
+      {loading ? (
+        <LoadingState label="Loading reports…" />
+      ) : !rows.length ? (
         <EmptyState title="No counterfeit reports" description="Reports filed by pharmacies or stockists appear here." />
       ) : (
-        sorted.map((r) => (
-          <div key={r.id} className="card card-pad stack">
-            <div className="row gap" style={{ justifyContent: 'space-between' }}>
-              <div>
-                <strong>{r.reportNo ?? r.id.slice(0, 8)}</strong>
-                <div className="muted">{new Date(r.createdAt).toLocaleString()}</div>
-              </div>
-              <StatusBadge status={r.status} />
+        <>
+          <ListToolbar
+            query={list.query}
+            onQuery={list.setQuery}
+            placeholder="Search report / product / batch / party"
+            filters={[{ key: 'status', label: 'Status', options: STATUS_OPTS }]}
+            filterValues={list.filterValues}
+            onFilter={list.setFilter}
+            onExport={() => {
+              list.doExport('counterfeit-reports.csv');
+              pushToast({ tone: 'success', title: 'Exported reports' });
+            }}
+          />
+          <DataListTable
+            columns={columns}
+            rows={list.pageRows}
+            sortKey={list.sortKey}
+            sortDir={list.sortDir}
+            onSort={list.toggleSort}
+            onRowClick={(r) => {
+              setSelectedId(r.id);
+              setNote('');
+              setDismissReason('');
+              setDismissError(undefined);
+            }}
+          />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        </>
+      )}
+
+      <Modal
+        open={!!selected}
+        title={selected ? `${selected.reportLabel} · ${selected.status}` : 'Report'}
+        onClose={() => setSelectedId(null)}
+        footer={
+          <Button variant="secondary" onClick={() => setSelectedId(null)}>
+            Close
+          </Button>
+        }
+      >
+        {selected ? (
+          <div className="stack">
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <StatusBadge status={selected.status} />
+              <span className="muted" style={{ fontSize: 12 }}>
+                {new Date(selected.createdAt).toLocaleString()}
+              </span>
             </div>
             <div>
               Reporter:{' '}
-              <Link to={`/admin/network/${r.reporterBusinessId}`}>{nameOf(r.reporterBusinessId)}</Link>
+              <Link to={`/admin/network/${selected.reporterBusinessId}`}>{selected.reporterName}</Link>
             </div>
             <div>
-              Product: {productName(r.productId)} · Batch: {batchNo(r.batchId)}
-              {r.sellerBusinessId ? (
+              Product: {selected.productLabel} · Batch: {selected.batchLabel}
+              {selected.sellerBusinessId ? (
                 <>
                   {' '}
-                  · Seller: <Link to={`/admin/network/${r.sellerBusinessId}`}>{nameOf(r.sellerBusinessId)}</Link>
+                  · Seller:{' '}
+                  <Link to={`/admin/network/${selected.sellerBusinessId}`}>{selected.sellerName}</Link>
                 </>
               ) : null}
             </div>
-            <p style={{ margin: 0 }}>{r.description}</p>
-            {r.linkedReportId ? <p className="muted">Linked to investigation {r.linkedReportId.slice(0, 8)}</p> : null}
-            {r.evidenceFileIds?.map((fid) => (
+            <p style={{ margin: 0 }}>{selected.description}</p>
+            {selected.linkedReportId ? (
+              <p className="muted">Linked to investigation {selected.linkedReportId.slice(0, 8)}</p>
+            ) : null}
+            {selected.evidenceFileIds?.map((fid) => (
               <FileLink key={fid} fileId={fid} />
             ))}
-            {r.internalNotes.length ? (
+            {selected.internalNotes.length ? (
               <div className="muted" style={{ whiteSpace: 'pre-wrap' }}>
-                {r.internalNotes.join('\n')}
+                {selected.internalNotes.join('\n')}
               </div>
             ) : null}
+            {selected.decisionReason ? <p className="muted">Decision: {selected.decisionReason}</p> : null}
 
-            {r.status === 'Reported' ? (
-              <div className="row gap">
+            {selected.status === 'Reported' ? (
+              <div className="stack">
                 <Field label="Investigation note (optional)">
-                  <Input value={note[r.id] ?? ''} onChange={(e) => setNote((m) => ({ ...m, [r.id]: e.target.value }))} />
+                  <Input value={note} onChange={(e) => setNote(e.target.value)} />
                 </Field>
                 <Button
                   disabled={busy}
                   onClick={() =>
                     act(
-                      async () => startCounterfeitInvestigation({ actor: user, platform: business, id: r.id, note: note[r.id] }),
+                      async () =>
+                        startCounterfeitInvestigation({
+                          actor: user,
+                          platform: business,
+                          id: selected.id,
+                          note,
+                        }),
                       'Investigation started',
                     )
                   }
@@ -100,14 +272,10 @@ export function AdminCounterfeit() {
               </div>
             ) : null}
 
-            {r.status === 'Investigating' ? (
+            {selected.status === 'Investigating' ? (
               <div className="stack">
                 <Field label="Internal note">
-                  <Textarea
-                    rows={2}
-                    value={note[r.id] ?? ''}
-                    onChange={(e) => setNote((m) => ({ ...m, [r.id]: e.target.value }))}
-                  />
+                  <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
                 </Field>
                 <div className="row gap">
                   <Button
@@ -115,57 +283,57 @@ export function AdminCounterfeit() {
                     disabled={busy}
                     onClick={() =>
                       act(
-                        async () => addCounterfeitNote({ actor: user, platform: business, id: r.id, note: note[r.id] ?? '' }),
+                        async () =>
+                          addCounterfeitNote({ actor: user, platform: business, id: selected.id, note }),
                         'Note added',
                       )
                     }
                   >
                     Add note
                   </Button>
-                  <Button
-                    disabled={busy || !r.batchId}
-                    onClick={() =>
-                      act(
-                        async () => issueCounterfeitRecall({ actor: user, platform: business, id: r.id, note: note[r.id] }),
-                        'Recall issued',
-                      )
-                    }
-                  >
+                  <Button disabled={busy || !selected.batchId} onClick={() => setRecallOpen(true)}>
                     Issue recall
                   </Button>
                 </div>
-                <Field label="Dismiss reason">
-                  <Input value={reason[r.id] ?? ''} onChange={(e) => setReason((m) => ({ ...m, [r.id]: e.target.value }))} />
+                <Field label="Dismiss reason *" error={dismissError}>
+                  <Input
+                    value={dismissReason}
+                    onChange={(e) => {
+                      setDismissReason(e.target.value);
+                      setDismissError(undefined);
+                    }}
+                    placeholder="Required to dismiss"
+                  />
                 </Field>
                 <Button
                   variant="danger"
                   disabled={busy}
-                  onClick={() =>
+                  onClick={() => {
+                    if (!dismissReason.trim()) {
+                      setDismissError('Reason is required');
+                      return;
+                    }
                     act(
                       async () =>
                         dismissCounterfeitReport({
                           actor: user,
                           platform: business,
-                          id: r.id,
-                          reason: reason[r.id] ?? '',
+                          id: selected.id,
+                          reason: dismissReason.trim(),
                         }),
                       'Dismissed',
-                    )
-                  }
+                    );
+                  }}
                 >
                   Dismiss
                 </Button>
               </div>
             ) : null}
 
-            {r.status === 'RecallIssued' ? (
+            {selected.status === 'RecallIssued' ? (
               <div className="stack">
                 <Field label="Resolution note">
-                  <Textarea
-                    rows={2}
-                    value={note[r.id] ?? ''}
-                    onChange={(e) => setNote((m) => ({ ...m, [r.id]: e.target.value }))}
-                  />
+                  <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
                 </Field>
                 <Button
                   disabled={busy}
@@ -175,8 +343,8 @@ export function AdminCounterfeit() {
                         resolveCounterfeitReport({
                           actor: user,
                           platform: business,
-                          id: r.id,
-                          note: note[r.id] ?? '',
+                          id: selected.id,
+                          note,
                         }),
                       'Resolved',
                     )
@@ -186,11 +354,9 @@ export function AdminCounterfeit() {
                 </Button>
               </div>
             ) : null}
-
-            {r.decisionReason ? <p className="muted">Decision: {r.decisionReason}</p> : null}
           </div>
-        ))
-      )}
+        ) : null}
+      </Modal>
     </div>
   );
 }

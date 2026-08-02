@@ -95,6 +95,7 @@ export async function removeStaff(params: {
   actor: User;
   business: Business;
   userId: string;
+  reason?: string;
 }): Promise<Result<true>> {
   const perm = assertCan(params.actor, params.business, 'staff.manage');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Staff was not removed.');
@@ -119,6 +120,7 @@ export async function removeStaff(params: {
     entityType: 'User',
     entityId: target.id,
     action: 'staff.remove',
+    reason: params.reason?.trim() || undefined,
   });
   return ok(true);
 }

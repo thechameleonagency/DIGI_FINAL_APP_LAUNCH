@@ -16,6 +16,15 @@ import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { notifyBusinessUsers } from './notifications';
 
+async function creditNoteExpiresAt(issuedAt: string): Promise<string | undefined> {
+  const settings = await db.platformSettings.get('platform');
+  if (!settings?.creditNoteAutoExpire) return undefined;
+  const days = settings.creditNoteExpiryDays ?? 90;
+  const d = new Date(issuedAt);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString();
+}
+
 export async function submitPayment(params: {
   actor: User;
   pharmacy: Business;
@@ -33,13 +42,19 @@ export async function submitPayment(params: {
 
   const existing = await db.payments.where('idempotencyKey').equals(params.idempotencyKey).first();
   if (existing) {
-    return fail('Duplicate', 'PAY_IDEMPOTENT', 'This payment was already submitted.', 'A duplicate payment was not created.', {
-      existingId: existing.id,
-      retrySafe: true,
-    });
+    // True idempotent replay — return original payment, do not create a second
+    return ok(existing);
   }
 
   const settings = await db.platformSettings.get('platform');
+  if (settings?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'PAY_MAINTENANCE',
+      'Platform maintenance is on — new payments are paused. Try again after the banner clears.',
+      'Payment was not submitted.',
+    );
+  }
   if (settings?.paymentProofMandatory && !params.proofFileId) {
     return fail('Validation', 'PAY_PROOF', 'Payment proof is mandatory.', 'Payment was not submitted.');
   }
@@ -107,6 +122,60 @@ export async function submitPayment(params: {
   await db.payments.add(payment);
   await notifyBusinessUsers(params.stockistId, 'N-030', { paymentNo: payment.paymentNo }, { type: 'Payment', id: payment.id });
   return ok(payment);
+}
+
+/** Pharmacy withdraws a mistaken submission before stockist review. */
+export async function withdrawPayment(params: {
+  actor: User;
+  pharmacy: Business;
+  paymentId: string;
+  reason?: string;
+}): Promise<Result<Payment>> {
+  const perm = assertCan(params.actor, params.pharmacy, 'payment.submit');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Payment was not withdrawn.');
+  const payment = await db.payments.get(params.paymentId);
+  if (!payment || payment.pharmacyId !== params.pharmacy.id) {
+    return fail('NotFound', 'PAY_MISSING', 'Payment not found.', 'Payment was not withdrawn.');
+  }
+  if (payment.recordedBy === 'Stockist') {
+    return fail('BusinessRule', 'PAY_WITHDRAW_OWNER', 'Only pharmacy-submitted payments can be withdrawn here.', 'Payment was not withdrawn.');
+  }
+  const t = machines.payment(payment.status, 'Cancelled');
+  if (!t.ok) {
+    return fail(
+      'StateConflict',
+      'PAY_WITHDRAW_STATE',
+      'Only Submitted payments can be withdrawn. Once under review they stay with the stockist.',
+      'Payment was not withdrawn.',
+    );
+  }
+  const ts = new Date().toISOString();
+  await db.payments.update(payment.id, {
+    status: 'Cancelled',
+    updatedAt: ts,
+    statusHistory: [
+      ...payment.statusHistory,
+      {
+        from: payment.status,
+        to: 'Cancelled',
+        at: ts,
+        actorId: params.actor.id,
+        reason: params.reason?.trim() || 'Withdrawn by pharmacy',
+      },
+    ],
+  });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.pharmacy.id,
+    entityType: 'Payment',
+    entityId: payment.id,
+    action: 'payment.withdraw',
+    reason: params.reason,
+    after: { paymentNo: payment.paymentNo, status: 'Cancelled' },
+  });
+  await notifyBusinessUsers(payment.stockistId, 'N-306', { paymentNo: payment.paymentNo }, { type: 'Payment', id: payment.id });
+  return ok((await db.payments.get(payment.id))!);
 }
 
 /** CF-13: stockist records an off-platform remittance → Submitted, recordedBy=Stockist; outstanding changes only on approve */
@@ -533,6 +602,7 @@ export async function issueCreditNote(params: {
     applications: [],
     source: 'Return',
     issuedAt: ts,
+    expiresAt: await creditNoteExpiresAt(ts),
     issuedBy: params.actor.id,
     createdAt: ts,
     updatedAt: ts,
@@ -596,6 +666,7 @@ export async function issueGoodwillCreditNote(params: {
     source: 'Goodwill',
     reason: params.reason.trim(),
     issuedAt: ts,
+    expiresAt: await creditNoteExpiresAt(ts),
     issuedBy: params.actor.id,
     createdAt: ts,
     updatedAt: ts,
@@ -659,6 +730,7 @@ export async function issueAdvanceCreditNote(params: {
     paymentId: payment.id,
     reason: `Surplus from ${payment.paymentNo}`,
     issuedAt: ts,
+    expiresAt: await creditNoteExpiresAt(ts),
     issuedBy: params.actor.id,
     createdAt: ts,
     updatedAt: ts,
@@ -691,6 +763,9 @@ export async function applyCreditNote(params: {
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Credit was not applied.');
   const cn = await db.creditNotes.get(params.creditNoteId);
   if (!cn) return fail('NotFound', 'CN_MISSING', 'Credit note not found.', 'Credit was not applied.');
+  if (cn.status === 'Void' || (cn.expiresAt && new Date(cn.expiresAt) < new Date())) {
+    return fail('BusinessRule', 'CN_EXPIRED', 'This credit note has expired or been voided.', 'Credit was not applied.');
+  }
   if (cn.pharmacyId !== params.business.id && cn.stockistId !== params.business.id) {
     return fail('Permission', 'CN_BOUNDARY', 'Not a party to this credit note.', 'Credit was not applied.');
   }

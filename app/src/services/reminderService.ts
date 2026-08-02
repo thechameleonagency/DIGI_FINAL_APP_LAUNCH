@@ -1,15 +1,12 @@
 import type { Business, User } from '../domain/entities/types';
 import { fail, ok, type Result } from '../domain/errors/types';
+import { localDayKey, localTodayKey } from '../domain/utils/dateKeys';
 import { formatINR } from '../domain/utils/money';
 import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
 import { notifyBusinessUsers } from './notifications';
 import { sendMessage } from './supportService';
-
-function dayKey(iso: string): string {
-  return iso.slice(0, 10);
-}
 
 export async function sendPaymentReminder(params: {
   actor: User;
@@ -31,11 +28,11 @@ export async function sendPaymentReminder(params: {
     return fail('BusinessRule', 'REM_SETTLED', 'Cannot remind on a fully settled invoice.', 'Reminder was not sent.');
   }
 
-  const today = dayKey(new Date().toISOString());
+  const today = localTodayKey();
   const prior = await db.auditLogs
     .where('entityId')
     .equals(inv.id)
-    .filter((a) => a.action === 'reminder.send' && dayKey(a.at) === today)
+    .filter((a) => a.action === 'reminder.send' && localDayKey(a.at) === today)
     .first();
   if (prior) {
     return fail('BusinessRule', 'REM_THROTTLE', 'A reminder was already sent for this invoice today.', 'Reminder was not sent.');

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { INDIAN_STATES, PHARMACY_TYPES } from '../../content/indiaRegions';
 import { db } from '../../data/db';
 import type { Business, User } from '../../domain/entities/types';
+import { newId } from '../../domain/utils/ids';
 import { isPin } from '../../domain/utils/validation';
 import { addBusinessDocument, updateBusiness } from '../../services/businessService';
 import { useSession } from '../../store/session';
@@ -10,23 +11,14 @@ import { useUi } from '../../store/ui';
 import { FileLink } from './FileUpload';
 import { Button, Field, Input, PageHeader, Select, StatusBadge } from './primitives';
 
-export function BusinessProfileEditor({
-  actor,
-  business,
-}: {
-  actor: User;
-  business: Business;
-}) {
-  const { refreshEntities, user } = useSession();
-  const { pushToast } = useUi();
-  const locked = business.verificationStatus === 'Approved';
-  const isStockist = business.type === 'Stockist';
-  const verification = useLiveQuery(
-    () => db.verifications.where('businessId').equals(business.id).reverse().sortBy('updatedAt'),
-    [business.id],
-  )?.[0];
+type LocationRow = { id: string; name: string };
 
-  const [form, setForm] = useState({
+function locationsFromBusiness(business: Business): LocationRow[] {
+  return (business.locations ?? []).map((l) => ({ id: l.id, name: l.name }));
+}
+
+function formFromBusiness(business: Business) {
+  return {
     name: business.name,
     legalName: business.legalName ?? '',
     pharmacyType: business.pharmacyType ?? 'Retail',
@@ -45,50 +37,79 @@ export function BusinessProfileEditor({
     bankName: business.bankName ?? '',
     accountHolderName: business.accountHolderName ?? '',
     servicePins: business.servicePins ?? [],
-    holidays: (business.holidays ?? []).join(', '),
-    deliverySlots: (business.preferences?.deliverySlots ?? []).join(', '),
+    holidays: [...(business.holidays ?? [])],
+    deliverySlots: [...(business.preferences?.deliverySlots ?? [])],
     instructions: business.preferences?.instructions ?? '',
     defaultReceiver: business.preferences?.defaultReceiver ?? '',
     deliveryFeeFlat: String(business.preferences?.deliveryFeeFlat ?? ''),
     deliveryFeeFreeAbove: String(business.preferences?.deliveryFeeFreeAbove ?? ''),
-    locations: (business.locations ?? []).map((l) => l.name).join(', '),
-  });
+    locations: locationsFromBusiness(business),
+  };
+}
+
+export function BusinessProfileEditor({
+  actor,
+  business,
+}: {
+  actor: User;
+  business: Business;
+}) {
+  const { refreshEntities, user } = useSession();
+  const { pushToast } = useUi();
+  const locked = business.verificationStatus === 'Approved';
+  const isStockist = business.type === 'Stockist';
+  const verification = useLiveQuery(
+    () => db.verifications.where('businessId').equals(business.id).reverse().sortBy('updatedAt'),
+    [business.id],
+  )?.[0];
+
+  const [form, setForm] = useState(() => formFromBusiness(business));
+  const [dirty, setDirty] = useState(false);
   const [pinInput, setPinInput] = useState('');
+  const [locationInput, setLocationInput] = useState('');
+  const [slotInput, setSlotInput] = useState('');
+  const [holidayDate, setHolidayDate] = useState('');
+  const [holidayLabel, setHolidayLabel] = useState('');
   const [busy, setBusy] = useState(false);
-  const set = (k: keyof typeof form, v: string | string[]) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: keyof typeof form, v: string | string[] | LocationRow[]) => {
+    setDirty(true);
+    setForm((f) => ({ ...f, [k]: v }));
+  };
+
+  // Reset when switching businesses; ignore session refresh ticks while editing.
+  useEffect(() => {
+    setDirty(false);
+    setForm(formFromBusiness(business));
+    setLocationInput('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only on business id change
+  }, [business.id]);
 
   useEffect(() => {
-    setForm({
-      name: business.name,
-      legalName: business.legalName ?? '',
-      pharmacyType: business.pharmacyType ?? 'Retail',
-      panNumber: business.panNumber ?? '',
-      phone: business.phone,
-      email: business.email,
-      city: business.city,
-      state: business.state,
-      pincode: business.pincode,
-      address: business.address,
-      gstNumber: business.gstNumber ?? '',
-      drugLicenseNumber: business.drugLicenseNumber ?? '',
-      upiId: business.upiId ?? '',
-      bankAccountNumber: business.bankAccountNumber ?? '',
-      bankIfsc: business.bankIfsc ?? '',
-      bankName: business.bankName ?? '',
-      accountHolderName: business.accountHolderName ?? '',
-      servicePins: business.servicePins ?? [],
-      holidays: (business.holidays ?? []).join(', '),
-      deliverySlots: (business.preferences?.deliverySlots ?? []).join(', '),
-      instructions: business.preferences?.instructions ?? '',
-      defaultReceiver: business.preferences?.defaultReceiver ?? '',
-      deliveryFeeFlat: String(business.preferences?.deliveryFeeFlat ?? ''),
-      deliveryFeeFreeAbove: String(business.preferences?.deliveryFeeFreeAbove ?? ''),
-      locations: (business.locations ?? []).map((l) => l.name).join(', '),
-    });
-  }, [business]);
+    if (dirty) return;
+    setForm(formFromBusiness(business));
+    setLocationInput('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync on persisted updatedAt only when clean
+  }, [business.id, business.updatedAt, dirty]);
 
   const save = async () => {
     setBusy(true);
+    const nextLocations = isStockist
+      ? form.locations
+          .map((l) => ({ id: l.id, name: l.name.trim() }))
+          .filter((l) => l.name.length > 0)
+      : undefined;
+    if (isStockist && nextLocations) {
+      const seen = new Set<string>();
+      for (const l of nextLocations) {
+        const key = l.name.toLowerCase();
+        if (seen.has(key)) {
+          setBusy(false);
+          pushToast({ tone: 'error', title: `Duplicate location “${l.name}”` });
+          return;
+        }
+        seen.add(key);
+      }
+    }
     const res = await updateBusiness({
       actor,
       business,
@@ -111,22 +132,10 @@ export function BusinessProfileEditor({
         bankName: form.bankName,
         accountHolderName: form.accountHolderName,
         servicePins: isStockist ? form.servicePins : undefined,
-        holidays: form.holidays
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-        locations: isStockist
-          ? form.locations
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean)
-              .map((name, i) => ({ id: `loc-${i}`, name }))
-          : undefined,
+        holidays: form.holidays,
+        locations: nextLocations,
         preferences: {
-          deliverySlots: form.deliverySlots
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean),
+          deliverySlots: form.deliverySlots,
           instructions: form.instructions.trim() || undefined,
           defaultReceiver: form.defaultReceiver.trim() || undefined,
           deliveryFeeFlat: form.deliveryFeeFlat ? Number(form.deliveryFeeFlat) : undefined,
@@ -134,11 +143,29 @@ export function BusinessProfileEditor({
         },
       },
     });
+    if (res.ok && nextLocations) {
+      // Keep batch.location labels in sync when a named location is renamed (ids stay stable)
+      const prevById = new Map((business.locations ?? []).map((l) => [l.id, l.name]));
+      const ts = new Date().toISOString();
+      for (const loc of nextLocations) {
+        const prevName = prevById.get(loc.id);
+        if (!prevName || prevName === loc.name) continue;
+        const affected = await db.batches
+          .where('stockistId')
+          .equals(business.id)
+          .filter((b) => (b.location ?? '') === prevName)
+          .toArray();
+        for (const b of affected) {
+          await db.batches.update(b.id, { location: loc.name, updatedAt: ts });
+        }
+      }
+    }
     setBusy(false);
     if (!res.ok) {
       pushToast({ tone: 'error', title: res.message });
       return;
     }
+    setDirty(false);
     if (user) refreshEntities(user, res.data);
     pushToast({ tone: 'success', title: 'Business profile saved' });
   };
@@ -290,18 +317,108 @@ export function BusinessProfileEditor({
 
       <div className="card card-pad stack">
         <strong>Preferences</strong>
-        <Field label="Delivery slots (comma-separated)">
-          <Input value={form.deliverySlots} onChange={(e) => set('deliverySlots', e.target.value)} />
-        </Field>
+        <div className="stack" style={{ gap: 8 }}>
+          <strong style={{ fontSize: 13 }}>Delivery slots</strong>
+          <div className="row">
+            <Input
+              placeholder="e.g. Morning 9–12"
+              value={slotInput}
+              onChange={(e) => setSlotInput(e.target.value)}
+              style={{ flex: 1 }}
+              aria-label="Add delivery slot"
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                const slot = slotInput.trim();
+                if (!slot) return;
+                if (form.deliverySlots.some((s) => s.toLowerCase() === slot.toLowerCase())) return;
+                set('deliverySlots', [...form.deliverySlots, slot]);
+                setSlotInput('');
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                const slot = slotInput.trim();
+                if (!slot) return;
+                if (form.deliverySlots.some((s) => s.toLowerCase() === slot.toLowerCase())) return;
+                set('deliverySlots', [...form.deliverySlots, slot]);
+                setSlotInput('');
+              }}
+            >
+              Add
+            </Button>
+          </div>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            {form.deliverySlots.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="chip"
+                onClick={() => set('deliverySlots', form.deliverySlots.filter((x) => x !== s))}
+              >
+                {s} ×
+              </button>
+            ))}
+          </div>
+        </div>
         <Field label="Default receiver">
           <Input value={form.defaultReceiver} onChange={(e) => set('defaultReceiver', e.target.value)} />
         </Field>
         <Field label="Delivery instructions">
           <Input value={form.instructions} onChange={(e) => set('instructions', e.target.value)} />
         </Field>
-        <Field label="Holidays (comma-separated dates/labels)">
-          <Input value={form.holidays} onChange={(e) => set('holidays', e.target.value)} placeholder="2026-01-26|Republic Day, 2026-08-15" />
-        </Field>
+        <div className="stack" style={{ gap: 8 }}>
+          <strong style={{ fontSize: 13 }}>Holidays</strong>
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <Field label="Date">
+              <Input type="date" value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} />
+            </Field>
+            <Field label="Label (optional)">
+              <Input
+                value={holidayLabel}
+                onChange={(e) => setHolidayLabel(e.target.value)}
+                placeholder="Republic Day"
+              />
+            </Field>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                if (!holidayDate) {
+                  pushToast({ tone: 'error', title: 'Pick a holiday date' });
+                  return;
+                }
+                const entry = holidayLabel.trim() ? `${holidayDate}|${holidayLabel.trim()}` : holidayDate;
+                if (form.holidays.includes(entry) || form.holidays.some((h) => h.startsWith(`${holidayDate}|`) || h === holidayDate)) {
+                  pushToast({ tone: 'error', title: 'Holiday already listed' });
+                  return;
+                }
+                set('holidays', [...form.holidays, entry]);
+                setHolidayDate('');
+                setHolidayLabel('');
+              }}
+            >
+              Add
+            </Button>
+          </div>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            {form.holidays.map((h) => {
+              const [date, label] = h.split('|');
+              return (
+                <button
+                  key={h}
+                  type="button"
+                  className="chip"
+                  onClick={() => set('holidays', form.holidays.filter((x) => x !== h))}
+                >
+                  {label ? `${date} · ${label}` : date} ×
+                </button>
+              );
+            })}
+          </div>
+        </div>
         {isStockist ? (
           <>
             <Field label="Delivery fee (flat ₹, optional)">
@@ -322,13 +439,74 @@ export function BusinessProfileEditor({
             <p className="muted" style={{ fontSize: 12, margin: 0 }}>
               Fee is applied only at invoice issue; changing the rule never edits issued invoices.
             </p>
-            <Field label="Storage locations (comma-separated)">
-              <Input
-                value={form.locations}
-                onChange={(e) => set('locations', e.target.value)}
-                placeholder="Main Warehouse, Branch Depot"
-              />
-            </Field>
+            <div className="stack" style={{ gap: 8 }}>
+              <strong style={{ fontSize: 13 }}>Storage locations</strong>
+              <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                Each location keeps a stable id. Renaming updates batch location labels; reordering does not reassign
+                ids.
+              </p>
+              {form.locations.map((loc) => (
+                <div key={loc.id} className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <Input
+                    value={loc.name}
+                    onChange={(e) =>
+                      set(
+                        'locations',
+                        form.locations.map((l) => (l.id === loc.id ? { ...l, name: e.target.value } : l)),
+                      )
+                    }
+                    placeholder="Location name"
+                    aria-label={`Location ${loc.name || loc.id}`}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => set('locations', form.locations.filter((l) => l.id !== loc.id))}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <div className="row" style={{ gap: 8 }}>
+                <Input
+                  value={locationInput}
+                  onChange={(e) => setLocationInput(e.target.value)}
+                  placeholder="New location name"
+                  style={{ flex: 1 }}
+                  aria-label="New storage location"
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    const name = locationInput.trim();
+                    if (!name) return;
+                    if (form.locations.some((l) => l.name.trim().toLowerCase() === name.toLowerCase())) {
+                      pushToast({ tone: 'error', title: 'Location already exists' });
+                      return;
+                    }
+                    set('locations', [...form.locations, { id: newId(), name }]);
+                    setLocationInput('');
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    const name = locationInput.trim();
+                    if (!name) return;
+                    if (form.locations.some((l) => l.name.trim().toLowerCase() === name.toLowerCase())) {
+                      pushToast({ tone: 'error', title: 'Location already exists' });
+                      return;
+                    }
+                    set('locations', [...form.locations, { id: newId(), name }]);
+                    setLocationInput('');
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
           </>
         ) : null}
       </div>
@@ -373,9 +551,14 @@ export function BusinessProfileEditor({
         </label>
       </div>
 
-      <Button disabled={busy} onClick={() => void save()}>
-        {busy ? 'Saving…' : 'Save business profile'}
-      </Button>
+      <div className={`sticky-save-bar${dirty ? ' is-dirty' : ''}`}>
+        <span className="muted" style={{ fontSize: 13 }}>
+          {dirty ? 'Unsaved changes' : 'All changes saved'}
+        </span>
+        <Button disabled={busy || !dirty} onClick={() => void save()}>
+          {busy ? 'Saving…' : 'Save business profile'}
+        </Button>
+      </div>
     </div>
   );
 }

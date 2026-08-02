@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button, Field, Modal, Textarea } from './primitives';
+import { Button, Field, Input, Modal, Textarea } from './primitives';
 
 export type ConfirmDialogProps = {
   open: boolean;
@@ -12,13 +12,19 @@ export type ConfirmDialogProps = {
   requireReason?: boolean;
   reasonLabel?: string;
   reasonPlaceholder?: string;
-  onConfirm: (reason?: string) => void | Promise<void>;
+  /** When set, user must type this exact phrase (trimmed) to enable confirm */
+  confirmPhrase?: string;
+  confirmPhraseLabel?: string;
+  /** When true, user must enter a password; value is passed as the second onConfirm arg */
+  requirePassword?: boolean;
+  passwordLabel?: string;
+  onConfirm: (reason?: string, password?: string) => void | Promise<void>;
   onClose: () => void;
 };
 
 /**
- * Confirm + optional required-reason dialog wrapping Modal.
- * Use for every destructive/decision action (reject, disconnect, void, fail, etc.).
+ * Confirm + optional required-reason / typed-phrase / password dialog wrapping Modal.
+ * Use for every destructive/decision action (reject, disconnect, void, fail, ownership transfer, etc.).
  */
 export function ConfirmDialog({
   open,
@@ -30,15 +36,23 @@ export function ConfirmDialog({
   requireReason = false,
   reasonLabel = 'Reason',
   reasonPlaceholder = 'Required',
+  confirmPhrase,
+  confirmPhraseLabel = 'Type the business name to confirm',
+  requirePassword = false,
+  passwordLabel = 'Your password',
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
   const [reason, setReason] = useState('');
+  const [phrase, setPhrase] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) {
       setReason('');
+      setPhrase('');
+      setPassword('');
       setBusy(false);
     }
   }, [open]);
@@ -52,13 +66,17 @@ export function ConfirmDialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  const canConfirm = !requireReason || reason.trim().length > 0;
+  const phraseOk = !confirmPhrase || phrase.trim() === confirmPhrase.trim();
+  const reasonOk = !requireReason || reason.trim().length > 0;
+  const passwordOk = !requirePassword || password.length > 0;
+  const canConfirm = phraseOk && reasonOk && passwordOk;
 
   return (
     <Modal
       open={open}
       title={title}
       onClose={onClose}
+      layer={1}
       footer={
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
@@ -70,7 +88,10 @@ export function ConfirmDialog({
             onClick={async () => {
               setBusy(true);
               try {
-                await onConfirm(requireReason ? reason.trim() : undefined);
+                await onConfirm(
+                  requireReason ? reason.trim() : undefined,
+                  requirePassword ? password : undefined,
+                );
               } finally {
                 setBusy(false);
               }
@@ -90,7 +111,30 @@ export function ConfirmDialog({
               onChange={(e) => setReason(e.target.value)}
               placeholder={reasonPlaceholder}
               rows={3}
+              autoFocus={!confirmPhrase && !requirePassword}
+            />
+          </Field>
+        ) : null}
+        {confirmPhrase ? (
+          <Field label={confirmPhraseLabel}>
+            <Input
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+              placeholder={confirmPhrase}
               autoFocus
+              autoComplete="off"
+            />
+          </Field>
+        ) : null}
+        {requirePassword ? (
+          <Field label={passwordLabel}>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Re-enter your password"
+              autoComplete="current-password"
+              autoFocus={!confirmPhrase}
             />
           </Field>
         ) : null}

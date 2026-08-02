@@ -2,15 +2,18 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
-import type { VerificationDocument } from '../../domain/entities/types';
+import type { VerificationDocKind, VerificationDocument } from '../../domain/entities/types';
 import { portalFor } from '../../domain/permissions';
 import { DEMO_OTP } from '../../domain/utils/crypto';
 import { acceptInvite, getInvitePreview, login, resetPassword } from '../../services/authService';
 import { DEMO_ACCOUNTS } from '../../data/seed';
+import { isGstin, isLicenseNo, isPhone, normalizeGstin } from '../../domain/utils/validation';
+import { updateBusiness } from '../../services/businessService';
 import { storeFile } from '../../services/fileService';
 import { requestReactivation, submitVerification } from '../../services/verificationService';
 import {
   getLoginLockoutRemainingMs,
+  isCredentialLoginFailure,
   LOGIN_LOCKOUT_MS,
   recordLoginFailure,
   recordLoginSuccess,
@@ -20,7 +23,21 @@ import {
 import { useUi } from '../../store/ui';
 import { BannerStrip } from '../../ui/components/BannerStrip';
 import { FileLink } from '../../ui/components/FileUpload';
-import { Button, Field, Input } from '../../ui/components/primitives';
+import { Button, Field, Input, Select } from '../../ui/components/primitives';
+
+const PHARMACY_RESUBMIT_KINDS: { kind: VerificationDocKind; label: string }[] = [
+  { kind: 'DrugLicense', label: 'Drug license' },
+  { kind: 'GstinCert', label: 'GSTIN certificate' },
+  { kind: 'PharmacyCert', label: 'Pharmacy registration cert' },
+  { kind: 'Fssai', label: 'FSSAI (optional)' },
+];
+
+const STOCKIST_RESUBMIT_KINDS: { kind: VerificationDocKind; label: string }[] = [
+  { kind: 'DrugLicense', label: 'Drug license' },
+  { kind: 'GstinCert', label: 'GSTIN certificate' },
+  { kind: 'WholesaleLicense', label: 'Wholesale license' },
+  { kind: 'Fssai', label: 'FSSAI (optional)' },
+];
 
 function AuthShell({ children }: { children: React.ReactNode }) {
   return (
@@ -37,7 +54,8 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [lockRemaining, setLockRemaining] = useState(() => getLoginLockoutRemainingMs());
+  const [lockRemaining, setLockRemaining] = useState(0);
+  const [demoGroup, setDemoGroup] = useState<'Pharmacy' | 'Stockist' | 'Admin'>('Pharmacy');
   const { setSession, user, business } = useSession();
   const { pushToast } = useUi();
   const navigate = useNavigate();
@@ -52,10 +70,14 @@ export function LoginPage() {
   }, [pushToast]);
 
   useEffect(() => {
+    setLockRemaining(getLoginLockoutRemainingMs(email));
+  }, [email]);
+
+  useEffect(() => {
     if (lockRemaining <= 0) return;
-    const id = window.setInterval(() => setLockRemaining(getLoginLockoutRemainingMs()), 1000);
+    const id = window.setInterval(() => setLockRemaining(getLoginLockoutRemainingMs(email)), 1000);
     return () => window.clearInterval(id);
-  }, [lockRemaining]);
+  }, [lockRemaining, email]);
 
   if (user && business) {
     if (business.accountStatus === 'Suspended') return <Navigate to="/auth/suspended" replace />;
@@ -73,35 +95,43 @@ export function LoginPage() {
       <p className="auth-sub">B2B pharmaceutical commerce — sign in to your Pharmacy, Stockist, or Platform Admin workspace.</p>
       {locked ? (
         <div className="banner-strip warning" style={{ marginBottom: 12 }}>
-          Too many failed attempts. Try again in {Math.ceil(lockRemaining / 1000)}s.
+          Too many failed attempts for this account. Try again in {Math.ceil(lockRemaining / 1000)}s.
         </div>
       ) : null}
       <form
         className="stack"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (getLoginLockoutRemainingMs() > 0) {
-            setLockRemaining(getLoginLockoutRemainingMs());
-            pushToast({ tone: 'warning', title: 'Temporarily locked', message: 'Wait before trying again.' });
+          if (getLoginLockoutRemainingMs(email) > 0) {
+            setLockRemaining(getLoginLockoutRemainingMs(email));
+            pushToast({
+              tone: 'warning',
+              title: 'Temporarily locked',
+              message: 'Wait before trying again with this email/phone.',
+            });
             return;
           }
           setBusy(true);
           const res = await login(email, password);
           setBusy(false);
           if (!res.ok) {
-            const fail = recordLoginFailure();
-            setLockRemaining(getLoginLockoutRemainingMs());
-            pushToast({
-              tone: 'error',
-              title: fail.locked ? 'Account login locked' : res.message,
-              message: fail.locked
-                ? `Too many failures. Retry in ${Math.ceil(LOGIN_LOCKOUT_MS / 60000)} minutes.`
-                : res.businessImpact,
-            });
+            if (isCredentialLoginFailure(res.code)) {
+              const fail = recordLoginFailure(email);
+              setLockRemaining(getLoginLockoutRemainingMs(email));
+              pushToast({
+                tone: 'error',
+                title: fail.locked ? 'Account login locked' : res.message,
+                message: fail.locked
+                  ? `Too many failures for this account. Retry in ${Math.ceil(LOGIN_LOCKOUT_MS / 60000)} minutes.`
+                  : res.businessImpact,
+              });
+            } else {
+              pushToast({ tone: 'error', title: res.message, message: res.businessImpact });
+            }
             if (res.code === 'AUTH_BIZ_INACTIVE') navigate('/auth/suspended');
             return;
           }
-          recordLoginSuccess();
+          recordLoginSuccess(email);
           setSession(res.data.user, res.data.business);
           if (res.data.business.accountStatus === 'Suspended') {
             navigate('/auth/suspended');
@@ -131,38 +161,50 @@ export function LoginPage() {
         <Button type="submit" disabled={busy || locked}>
           {busy ? 'Signing in…' : 'Sign in'}
         </Button>
+        <Link to="/verify-bill" style={{ textAlign: 'center', fontSize: 12, fontWeight: 600 }}>
+          Verify a bill (anti-counterfeit)
+        </Link>
       </form>
-      <div className="card card-pad" style={{ marginTop: 18, fontSize: 12, color: 'var(--muted)' }}>
-        <strong style={{ color: 'var(--text)' }}>Demo accounts — click to fill, then Sign in</strong>
-        <p style={{ margin: '6px 0 10px' }}>Rich seed (v5): 5 pharmacies · 5 stockists · full trade lifecycles</p>
-        {(['Pharmacy', 'Stockist', 'Admin'] as const).map((group) => {
-          const accounts = DEMO_ACCOUNTS.filter((a) => a.roleGroup === group);
-          return (
-            <div key={group} className="stack" style={{ marginTop: 10 }}>
-              <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 12 }}>{group}</div>
-              {accounts.map((a, idx) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ textAlign: 'left', height: 'auto', padding: '8px 10px', whiteSpace: 'normal' }}
-                  onClick={() => {
-                    setEmail(a.email);
-                    setPassword(a.password);
-                  }}
-                >
-                  {idx === 0 ? `${group} — ` : ''}
-                  {a.name} · {a.role} · {a.businessName}
-                  <br />
-                  <span style={{ opacity: 0.85 }}>
-                    {a.email} · {a.password}
-                  </span>
-                </button>
-              ))}
-            </div>
-          );
-        })}
-      </div>
+      <details className="card card-pad" style={{ marginTop: 18, fontSize: 12, color: 'var(--muted)' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--text)' }}>Demo accounts</summary>
+        <p style={{ margin: '8px 0 10px' }}>
+          Click a row to fill the form, then Sign in. Seed covers 5 pharmacies · 5 stockists · full trade lifecycles.
+        </p>
+        <div className="row" style={{ gap: 6, marginBottom: 8, flexWrap: 'wrap' }} role="tablist" aria-label="Demo role group">
+          {(['Pharmacy', 'Stockist', 'Admin'] as const).map((group) => (
+            <button
+              key={group}
+              type="button"
+              role="tab"
+              aria-selected={demoGroup === group}
+              className={`btn btn-sm ${demoGroup === group ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setDemoGroup(group)}
+            >
+              {group}
+            </button>
+          ))}
+        </div>
+        <div className="stack" style={{ marginTop: 4 }}>
+          {DEMO_ACCOUNTS.filter((a) => a.roleGroup === demoGroup).map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ textAlign: 'left', height: 'auto', padding: '8px 10px', whiteSpace: 'normal' }}
+              onClick={() => {
+                setEmail(a.email);
+                setPassword(a.password);
+              }}
+            >
+              {a.name} · {a.role} · {a.businessName}
+              <br />
+              <span style={{ opacity: 0.85 }}>
+                {a.email} · {a.password}
+              </span>
+            </button>
+          ))}
+        </div>
+      </details>
     </AuthShell>
   );
 }
@@ -192,6 +234,9 @@ export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | undefined>();
   const { pushToast } = useUi();
   const navigate = useNavigate();
   return (
@@ -207,11 +252,36 @@ export function ForgotPasswordPage() {
         <Field label="OTP">
           <Input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder={DEMO_OTP} />
         </Field>
-        <Field label="New password">
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Field label="New password" error={passwordError}>
+          <Input
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setPasswordError(undefined);
+            }}
+          />
         </Field>
+        <Field label="Confirm new password">
+          <Input
+            type={showPassword ? 'text' : 'password'}
+            value={confirmPassword}
+            onChange={(e) => {
+              setConfirmPassword(e.target.value);
+              setPasswordError(undefined);
+            }}
+          />
+        </Field>
+        <label style={{ fontSize: 13 }}>
+          <input type="checkbox" checked={showPassword} onChange={(e) => setShowPassword(e.target.checked)} /> Show
+          passwords
+        </label>
         <Button
           onClick={async () => {
+            if (password !== confirmPassword) {
+              setPasswordError('New password and confirmation do not match');
+              return;
+            }
             const res = await resetPassword(email, otp, password);
             if (!res.ok) pushToast({ tone: 'error', title: res.message, message: res.businessImpact });
             else {
@@ -236,11 +306,28 @@ export function PendingVerificationPage() {
   const { pushToast } = useUi();
   const [busy, setBusy] = useState(false);
   const [extraFileId, setExtraFileId] = useState<string | undefined>();
+  const [replaceKind, setReplaceKind] = useState<VerificationDocKind>('DrugLicense');
+  const [amendName, setAmendName] = useState('');
+  const [amendGst, setAmendGst] = useState('');
+  const [amendDl, setAmendDl] = useState('');
+  const [amendPhone, setAmendPhone] = useState('');
+  const [amendAddress, setAmendAddress] = useState('');
+  const [amendHydrated, setAmendHydrated] = useState(false);
   const verification = useLiveQuery(
     () => (business ? db.verifications.where('businessId').equals(business.id).reverse().sortBy('updatedAt') : []),
     [business?.id],
   )?.[0];
   const liveBiz = useLiveQuery(() => (business ? db.businesses.get(business.id) : undefined), [business?.id]) ?? business;
+
+  useEffect(() => {
+    if (!liveBiz || amendHydrated) return;
+    setAmendName(liveBiz.name ?? '');
+    setAmendGst(liveBiz.gstNumber ?? '');
+    setAmendDl(liveBiz.drugLicenseNumber ?? '');
+    setAmendPhone(liveBiz.phone ?? '');
+    setAmendAddress(liveBiz.address ?? '');
+    setAmendHydrated(true);
+  }, [liveBiz, amendHydrated]);
 
   if (!business || !user) return <Navigate to="/auth/login" replace />;
   if (liveBiz?.verificationStatus === 'Approved') return <Navigate to={`/${portalFor(business.type)}`} replace />;
@@ -254,7 +341,10 @@ export function PendingVerificationPage() {
         kind: 'DrugLicense' as const,
         licenseNumber: undefined,
       }));
-  const canResubmit = status === 'DocumentsRequested' || status === 'Rejected';
+  const canAmendWhileQueued = status === 'Submitted' || status === 'UnderReview';
+  const canResubmit = status === 'DocumentsRequested' || status === 'Rejected' || canAmendWhileQueued;
+  const resubmitKinds = business.type === 'Stockist' ? STOCKIST_RESUBMIT_KINDS : PHARMACY_RESUBMIT_KINDS;
+  const selectedKindMeta = resubmitKinds.find((k) => k.kind === replaceKind) ?? resubmitKinds[0];
   const timeline = ['Submitted', 'UnderReview', 'DocumentsRequested', 'Rejected', 'Approved'] as const;
 
   return (
@@ -311,12 +401,46 @@ export function PendingVerificationPage() {
 
       {canResubmit ? (
         <div className="card card-pad stack" style={{ marginBottom: 16 }}>
-          <strong>Re-upload & resubmit</strong>
+          <strong>{canAmendWhileQueued ? 'Amend submission' : 'Re-upload & resubmit'}</strong>
           <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-            Attach an updated PDF/JPG/PNG (≤5 MB), then resubmit to the admin queue.
+            {canAmendWhileQueued
+              ? 'Fix typos or replace a document while you’re waiting. Saving marks the verification as updated for reviewers.'
+              : 'Choose which required document you’re replacing, attach a PDF/JPG/PNG (≤5 MB), then resubmit.'}
           </p>
+          {canAmendWhileQueued ? (
+            <>
+              <Field label="Business name">
+                <Input value={amendName} onChange={(e) => setAmendName(e.target.value)} />
+              </Field>
+              <Field label="GSTIN">
+                <Input value={amendGst} onChange={(e) => setAmendGst(e.target.value.toUpperCase())} />
+              </Field>
+              <Field label="Drug license">
+                <Input value={amendDl} onChange={(e) => setAmendDl(e.target.value)} />
+              </Field>
+              <Field label="Phone">
+                <Input value={amendPhone} onChange={(e) => setAmendPhone(e.target.value)} />
+              </Field>
+              <Field label="Address">
+                <Input value={amendAddress} onChange={(e) => setAmendAddress(e.target.value)} />
+              </Field>
+            </>
+          ) : null}
+          <Field label="Document being replaced">
+            <Select
+              value={replaceKind}
+              onChange={(e) => setReplaceKind(e.target.value as VerificationDocKind)}
+              aria-label="Document kind to replace"
+            >
+              {resubmitKinds.map((k) => (
+                <option key={k.kind} value={k.kind}>
+                  {k.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', alignSelf: 'flex-start' }}>
-            {extraFileId ? 'Replace file' : 'Upload updated document'}
+            {extraFileId ? 'Replace file' : canAmendWhileQueued ? 'Upload replacement document (optional)' : 'Upload updated document'}
             <input
               type="file"
               accept="application/pdf,image/jpeg,image/png"
@@ -337,15 +461,69 @@ export function PendingVerificationPage() {
           </label>
           {extraFileId ? <FileLink fileId={extraFileId} /> : null}
           <Button
-            disabled={busy || !extraFileId}
+            disabled={busy || (!canAmendWhileQueued && !extraFileId)}
             onClick={async () => {
-              if (!extraFileId || !liveBiz) return;
+              if (!liveBiz || !selectedKindMeta) return;
+              if (!canAmendWhileQueued && !extraFileId) return;
               setBusy(true);
-              const nextDocs: VerificationDocument[] = [
-                ...docs,
-                { kind: 'PharmacyCert', label: 'Updated document', fileId: extraFileId },
-              ];
-              const res = await submitVerification(user, liveBiz, {
+              if (canAmendWhileQueued) {
+                if (!amendName.trim()) {
+                  setBusy(false);
+                  pushToast({ tone: 'error', title: 'Business name is required' });
+                  return;
+                }
+                if (!isGstin(amendGst)) {
+                  setBusy(false);
+                  pushToast({ tone: 'error', title: 'Invalid GSTIN' });
+                  return;
+                }
+                if (!isLicenseNo(amendDl)) {
+                  setBusy(false);
+                  pushToast({ tone: 'error', title: 'Invalid drug license' });
+                  return;
+                }
+                if (!isPhone(amendPhone)) {
+                  setBusy(false);
+                  pushToast({ tone: 'error', title: 'Invalid phone' });
+                  return;
+                }
+                const gstNorm = normalizeGstin(amendGst);
+                const gstTaken = await db.businesses
+                  .filter((b) => b.id !== liveBiz.id && (b.gstNumber ?? '').replace(/\s/g, '').toUpperCase() === gstNorm)
+                  .first();
+                if (gstTaken) {
+                  setBusy(false);
+                  pushToast({ tone: 'error', title: 'GSTIN already registered' });
+                  return;
+                }
+                const profileRes = await updateBusiness({
+                  actor: user,
+                  business: liveBiz,
+                  patch: {
+                    name: amendName.trim(),
+                    gstNumber: gstNorm,
+                    drugLicenseNumber: amendDl.trim(),
+                    phone: amendPhone.trim(),
+                    address: amendAddress.trim(),
+                  },
+                });
+                if (!profileRes.ok) {
+                  setBusy(false);
+                  pushToast({ tone: 'error', title: profileRes.message });
+                  return;
+                }
+              }
+              let nextDocs = docs;
+              if (extraFileId) {
+                const replacement: VerificationDocument = {
+                  kind: selectedKindMeta.kind,
+                  label: selectedKindMeta.label,
+                  fileId: extraFileId,
+                };
+                nextDocs = [...docs.filter((d) => d.kind !== selectedKindMeta.kind), replacement];
+              }
+              const bizForSubmit = (await db.businesses.get(liveBiz.id)) ?? liveBiz;
+              const res = await submitVerification(user, bizForSubmit, {
                 documents: nextDocs,
                 documentIds: nextDocs.map((d) => d.fileId),
               });
@@ -357,10 +535,16 @@ export function PendingVerificationPage() {
               const refreshed = await db.businesses.get(liveBiz.id);
               if (refreshed) setSession(user, refreshed);
               setExtraFileId(undefined);
-              pushToast({ tone: 'success', title: 'Resubmitted', message: 'Back in the verification queue.' });
+              pushToast({
+                tone: 'success',
+                title: canAmendWhileQueued ? 'Submission updated' : 'Resubmitted',
+                message: canAmendWhileQueued
+                  ? 'Reviewers will see the amended details in the queue.'
+                  : `${selectedKindMeta.label} updated — back in the verification queue.`,
+              });
             }}
           >
-            {busy ? 'Submitting…' : 'Resubmit for review'}
+            {busy ? 'Submitting…' : canAmendWhileQueued ? 'Save & mark updated' : 'Resubmit for review'}
           </Button>
         </div>
       ) : null}
@@ -388,7 +572,8 @@ export function SuspendedPage() {
   const [busy, setBusy] = useState(false);
   const portal =
     business?.type === 'Stockist' ? 'stockist' : business?.type === 'Platform' ? 'admin' : 'pharmacy';
-  const supportPath = `/${portal}/support`;
+  // Help Center is reachable without support.manage (ticket inbox may not be).
+  const helpPath = `/${portal}/help`;
   const supportContact =
     business?.type === 'Stockist'
       ? 'Platform support · admin@digiswasthya.in'
@@ -422,8 +607,8 @@ export function SuspendedPage() {
         <Button variant="secondary" onClick={() => navigate(`/${portal}`)}>
           View history (read-only)
         </Button>
-        <Button variant="ghost" onClick={() => navigate(supportPath)}>
-          Open support
+        <Button variant="ghost" onClick={() => navigate(helpPath)}>
+          Open help center
         </Button>
         <Button
           variant="secondary"

@@ -3,17 +3,21 @@ import {
   Building2,
   ClipboardList,
   CreditCard,
+  FileText,
   Home,
+  Layers,
   MessageSquare,
   Package,
+  PenLine,
   RotateCcw,
   Settings,
   ShoppingBag,
   Truck,
-  FileText,
 } from 'lucide-react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequirePermission } from '../../app/guards';
+import { AnnouncementsArchivePage } from '../../ui/components/AnnouncementsArchivePage';
+import { NotFoundPage } from '../../ui/components/NotFoundPage';
 import { AppShell } from '../../ui/layout/AppShell';
 import {
   StockistAnalytics,
@@ -40,6 +44,7 @@ import {
   StockistPharmaciesHub,
   StockistManagedPharmacyDetail,
   StockistReturns,
+  StockistReturnDetail,
   StockistProfile,
   StockistBusiness,
   StockistSettings,
@@ -53,20 +58,20 @@ import {
 } from './StockistPages';
 
 const nav = [
-  { to: '/stockist', label: 'Home', icon: Home, end: true },
-  { to: '/stockist/orders', label: 'Orders', icon: ClipboardList },
-  { to: '/stockist/batch-ordering', label: 'Batch plan', icon: ClipboardList },
-  { to: '/stockist/manual-order', label: 'Manual order', icon: ClipboardList, requires: 'order.recordManual' as const },
-  { to: '/stockist/pharmacies', label: 'Pharmacies', icon: Building2, requires: 'connection.respond' as const },
-  { to: '/stockist/catalogue', label: 'Catalogue', icon: ShoppingBag, requires: 'catalogue.manage' as const },
-  { to: '/stockist/inventory', label: 'Inventory', icon: Package, requires: 'inventory.adjust' as const },
-  { to: '/stockist/delivery', label: 'Delivery', icon: Truck, requires: 'delivery.update' as const },
-  { to: '/stockist/payments', label: 'Payments', icon: CreditCard, requires: 'payment.approve' as const },
-  { to: '/stockist/returns', label: 'Returns', icon: RotateCcw, requires: 'return.approve' as const },
-  { to: '/stockist/credit-notes', label: 'Credit notes', icon: FileText, requires: 'credit.issue' as const },
-  { to: '/stockist/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/stockist/messages', label: 'Messages', icon: MessageSquare },
-  { to: '/stockist/settings', label: 'More', icon: Settings },
+  { to: '/stockist', label: 'Home', icon: Home, end: true, section: 'Trade' },
+  { to: '/stockist/orders', label: 'Orders', icon: ClipboardList, section: 'Trade' },
+  { to: '/stockist/batch-ordering', label: 'Batch plan', icon: Layers, section: 'Trade' },
+  { to: '/stockist/manual-order', label: 'Manual order', icon: PenLine, section: 'Trade', requires: 'order.recordManual' as const },
+  { to: '/stockist/pharmacies', label: 'Pharmacies', icon: Building2, section: 'Trade', requires: 'connection.respond' as const },
+  { to: '/stockist/catalogue', label: 'Catalogue', icon: ShoppingBag, section: 'Stock', requires: 'catalogue.manage' as const },
+  { to: '/stockist/inventory', label: 'Inventory', icon: Package, section: 'Stock', requires: 'inventory.adjust' as const },
+  { to: '/stockist/delivery', label: 'Delivery', icon: Truck, section: 'Stock', requires: 'delivery.update' as const },
+  { to: '/stockist/payments', label: 'Payments', icon: CreditCard, section: 'Money', requires: 'payment.approve' as const },
+  { to: '/stockist/returns', label: 'Returns', icon: RotateCcw, section: 'Money', requires: 'return.approve' as const },
+  { to: '/stockist/credit-notes', label: 'Credit notes', icon: FileText, section: 'Money', requires: 'credit.issue' as const },
+  { to: '/stockist/analytics', label: 'Analytics', icon: BarChart3, section: 'Workspace' },
+  { to: '/stockist/messages', label: 'Messages', icon: MessageSquare, section: 'Workspace' },
+  { to: '/stockist/settings', label: 'More', icon: Settings, section: 'Workspace' },
 ];
 
 const mobileNav = [
@@ -120,6 +125,7 @@ export function StockistApp() {
         </Route>
         <Route element={<RequirePermission action="return.approve" />}>
           <Route path="returns" element={<StockistReturns />} />
+          <Route path="returns/:returnNo" element={<StockistReturnDetail />} />
         </Route>
         <Route element={<RequirePermission action="credit.issue" />}>
           <Route path="credit-notes" element={<StockistCreditNotes />} />
@@ -127,6 +133,7 @@ export function StockistApp() {
         <Route path="analytics" element={<StockistAnalytics />} />
         <Route path="reports" element={<StockistReports />} />
         <Route path="help" element={<StockistHelp />} />
+        <Route path="announcements" element={<AnnouncementsArchivePage audience="Stockist" />} />
         <Route path="activity" element={<StockistActivity />} />
         <Route path="upgrade" element={<StockistUpgrade />} />
         <Route element={<RequirePermission action="counterfeit.report" />}>
@@ -144,7 +151,7 @@ export function StockistApp() {
         <Route path="business" element={<StockistBusiness />} />
         <Route path="profile" element={<StockistProfile />} />
         <Route path="settings" element={<StockistSettings />} />
-        <Route path="*" element={<Navigate to="/stockist" replace />} />
+        <Route path="*" element={<NotFoundPage homeTo="/stockist" />} />
       </Route>
     </Routes>
   );

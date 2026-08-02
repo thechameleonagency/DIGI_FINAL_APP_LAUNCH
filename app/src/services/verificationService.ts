@@ -25,14 +25,14 @@ export async function submitVerification(
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Verification was not submitted.');
   const current = await getCurrentVerification(business.id);
   const from = (current?.status ?? 'NotStarted') as VerificationStatus;
-  const to: VerificationStatus =
-    from === 'DocumentsRequested' || from === 'Rejected' || from === 'NotStarted' ? 'Submitted' : from;
-  if (from !== to) {
+  const amendable = ['NotStarted', 'Submitted', 'UnderReview', 'DocumentsRequested', 'Rejected'] as const;
+  if (!amendable.includes(from as (typeof amendable)[number])) {
+    return fail('BusinessRule', 'VER_NOT_RESUBMITTABLE', 'Verification cannot be resubmitted in this state.', 'No change made.');
+  }
+  const to: VerificationStatus = 'Submitted';
+  if (from !== 'NotStarted') {
     const t = machines.verification(from, to);
     if (!t.ok) return fail('StateConflict', 'VER_BAD_STATE', t.reason!, 'Verification was not submitted.');
-  }
-  if (from !== 'DocumentsRequested' && from !== 'Rejected' && from !== 'NotStarted' && from !== 'Submitted') {
-    return fail('BusinessRule', 'VER_NOT_RESUBMITTABLE', 'Verification cannot be resubmitted in this state.', 'No change made.');
   }
   const ts = new Date().toISOString();
   const nextDocs = extras?.documents ?? current?.documents;
@@ -158,6 +158,8 @@ export async function suspendBusiness(params: {
   adminBusiness: Business;
   targetBusinessId: string;
   reason: string;
+  /** Admin-only — stored separately; never merged into suspendReason or notifications */
+  internalNotes?: string;
 }): Promise<Result<Business>> {
   const perm = assertCan(params.actor, params.adminBusiness, 'business.suspend');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Business was not suspended.');
@@ -166,10 +168,13 @@ export async function suspendBusiness(params: {
   if (!biz) return fail('NotFound', 'BIZ_MISSING', 'Business not found.', 'Business was not suspended.');
   if (biz.type === 'Platform') return fail('BusinessRule', 'SUSPEND_PLATFORM', 'Cannot suspend platform.', 'Business was not suspended.');
   const ts = new Date().toISOString();
+  const visibleReason = params.reason.trim();
+  const internalNotes = params.internalNotes?.trim() || undefined;
   await db.businesses.update(biz.id, {
     accountStatus: 'Suspended',
     suspendedAt: ts,
-    suspendReason: params.reason,
+    suspendReason: visibleReason,
+    internalNotes,
     updatedAt: ts,
   });
   await writeAudit({
@@ -179,9 +184,10 @@ export async function suspendBusiness(params: {
     entityType: 'Business',
     entityId: biz.id,
     action: 'business.suspend',
-    reason: params.reason,
+    reason: visibleReason,
+    after: internalNotes ? { internalNotes } : undefined,
   });
-  await notifyBusinessUsers(biz.id, 'N-005', { businessName: biz.name, reason: params.reason });
+  await notifyBusinessUsers(biz.id, 'N-005', { businessName: biz.name, reason: visibleReason });
   return ok((await db.businesses.get(biz.id))!);
 }
 
@@ -235,6 +241,7 @@ export async function reactivateBusiness(params: {
     accountStatus: 'Active',
     suspendedAt: undefined,
     suspendReason: undefined,
+    internalNotes: undefined,
     updatedAt: ts,
   });
   await writeAudit({
@@ -255,6 +262,8 @@ export async function deactivateBusiness(params: {
   adminBusiness: Business;
   targetBusinessId: string;
   reason: string;
+  /** Admin-only — stored separately; never merged into suspendReason */
+  internalNotes?: string;
 }): Promise<Result<Business>> {
   const perm = assertCan(params.actor, params.adminBusiness, 'business.suspend');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Business was not deactivated.');
@@ -266,10 +275,13 @@ export async function deactivateBusiness(params: {
     return fail('BusinessRule', 'ALREADY_DEACTIVATED', 'Business is already deactivated.', 'No change made.');
   }
   const ts = new Date().toISOString();
+  const visibleReason = params.reason.trim();
+  const internalNotes = params.internalNotes?.trim() || undefined;
   await db.businesses.update(biz.id, {
     accountStatus: 'Deactivated',
     suspendedAt: undefined,
-    suspendReason: params.reason.trim(),
+    suspendReason: visibleReason,
+    internalNotes,
     updatedAt: ts,
   });
   await writeAudit({
@@ -279,7 +291,8 @@ export async function deactivateBusiness(params: {
     entityType: 'Business',
     entityId: biz.id,
     action: 'business.deactivate',
-    reason: params.reason.trim(),
+    reason: visibleReason,
+    after: internalNotes ? { internalNotes } : undefined,
   });
   return ok((await db.businesses.get(biz.id))!);
 }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
 import { cancelConnectionRequest, disconnectConnection, requestConnection } from '../../../services/connectionService';
@@ -13,7 +14,10 @@ import { useBiz } from './useBiz';
 export function PharmacyConnections() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
-  const connections = useLiveQuery(() => db.connections.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
+  const { items: connections, loading: connectionsLoading } = useLiveArray(
+    () => db.connections.where('pharmacyId').equals(business.id).toArray(),
+    [business.id],
+  );
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
   const orders = useLiveQuery(() => db.orders.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const invoices = useLiveQuery(() => db.invoices.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
@@ -77,6 +81,9 @@ export function PharmacyConnections() {
               <>
                 <Link className="btn btn-ghost btn-sm" to={`/pharmacy/ledger/${r.stockistId}`}>
                   Ledger
+                </Link>
+                <Link className="btn btn-ghost btn-sm" to={`/pharmacy/messages?with=${r.stockistId}`}>
+                  Message
                 </Link>
                 <Button size="sm" variant="secondary" onClick={() => setDisconnectId(r.id)}>
                   Disconnect
@@ -198,7 +205,8 @@ export function PharmacyConnections() {
               pushToast(ok ? { tone: 'success', title: 'Exported connections' } : { tone: 'error', title: 'Export denied' });
             }}
           />
-          <DataListTable columns={columns} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
+          <DataListTable
+            loading={connectionsLoading} columns={columns} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
           <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
           {rows.some((r) => r.rejectReason) ? (
             <div className="card card-pad stack">

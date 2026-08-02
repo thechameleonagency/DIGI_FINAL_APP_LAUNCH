@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
+import { localDayKey } from '../../../domain/utils/dateKeys';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { OrderDeliveriesPanel } from '../../../ui/components/OrderDeliveriesPanel';
 import { EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 
 function dayKey(iso?: string): string {
-  return iso ? iso.slice(0, 10) : '';
+  return localDayKey(iso);
 }
 
 export function AdminOrders() {
@@ -16,7 +19,7 @@ export function AdminOrders() {
   const navigate = useNavigate();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const orders = useLiveQuery(() => db.orders.toArray()) ?? [];
+  const { items: orders, loading: ordersLoading } = useLiveArray(() => db.orders.toArray());
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
   const invoices = useLiveQuery(() => db.invoices.toArray()) ?? [];
   const nameOf = (id: string) => businesses.find((b) => b.id === id)?.name ?? id.slice(0, 8);
@@ -162,6 +165,9 @@ export function AdminOrders() {
             </div>
           </div>
         ) : null}
+        <div className="card card-pad">
+          <OrderDeliveriesPanel orderId={order.id} />
+        </div>
         <div className="card card-pad stack">
           <strong>Status history</strong>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -206,6 +212,7 @@ export function AdminOrders() {
         <>
           <DataListTable
             columns={columns}
+            loading={ordersLoading}
             rows={list.pageRows}
             sortKey={list.sortKey}
             sortDir={list.sortDir}

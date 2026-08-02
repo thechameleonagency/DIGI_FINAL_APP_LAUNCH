@@ -116,6 +116,39 @@ export async function updateTicket(params: {
   return ok((await db.supportTickets.get(ticket.id))!);
 }
 
+/** Create or reuse a thread without posting a filler message. */
+export async function ensureMessageThread(params: {
+  actor: User;
+  business: Business;
+  counterpartBusinessId: string;
+  relatedEntityType?: string;
+  relatedEntityId?: string;
+}): Promise<Result<MessageThread>> {
+  const perm = assertCan(params.actor, params.business, 'read.own');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Thread was not opened.');
+  const existing = (await db.messageThreads.toArray()).find((t) => {
+    const ids = t.participantBusinessIds;
+    if (!ids.includes(params.business.id) || !ids.includes(params.counterpartBusinessId)) return false;
+    if (params.relatedEntityId) {
+      return t.relatedEntityType === params.relatedEntityType && t.relatedEntityId === params.relatedEntityId;
+    }
+    return !t.relatedEntityId;
+  });
+  if (existing) return ok(existing);
+  const ts = new Date().toISOString();
+  const thread: MessageThread = {
+    id: newId(),
+    participantBusinessIds: [params.business.id, params.counterpartBusinessId],
+    participantUserIds: [params.actor.id],
+    relatedEntityType: params.relatedEntityType,
+    relatedEntityId: params.relatedEntityId,
+    lastMessageAt: ts,
+    createdAt: ts,
+  };
+  await db.messageThreads.add(thread);
+  return ok(thread);
+}
+
 export async function sendMessage(params: {
   actor: User;
   business: Business;
@@ -131,16 +164,15 @@ export async function sendMessage(params: {
   const ts = new Date().toISOString();
   let thread = params.threadId ? await db.messageThreads.get(params.threadId) : undefined;
   if (!thread) {
-    thread = {
-      id: newId(),
-      participantBusinessIds: [params.business.id, params.counterpartBusinessId],
-      participantUserIds: [params.actor.id],
+    const ensured = await ensureMessageThread({
+      actor: params.actor,
+      business: params.business,
+      counterpartBusinessId: params.counterpartBusinessId,
       relatedEntityType: params.relatedEntityType,
       relatedEntityId: params.relatedEntityId,
-      lastMessageAt: ts,
-      createdAt: ts,
-    };
-    await db.messageThreads.add(thread);
+    });
+    if (!ensured.ok) return ensured;
+    thread = ensured.data;
   }
   const message: Message = {
     id: newId(),
@@ -266,6 +298,29 @@ export async function runPolicyClock(): Promise<void> {
     }
   }
 
+  if (settings.creditNoteAutoExpire) {
+    const days = settings.creditNoteExpiryDays ?? 90;
+    const openNotes = await db.creditNotes
+      .filter((c) => ['Issued', 'PartiallyApplied'].includes(c.status) && c.remaining > 0)
+      .toArray();
+    for (const cn of openNotes) {
+      const expiry = cn.expiresAt
+        ? new Date(cn.expiresAt)
+        : (() => {
+            const d = new Date(cn.issuedAt);
+            d.setUTCDate(d.getUTCDate() + days);
+            return d;
+          })();
+      if (expiry > today) continue;
+      await db.creditNotes.update(cn.id, {
+        status: 'Void',
+        remaining: 0,
+        expiresAt: cn.expiresAt ?? expiry.toISOString(),
+        updatedAt: today.toISOString(),
+      });
+    }
+  }
+
   const verSla = (settings.verificationSlaHours ?? 72) * 3600000;
   const orderSla = (settings.orderSlaHours ?? 24) * 3600000;
   const paySla = (settings.paymentSlaHours ?? 48) * 3600000;
@@ -309,6 +364,61 @@ export async function exportWorkspace(): Promise<string> {
   return JSON.stringify({ exportedAt: new Date().toISOString(), data }, null, 2);
 }
 
+export type WorkspaceImportPreview = {
+  exportedAt?: string;
+  incomingCounts: Record<string, number>;
+  currentCounts: Record<string, number>;
+  incomingTotal: number;
+  currentTotal: number;
+  unknownTables: string[];
+  missingTables: string[];
+};
+
+/** Validate pasted JSON and return record-count preview without mutating the DB. */
+export async function previewWorkspaceImport(json: string): Promise<Result<WorkspaceImportPreview>> {
+  try {
+    const parsed = JSON.parse(json) as { exportedAt?: string; data?: Record<string, unknown> };
+    if (!parsed || typeof parsed !== 'object' || !parsed.data || typeof parsed.data !== 'object') {
+      return fail('Validation', 'IMPORT_BAD', 'Invalid workspace file — expected { data: { …tables } }.', 'Import failed.');
+    }
+    const known = new Set(db.tables.map((t) => t.name));
+    const incomingCounts: Record<string, number> = {};
+    const unknownTables: string[] = [];
+    for (const [name, rows] of Object.entries(parsed.data)) {
+      if (!Array.isArray(rows)) {
+        return fail(
+          'Validation',
+          'IMPORT_BAD',
+          `Table “${name}” must be an array.`,
+          'Import failed.',
+        );
+      }
+      if (!known.has(name)) unknownTables.push(name);
+      else incomingCounts[name] = rows.length;
+    }
+    const currentCounts: Record<string, number> = {};
+    let currentTotal = 0;
+    for (const table of db.tables) {
+      const n = await table.count();
+      currentCounts[table.name] = n;
+      currentTotal += n;
+    }
+    const missingTables = db.tables.map((t) => t.name).filter((n) => !(n in parsed.data!));
+    const incomingTotal = Object.values(incomingCounts).reduce((a, b) => a + b, 0);
+    return ok({
+      exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : undefined,
+      incomingCounts,
+      currentCounts,
+      incomingTotal,
+      currentTotal,
+      unknownTables,
+      missingTables,
+    });
+  } catch {
+    return fail('Validation', 'IMPORT_BAD', 'Could not parse JSON.', 'Import failed.');
+  }
+}
+
 export async function importWorkspace(json: string): Promise<Result<true>> {
   try {
     const parsed = JSON.parse(json);
@@ -331,4 +441,15 @@ export async function importWorkspace(json: string): Promise<Result<true>> {
   } catch {
     return fail('System', 'IMPORT_FAIL', 'Could not import workspace.', 'Import failed.');
   }
+}
+
+/** Trigger a browser download of the given workspace JSON. */
+export function downloadWorkspaceJson(json: string, filename = 'digiswasthya-workspace.json') {
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }

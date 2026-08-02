@@ -23,6 +23,7 @@
     "react-hook-form": "^7.83.0",
     "react-router-dom": "^7.18.2",
     "recharts": "^3.10.1",
+    "uqr": "^0.1.3",
     "uuid": "^14.0.1",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"

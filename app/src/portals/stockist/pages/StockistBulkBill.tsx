@@ -120,7 +120,7 @@ export function StockistBulkBill() {
                       />
                     </td>
                     <td>
-                      <Link to={`/stockist/orders/${o.id}`}>{o.orderNo}</Link>
+                      <Link to={`/stockist/orders/${encodeURIComponent(o.orderNo)}`}>{o.orderNo}</Link>
                     </td>
                     <td>{pharmacyName(o.pharmacyId)}</td>
                     <td>
@@ -139,12 +139,48 @@ export function StockistBulkBill() {
 
       {report ? (
         <div className="card card-pad stack">
-          <strong>Last batch report</strong>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <strong>Last batch report</strong>
+            {report.some((r) => !r.ok) ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  const failedIds = report.filter((r) => !r.ok).map((r) => r.orderId);
+                  setSelected(Object.fromEntries(failedIds.map((id) => [id, true])));
+                  void run(async () => {
+                    const res = await bulkIssueInvoices({
+                      actor: user,
+                      stockist: business,
+                      orderIds: failedIds,
+                    });
+                    if (!res.ok) {
+                      pushToast({ tone: 'error', title: res.message });
+                      return;
+                    }
+                    setReport(res.data.results);
+                    setSelected({});
+                    pushToast({
+                      tone: res.data.failureCount ? 'warning' : 'success',
+                      title: `Retry issued ${res.data.successCount}/${res.data.results.length}`,
+                      message: res.data.failureCount ? `${res.data.failureCount} still failed` : undefined,
+                    });
+                  });
+                }}
+              >
+                Retry failed
+              </Button>
+            ) : null}
+          </div>
           {report.map((r) => (
-            <div key={r.orderId} className="row" style={{ justifyContent: 'space-between', fontSize: 13 }}>
+            <div key={r.orderId} className="row" style={{ justifyContent: 'space-between', fontSize: 13, gap: 8 }}>
               <span>{r.orderNo ?? r.orderId}</span>
-              <span className={r.ok ? '' : 'muted'}>
-                {r.ok ? r.invoiceNo : r.message}
+              <span className="row" style={{ gap: 8, alignItems: 'center' }}>
+                <StatusBadge status={r.ok ? 'Paid' : 'Rejected'} />
+                <span style={{ color: r.ok ? undefined : 'var(--danger, #b91c1c)' }}>
+                  {r.ok ? r.invoiceNo : r.message}
+                </span>
               </span>
             </div>
           ))}

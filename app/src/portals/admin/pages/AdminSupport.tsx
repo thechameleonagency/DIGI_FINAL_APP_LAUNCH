@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import type { SupportTicket, TicketStatus } from '../../../domain/entities/types';
 import { db } from '../../../data/db';
 import { updateTicket } from '../../../services/supportService';
@@ -26,7 +27,8 @@ export function AdminSupport() {
   const { pushToast } = useUi();
   const navigate = useNavigate();
   const [reply, setReply] = useState('');
-  const tickets = useLiveQuery(() => db.supportTickets.toArray()) ?? [];
+  const [pendingAssignee, setPendingAssignee] = useState<string | null>(null);
+  const { items: tickets, loading: ticketsLoading } = useLiveArray(() => db.supportTickets.toArray());
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
   const users = useLiveQuery(() => db.users.toArray()) ?? [];
   const agents = users.filter((u) => ['Admin', 'SuperAdmin', 'SupportAgent'].includes(u.role) && u.status === 'Active');
@@ -196,17 +198,30 @@ export function AdminSupport() {
             </Button>
           </div>
           <Field label="Assign">
-            <Select
-              value={detail.assigneeId ?? ''}
-              onChange={(e) => void act({ assigneeId: e.target.value })}
-            >
-              <option value="">Unassigned</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({a.role})
-                </option>
-              ))}
-            </Select>
+            <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
+              <Select
+                value={pendingAssignee ?? detail.assigneeId ?? ''}
+                onChange={(e) => setPendingAssignee(e.target.value)}
+              >
+                <option value="">Unassigned</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.role})
+                  </option>
+                ))}
+              </Select>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={pendingAssignee === null || (pendingAssignee || '') === (detail.assigneeId ?? '')}
+                onClick={() => {
+                  const next = pendingAssignee ?? '';
+                  void act({ assigneeId: next }).then(() => setPendingAssignee(null));
+                }}
+              >
+                Apply assign
+              </Button>
+            </div>
           </Field>
           <div className="row">
             {nextActions.map((a) => (
@@ -257,6 +272,7 @@ export function AdminSupport() {
           />
           <DataListTable
             columns={columns}
+            loading={ticketsLoading}
             rows={list.pageRows}
             sortKey={list.sortKey}
             sortDir={list.sortDir}

@@ -1,11 +1,12 @@
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { productAvailableSellable } from '../../../domain/calc';
-import { setCartLine, toggleWishlist } from '../../../services/catalogueService';
+import { addOrIncrementCartLine, toggleWishlist } from '../../../services/catalogueService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useUi } from '../../../store/ui';
-import { Button, EmptyState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function PharmacyProductDetail() {
@@ -29,6 +30,7 @@ export function PharmacyProductDetail() {
     () => (product ? db.catalogues.where('stockistId').equals(product.stockistId).first() : undefined),
     [product?.stockistId],
   );
+  const [qty, setQty] = useState<number | ''>('');
 
   if (!product) return <EmptyState title="Product not found" description="It may have been removed from the catalogue." />;
 
@@ -37,6 +39,7 @@ export function PharmacyProductDetail() {
   const avail = productAvailableSellable(batches);
   const canBuy = active && catalogueOk && product.status === 'Active';
   const unitPrice = priceForPlatformPharmacy(product, settings).unitPrice;
+  const addQty = qty === '' ? product.moq : qty;
 
   return (
     <div className="stack">
@@ -93,27 +96,45 @@ export function PharmacyProductDetail() {
             {active ? `Available ${avail}` : avail > 0 ? 'In stock' : 'Out of stock'}
           </div>
           {!catalogueOk ? <div className="banner-strip warning">Catalogue is not Active — browsing/cart blocked.</div> : null}
-          <div className="row">
+          <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <Field label="Qty">
+              <Input
+                type="number"
+                min={product.moq}
+                max={product.maxQty}
+                style={{ width: 96 }}
+                value={qty}
+                placeholder={String(product.moq)}
+                onChange={(e) => setQty(e.target.value === '' ? '' : Number(e.target.value))}
+                disabled={!canBuy}
+              />
+            </Field>
             <Button
-              disabled={!canBuy}
+              disabled={!canBuy || !(addQty > 0)}
               onClick={async () => {
-                const res = await setCartLine({
+                const res = await addOrIncrementCartLine({
                   actor: user,
                   pharmacy: business,
                   stockistId: product.stockistId,
                   productId: product.id,
-                  qty: product.moq,
+                  qty: addQty,
                 });
-                pushToast(
-                  res.ok
-                    ? { tone: 'success', title: 'Added to cart' }
-                    : { tone: 'error', title: res.message, message: res.businessImpact },
-                );
-                if (res.ok) navigate('/pharmacy/cart');
+                if (!res.ok) {
+                  pushToast({ tone: 'error', title: res.message, message: res.businessImpact });
+                  return;
+                }
+                pushToast({
+                  tone: 'success',
+                  title: res.data.incremented ? 'Cart updated' : 'Added to cart',
+                  message: `${product.name} · qty ${res.data.newQty}. Stay browsing or open cart from the top bar.`,
+                });
               }}
             >
               Add to cart
             </Button>
+            <Link className="btn btn-secondary" to="/pharmacy/cart">
+              View cart
+            </Link>
             <Button
               variant="secondary"
               onClick={async () => {

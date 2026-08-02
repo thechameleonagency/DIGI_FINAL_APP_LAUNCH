@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import { Bell, Heart, Menu, ShoppingCart, X } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { db } from '../../data/db';
 import type { Action } from '../../domain/permissions';
 import { exitImpersonation } from '../../services/impersonationService';
@@ -22,6 +22,8 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   end?: boolean;
+  /** Optional sidebar section header (rendered when the section changes). */
+  section?: string;
   /** When set, nav item is hidden unless session.can(requires) (F6). */
   requires?: Action;
 }
@@ -41,6 +43,15 @@ export function AppShell({
   const { toasts, dismissToast, sidebarOpen, setSidebarOpen, pushToast } = useUi();
   const navigate = useNavigate();
   const [sheet, setSheet] = useState<'cart' | 'wishlist' | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
+  const maintenanceOn = !!useLiveQuery(() => db.platformSettings.get('platform'))?.maintenanceMode;
+
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    if (impersonation) el.setAttribute('inert', '');
+    else el.removeAttribute('inert');
+  }, [impersonation]);
   const unread = useLiveQuery(
     async () => (user ? db.notifications.where({ userId: user.id, status: 'Unread' }).count() : 0),
     [user?.id],
@@ -99,18 +110,24 @@ export function AppShell({
           <div style={{ fontWeight: 600, color: 'var(--text)', marginTop: 2 }}>{business?.name}</div>
         </div>
         <nav className="sidebar-nav">
-          {visibleNav.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
-              onClick={() => setSidebarOpen(false)}
-            >
-              <item.icon size={16} />
-              {item.label}
-            </NavLink>
-          ))}
+          {visibleNav.map((item, idx) => {
+            const prevSection = idx > 0 ? visibleNav[idx - 1]?.section : undefined;
+            const showSection = item.section && item.section !== prevSection;
+            return (
+              <div key={item.to}>
+                {showSection ? <div className="nav-section">{item.section}</div> : null}
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <item.icon size={16} />
+                  {item.label}
+                </NavLink>
+              </div>
+            );
+          })}
         </nav>
         <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
           <div style={{ fontSize: 12.5, fontWeight: 600 }}>{user?.name}</div>
@@ -124,12 +141,13 @@ export function AppShell({
             <button className="btn btn-ghost menu-toggle" aria-label="Menu" onClick={() => setSidebarOpen(true)}>
               <Menu size={18} />
             </button>
-            <strong style={{ fontSize: 14 }}>{business?.name}</strong>
-            {business?.accountStatus === 'Suspended' ? <span className="badge badge-danger">Suspended</span> : null}
-            {business?.plan === 'Premium' ? <span className="badge badge-success">Premium</span> : null}
-            {business?.verificationStatus !== 'Approved' && business?.type !== 'Platform' ? (
-              <span className="badge badge-warning">{business?.verificationStatus}</span>
-            ) : null}
+            <span className="topbar-badges row" style={{ gap: 6 }}>
+              {business?.accountStatus === 'Suspended' ? <span className="badge badge-danger">Suspended</span> : null}
+              {business?.plan === 'Premium' ? <span className="badge badge-success">Premium</span> : null}
+              {business?.verificationStatus !== 'Approved' && business?.type !== 'Platform' ? (
+                <span className="badge badge-warning">{business?.verificationStatus}</span>
+              ) : null}
+            </span>
             <GlobalSearch portal={portal} />
           </div>
           <div className="row">
@@ -197,7 +215,12 @@ export function AppShell({
             </button>
           </div>
         ) : null}
-        <main className="page">
+        {maintenanceOn && portal !== 'admin' ? (
+          <div className="banner-strip warning" style={{ margin: 0, borderRadius: 0 }}>
+            Platform maintenance is on — new orders and payments are paused until an admin turns it off.
+          </div>
+        ) : null}
+        <main ref={mainRef} className="page">
           <Outlet />
         </main>
         <nav className="bottom-nav">

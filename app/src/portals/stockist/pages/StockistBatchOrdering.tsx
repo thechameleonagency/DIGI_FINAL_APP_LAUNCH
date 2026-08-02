@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
+import { localWeekStartKey } from '../../../domain/utils/dateKeys';
 import { formatINR } from '../../../domain/utils/money';
 import { EmptyState, Field, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
@@ -9,15 +10,6 @@ import { useBiz } from './useBiz';
 type GroupBy = 'week' | 'schedule' | 'route';
 
 const OPEN = new Set(['Pending', 'Accepted', 'PartiallyAccepted', 'Allocated', 'Packed']);
-
-function weekKey(iso: string): string {
-  const d = new Date(iso);
-  const day = d.getDay();
-  const diff = (day + 6) % 7; // Monday start
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - diff);
-  return monday.toISOString().slice(0, 10);
-}
 
 export function StockistBatchOrdering() {
   const { business } = useBiz();
@@ -37,7 +29,7 @@ export function StockistBatchOrdering() {
     for (const o of openOrders) {
       let key = 'Ungrouped';
       if (groupBy === 'week') {
-        key = `Week of ${weekKey(o.placedAt)}`;
+        key = `Week of ${localWeekStartKey(o.placedAt)}`;
       } else if (groupBy === 'schedule') {
         const del = o.deliveryId ? deliveries.find((d) => d.id === o.deliveryId) : undefined;
         const date = del?.scheduledDate ?? o.preferredDeliveryDate ?? o.preferredDate;
@@ -59,7 +51,7 @@ export function StockistBatchOrdering() {
   return (
     <div className="stack">
       <PageHeader
-        title="Batch ordering"
+        title="Batch plan"
         subtitle="Planning view over live open orders — no separate batch entity"
         actions={
           <div className="row">

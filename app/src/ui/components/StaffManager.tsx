@@ -3,6 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
 import type { Business, OperationalRole, User } from '../../domain/entities/types';
 import type { Action } from '../../domain/permissions';
+import { verifyPassword } from '../../domain/utils/crypto';
+import { actionLabel } from '../../domain/utils/humanLabels';
 import { inviteStaff } from '../../services/authService';
 import {
   changeRole,
@@ -15,6 +17,7 @@ import {
   transferOwnership,
 } from '../../services/staffService';
 import { useUi } from '../../store/ui';
+import { ConfirmDialog } from './ConfirmDialog';
 import { RolePreviewControls } from './RolePreviewControls';
 import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from './primitives';
 
@@ -53,9 +56,11 @@ export function StaffManager({
 }) {
   const { pushToast } = useUi();
   const staff = useLiveQuery(() => db.users.where('businessId').equals(business.id).toArray(), [business.id]) ?? [];
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [inviteErrors, setInviteErrors] = useState<{ name?: string; email?: string; phone?: string }>({});
   const defaultInviteRoles = (
     business.type === 'Platform'
       ? (['SupportAgent', 'Admin'] as OperationalRole[])
@@ -65,13 +70,151 @@ export function StaffManager({
   const [role, setRole] = useState<OperationalRole>(inviteRoles[0] ?? 'Staff');
   const [overrideUserId, setOverrideUserId] = useState<string | null>(null);
   const [draftOverrides, setDraftOverrides] = useState<Record<string, boolean>>({});
+  const [transferTargetId, setTransferTargetId] = useState<string | null>(null);
+  const [suspendTargetId, setSuspendTargetId] = useState<string | null>(null);
+  const [removeTargetId, setRemoveTargetId] = useState<string | null>(null);
+  const [actionsOpenId, setActionsOpenId] = useState<string | null>(null);
+  const [roleChange, setRoleChange] = useState<{
+    userId: string;
+    name: string;
+    from: OperationalRole;
+    to: OperationalRole;
+  } | null>(null);
   const overrideActions = business.type === 'Stockist' ? STOCKIST_OVERRIDE_ACTIONS : PHARMACY_OVERRIDE_ACTIONS;
   const overrideTarget = overrideUserId ? staff.find((s) => s.id === overrideUserId) : undefined;
+  const transferTarget = transferTargetId ? staff.find((s) => s.id === transferTargetId) : undefined;
+  const suspendTarget = suspendTargetId ? staff.find((s) => s.id === suspendTargetId) : undefined;
+  const removeTarget = removeTargetId ? staff.find((s) => s.id === removeTargetId) : undefined;
 
   return (
     <div className="stack">
-      <PageHeader title="Staff" subtitle="Invite, roles, suspend/remove, ownership transfer, permission overrides" />
+      <PageHeader
+        title="Staff"
+        subtitle="Invite, roles, suspend/remove, ownership transfer, permission overrides"
+        actions={
+          <Button
+            size="sm"
+            onClick={() => {
+              setInviteErrors({});
+              setInviteOpen(true);
+            }}
+          >
+            Invite staff
+          </Button>
+        }
+      />
       <RolePreviewControls />
+      <ConfirmDialog
+        open={!!transferTarget}
+        title="Transfer ownership"
+        tone="danger"
+        confirmLabel="Transfer ownership"
+        confirmPhrase={business.name}
+        confirmPhraseLabel={`Type “${business.name}” to confirm`}
+        requirePassword
+        passwordLabel="Re-enter your password"
+        body={
+          transferTarget ? (
+            <>
+              <p>
+                You are about to make <strong>{transferTarget.name}</strong> the Owner of{' '}
+                <strong>{business.name}</strong>.
+              </p>
+              <p style={{ marginTop: 8 }}>
+                You will become <strong>Manager</strong> and lose Owner admin rights. This cannot be undone
+                without the new owner transferring ownership back.
+              </p>
+            </>
+          ) : null
+        }
+        onClose={() => setTransferTargetId(null)}
+        onConfirm={async (_reason, password) => {
+          if (!transferTarget || !password) return;
+          const valid = await verifyPassword(password, actor.passwordSalt, actor.passwordHash);
+          if (!valid) {
+            pushToast({ tone: 'error', title: 'Incorrect password', message: 'Ownership was not transferred.' });
+            return;
+          }
+          const res = await transferOwnership({ actor, business, newOwnerUserId: transferTarget.id });
+          pushToast(
+            res.ok
+              ? { tone: 'success', title: 'Ownership transferred', message: `You are now Manager. ${transferTarget.name} is Owner.` }
+              : { tone: 'error', title: res.message },
+          );
+          if (res.ok) setTransferTargetId(null);
+        }}
+      />
+      <ConfirmDialog
+        open={!!suspendTarget}
+        title="Suspend staff member?"
+        tone="danger"
+        confirmLabel="Suspend"
+        requireReason
+        reasonLabel="Reason"
+        body={
+          suspendTarget ? (
+            <p>
+              <strong>{suspendTarget.name}</strong> will lose access until reactivated. Their account stays on the
+              roster.
+            </p>
+          ) : null
+        }
+        onClose={() => setSuspendTargetId(null)}
+        onConfirm={async (reason) => {
+          if (!suspendTarget) return;
+          const res = await suspendStaff({ actor, business, userId: suspendTarget.id, reason });
+          pushToast(res.ok ? { tone: 'warning', title: 'Suspended' } : { tone: 'error', title: res.message });
+          if (res.ok) setSuspendTargetId(null);
+        }}
+      />
+      <ConfirmDialog
+        open={!!removeTarget}
+        title="Remove staff member?"
+        tone="danger"
+        confirmLabel="Remove permanently"
+        requireReason
+        reasonLabel="Reason"
+        body={
+          removeTarget ? (
+            <p>
+              <strong>{removeTarget.name}</strong> will permanently lose access to{' '}
+              <strong>{business.name}</strong>. This ends their login for this business.
+            </p>
+          ) : null
+        }
+        onClose={() => setRemoveTargetId(null)}
+        onConfirm={async (reason) => {
+          if (!removeTarget) return;
+          const res = await removeStaff({ actor, business, userId: removeTarget.id, reason });
+          pushToast(res.ok ? { tone: 'info', title: 'Removed' } : { tone: 'error', title: res.message });
+          if (res.ok) setRemoveTargetId(null);
+        }}
+      />
+      <ConfirmDialog
+        open={!!roleChange}
+        title="Change staff role?"
+        confirmLabel="Save role"
+        body={
+          roleChange ? (
+            <p>
+              Change <strong>{roleChange.name}</strong> from <strong>{roleChange.from}</strong> to{' '}
+              <strong>{roleChange.to}</strong>? Their permissions update immediately.
+            </p>
+          ) : null
+        }
+        onClose={() => setRoleChange(null)}
+        onConfirm={async () => {
+          if (!roleChange) return;
+          const res = await changeRole({
+            actor,
+            business,
+            userId: roleChange.userId,
+            role: roleChange.to,
+          });
+          pushToast(res.ok ? { tone: 'success', title: 'Role updated' } : { tone: 'error', title: res.message });
+          if (res.ok) setRoleChange(null);
+        }}
+      />
       <Modal
         open={!!overrideTarget}
         title={overrideTarget ? `Permission overrides — ${overrideTarget.name}` : 'Overrides'}
@@ -100,15 +243,16 @@ export function StaffManager({
         }
       >
         <p className="muted" style={{ fontSize: 13 }}>
-          Default = role matrix. Allow / Deny override the role for this person (D11).
+          Default = role matrix. Allow / Deny override the role for this person.
         </p>
         <div className="stack" style={{ marginTop: 8 }}>
           {overrideActions.map((action) => {
             const val = draftOverrides[action];
             const mode = val === true ? 'allow' : val === false ? 'deny' : 'default';
+            const label = actionLabel(action);
             return (
               <div key={action} className="row" style={{ justifyContent: 'space-between', fontSize: 13 }}>
-                <span>{action}</span>
+                <span>{label}</span>
                 <Select
                   value={mode}
                   onChange={(e) => {
@@ -121,7 +265,7 @@ export function StaffManager({
                     });
                   }}
                   style={{ maxWidth: 140 }}
-                  aria-label={`Override ${action}`}
+                  aria-label={`Override ${label}`}
                 >
                   <option value="default">Default</option>
                   <option value="allow">Allow</option>
@@ -133,7 +277,20 @@ export function StaffManager({
         </div>
       </Modal>
       {!staff.length ? (
-        <EmptyState title="No staff yet" description="Invite team members below." />
+        <EmptyState
+          title="No staff yet"
+          description="Invite team members to share access."
+          action={
+            <Button
+              onClick={() => {
+                setInviteErrors({});
+                setInviteOpen(true);
+              }}
+            >
+              Invite staff
+            </Button>
+          }
+        />
       ) : (
         <div className="table-wrap">
           <table className="data">
@@ -156,14 +313,10 @@ export function StaffManager({
                     ) : (
                       <Select
                         value={s.role}
-                        onChange={async (e) => {
-                          const res = await changeRole({
-                            actor,
-                            business,
-                            userId: s.id,
-                            role: e.target.value as OperationalRole,
-                          });
-                          pushToast(res.ok ? { tone: 'success', title: 'Role updated' } : { tone: 'error', title: res.message });
+                        onChange={(e) => {
+                          const to = e.target.value as OperationalRole;
+                          if (to === s.role) return;
+                          setRoleChange({ userId: s.id, name: s.name, from: s.role, to });
                         }}
                       >
                         {inviteRoles.map((r) => (
@@ -196,12 +349,11 @@ export function StaffManager({
                     ) : null}
                   </td>
                   <td>
-                    <div className="row">
+                    <div className="row" style={{ flexWrap: 'wrap', gap: 4 }}>
                       {s.status === 'Active' && s.role !== 'Owner' ? (
-                        <Button size="sm" variant="secondary" onClick={async () => {
-                          const res = await suspendStaff({ actor, business, userId: s.id });
-                          pushToast(res.ok ? { tone: 'warning', title: 'Suspended' } : { tone: 'error', title: res.message });
-                        }}>Suspend</Button>
+                        <Button size="sm" variant="secondary" onClick={() => setSuspendTargetId(s.id)}>
+                          Suspend
+                        </Button>
                       ) : null}
                       {s.status === 'Suspended' ? (
                         <Button size="sm" onClick={async () => {
@@ -246,28 +398,65 @@ export function StaffManager({
                         </>
                       ) : null}
                       {s.role !== 'Owner' && s.status !== 'Removed' ? (
-                        <Button size="sm" variant="danger" onClick={async () => {
-                          const res = await removeStaff({ actor, business, userId: s.id });
-                          pushToast(res.ok ? { tone: 'info', title: 'Removed' } : { tone: 'error', title: res.message });
-                        }}>Remove</Button>
-                      ) : null}
-                      {actor.role === 'Owner' && s.role !== 'Owner' && s.status === 'Active' ? (
-                        <Button size="sm" variant="ghost" onClick={async () => {
-                          const res = await transferOwnership({ actor, business, newOwnerUserId: s.id });
-                          pushToast(res.ok ? { tone: 'success', title: 'Ownership transferred' } : { tone: 'error', title: res.message });
-                        }}>Make owner</Button>
-                      ) : null}
-                      {s.role !== 'Owner' && s.status === 'Active' ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setOverrideUserId(s.id);
-                            setDraftOverrides({ ...(s.permissionOverrides ?? {}) });
+                        <details
+                          style={{ position: 'relative' }}
+                          open={actionsOpenId === s.id}
+                          onToggle={(e) => {
+                            const open = (e.target as HTMLDetailsElement).open;
+                            setActionsOpenId(open ? s.id : null);
                           }}
                         >
-                          Overrides
-                        </Button>
+                          <summary className="btn btn-ghost btn-sm" style={{ listStyle: 'none', cursor: 'pointer' }}>
+                            More
+                          </summary>
+                          <div
+                            className="card card-pad stack"
+                            style={{
+                              position: 'absolute',
+                              right: 0,
+                              zIndex: 5,
+                              minWidth: 140,
+                              marginTop: 4,
+                              gap: 4,
+                            }}
+                          >
+                            {s.status === 'Active' ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setOverrideUserId(s.id);
+                                  setDraftOverrides({ ...(s.permissionOverrides ?? {}) });
+                                  setActionsOpenId(null);
+                                }}
+                              >
+                                Overrides
+                              </Button>
+                            ) : null}
+                            {actor.role === 'Owner' && s.status === 'Active' ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setTransferTargetId(s.id);
+                                  setActionsOpenId(null);
+                                }}
+                              >
+                                Make owner
+                              </Button>
+                            ) : null}
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              onClick={() => {
+                                setRemoveTargetId(s.id);
+                                setActionsOpenId(null);
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </details>
                       ) : null}
                     </div>
                   </td>
@@ -277,42 +466,100 @@ export function StaffManager({
           </table>
         </div>
       )}
-      <div className="card card-pad stack">
-        <strong>Invite</strong>
+      <Modal
+        open={inviteOpen}
+        title="Invite staff"
+        onClose={() => {
+          setInviteOpen(false);
+          setInviteErrors({});
+        }}
+        footer={
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setInviteOpen(false);
+                setInviteErrors({});
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                const next: typeof inviteErrors = {};
+                if (!name.trim()) next.name = 'Name is required';
+                if (!email.trim()) next.email = 'Email is required';
+                else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) next.email = 'Enter a valid email';
+                if (!phone.trim()) next.phone = 'Phone is required';
+                if (Object.keys(next).length) {
+                  setInviteErrors(next);
+                  return;
+                }
+                const res = await inviteStaff({ actor, business, name, email, phone, role });
+                if (res.ok) {
+                  const url = `${window.location.origin}/auth/invite/${res.data.inviteToken}`;
+                  await navigator.clipboard.writeText(url);
+                  pushToast({
+                    tone: 'success',
+                    title: 'Invited',
+                    message: `Link copied. Expires ${
+                      res.data.inviteExpiresAt ? new Date(res.data.inviteExpiresAt).toLocaleDateString() : 'soon'
+                    }.`,
+                  });
+                  setName('');
+                  setEmail('');
+                  setPhone('');
+                  setInviteErrors({});
+                  setInviteOpen(false);
+                } else if (res.code === 'AUTH_EMAIL_DUP') {
+                  setInviteErrors({ email: res.message });
+                } else pushToast({ tone: 'error', title: res.message });
+              }}
+            >
+              Invite
+            </Button>
+          </div>
+        }
+      >
         <div className="grid-2">
-          <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
-          <Field label="Email"><Input value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-          <Field label="Phone"><Input value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
+          <Field label="Name" error={inviteErrors.name}>
+            <Input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setInviteErrors((err) => ({ ...err, name: undefined }));
+              }}
+            />
+          </Field>
+          <Field label="Email" error={inviteErrors.email}>
+            <Input
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setInviteErrors((err) => ({ ...err, email: undefined }));
+              }}
+            />
+          </Field>
+          <Field label="Phone" error={inviteErrors.phone}>
+            <Input
+              value={phone}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                setInviteErrors((err) => ({ ...err, phone: undefined }));
+              }}
+            />
+          </Field>
           <Field label="Role">
             <Select value={role} onChange={(e) => setRole(e.target.value as OperationalRole)}>
               {inviteRoles.map((r) => (
-                <option key={r} value={r}>{r}</option>
+                <option key={r} value={r}>
+                  {r}
+                </option>
               ))}
             </Select>
           </Field>
         </div>
-        <Button
-          onClick={async () => {
-            const res = await inviteStaff({ actor, business, name, email, phone, role });
-            if (res.ok) {
-              const url = `${window.location.origin}/auth/invite/${res.data.inviteToken}`;
-              await navigator.clipboard.writeText(url);
-              pushToast({
-                tone: 'success',
-                title: 'Invited',
-                message: `Link copied. Expires ${
-                  res.data.inviteExpiresAt ? new Date(res.data.inviteExpiresAt).toLocaleDateString() : 'soon'
-                }.`,
-              });
-              setName('');
-              setEmail('');
-              setPhone('');
-            } else pushToast({ tone: 'error', title: res.message });
-          }}
-        >
-          Invite
-        </Button>
-      </div>
+      </Modal>
     </div>
   );
 }

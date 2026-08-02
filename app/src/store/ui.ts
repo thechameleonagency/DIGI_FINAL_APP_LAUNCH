@@ -7,6 +7,9 @@ export interface Toast {
   tone: 'success' | 'error' | 'info' | 'warning';
   title: string;
   message?: string;
+  /** Optional undo / reverse action shown on the toast */
+  actionLabel?: string;
+  onAction?: () => void | Promise<void>;
 }
 
 interface UiState {
@@ -20,14 +23,24 @@ interface UiState {
   clearSuccessSummary: () => void;
 }
 
-export const useUi = create<UiState>((set) => ({
+const AUTO_DISMISS_MS = 5000;
+
+export const useUi = create<UiState>((set, get) => ({
   toasts: [],
   sidebarOpen: false,
   successSummary: null,
-  pushToast: (t) =>
+  pushToast: (t) => {
+    const id = `${Date.now()}-${Math.random()}`;
     set((s) => ({
-      toasts: [...s.toasts, { ...t, id: `${Date.now()}-${Math.random()}` }],
-    })),
+      toasts: [...s.toasts, { ...t, id }],
+    }));
+    // Success/info auto-clear; errors stay until dismissed (warnings clear too — less sticky than errors).
+    if (t.tone !== 'error') {
+      window.setTimeout(() => {
+        if (get().toasts.some((x) => x.id === id)) get().dismissToast(id);
+      }, AUTO_DISMISS_MS);
+    }
+  },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
   showSuccessSummary: (payload) => set({ successSummary: payload }),

@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
+import { localDayKey } from '../../../domain/utils/dateKeys';
 import { useUi } from '../../../store/ui';
 import { FileLink } from '../../../ui/components/FileUpload';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
 import { EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 
 function dayKey(iso?: string): string {
-  return iso ? iso.slice(0, 10) : '';
+  return localDayKey(iso);
 }
 
 export function AdminPayments() {
@@ -17,9 +19,12 @@ export function AdminPayments() {
   const navigate = useNavigate();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const payments = useLiveQuery(() => db.payments.toArray()) ?? [];
+  const { items: payments, loading: paymentsLoading } = useLiveArray(() => db.payments.toArray());
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
+  const invoices = useLiveQuery(() => db.invoices.toArray()) ?? [];
+  const settings = useLiveQuery(() => db.platformSettings.get('platform'));
   const nameOf = (id: string) => businesses.find((b) => b.id === id)?.name ?? id.slice(0, 8);
+  const largeMultiple = settings?.largePaymentMultiple ?? 3;
 
   const rows = useMemo(() => {
     return payments
@@ -29,12 +34,24 @@ export function AdminPayments() {
         if (to && d > to) return false;
         return true;
       })
-      .map((p) => ({
-        ...p,
-        pharmacyName: nameOf(p.pharmacyId),
-        stockistName: nameOf(p.stockistId),
-      }));
-  }, [payments, businesses, from, to]);
+      .map((p) => {
+        const pairInvs = invoices.filter((i) => i.pharmacyId === p.pharmacyId && i.stockistId === p.stockistId);
+        const avg =
+          pairInvs.length > 0
+            ? pairInvs.reduce((s, i) => s + i.grandTotal, 0) / pairInvs.length
+            : invoices.length
+              ? invoices.reduce((s, i) => s + i.grandTotal, 0) / invoices.length
+              : 50000;
+        const largeFlag = p.amount >= largeMultiple * avg;
+        return {
+          ...p,
+          pharmacyName: nameOf(p.pharmacyId),
+          stockistName: nameOf(p.stockistId),
+          largeFlag,
+          flagLabel: largeFlag ? 'Large' : '',
+        };
+      });
+  }, [payments, businesses, invoices, from, to, largeMultiple]);
 
   const columns = useMemo(
     () => [
@@ -60,10 +77,17 @@ export function AdminPayments() {
         getValue: (p: (typeof rows)[0]) => p.amount,
         render: (p: (typeof rows)[0]) => <Money value={p.amount} />,
       },
+      {
+        key: 'flagLabel',
+        label: 'Flag',
+        getValue: (p: (typeof rows)[0]) => p.flagLabel,
+        render: (p: (typeof rows)[0]) =>
+          p.largeFlag ? <span className="badge badge-warning">Large (≥{largeMultiple}× avg invoice)</span> : null,
+      },
       { key: 'method', label: 'Mode', getValue: (p: (typeof rows)[0]) => p.method },
       { key: 'reference', label: 'Reference', getValue: (p: (typeof rows)[0]) => p.reference ?? '' },
     ],
-    [],
+    [largeMultiple],
   );
 
   const statusOpts = ['Submitted', 'UnderReview', 'Approved', 'Rejected', 'OnHold', 'Cancelled'].map((s) => ({
@@ -185,6 +209,7 @@ export function AdminPayments() {
         <>
           <DataListTable
             columns={columns}
+            loading={paymentsLoading}
             rows={list.pageRows}
             sortKey={list.sortKey}
             sortDir={list.sortDir}

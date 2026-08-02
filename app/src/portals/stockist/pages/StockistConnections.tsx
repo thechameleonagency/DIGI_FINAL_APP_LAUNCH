@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
 import { formatINR } from '../../../domain/utils/money';
+import { parseNumberInput } from '../../../domain/utils/validation';
 import {
   blockConnection,
   disconnectConnection,
@@ -28,6 +29,7 @@ export function StockistConnections() {
   const [approveId, setApproveId] = useState<string | null>(null);
   const [creditDays, setCreditDays] = useState('30');
   const [creditLimit, setCreditLimit] = useState('100000');
+  const [creditErrors, setCreditErrors] = useState<{ days?: string; limit?: string }>({});
 
   const filtered = tab === 'All' ? connections : connections.filter((c) => c.status === tab);
   const approveTarget = approveId ? connections.find((c) => c.id === approveId) : undefined;
@@ -97,24 +99,55 @@ export function StockistConnections() {
       <Modal
         open={!!approveId}
         title="Approve connection"
-        onClose={() => setApproveId(null)}
+        onClose={() => {
+          setApproveId(null);
+          setCreditErrors({});
+        }}
         footer={
           <div className="row" style={{ justifyContent: 'flex-end' }}>
-            <Button variant="secondary" onClick={() => setApproveId(null)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setApproveId(null);
+                setCreditErrors({});
+              }}
+            >
               Cancel
             </Button>
             <Button
               onClick={async () => {
+                const daysParsed = parseNumberInput(creditDays);
+                const limitParsed = parseNumberInput(creditLimit);
+                const next: typeof creditErrors = {};
+                if (daysParsed.status === 'empty') next.days = 'Credit days are required';
+                else if (
+                  daysParsed.status === 'invalid' ||
+                  !Number.isInteger(daysParsed.value) ||
+                  daysParsed.value < 0
+                ) {
+                  next.days = 'Enter a whole number of days (0 or more)';
+                }
+                if (limitParsed.status === 'empty') next.limit = 'Credit limit is required';
+                else if (limitParsed.status === 'invalid' || limitParsed.value <= 0) {
+                  next.limit = 'Enter a credit limit greater than zero';
+                }
+                if (Object.keys(next).length || daysParsed.status !== 'ok' || limitParsed.status !== 'ok') {
+                  setCreditErrors(next);
+                  return;
+                }
                 const res = await respondConnection({
                   actor: user,
                   stockist: business,
                   connectionId: approveId!,
                   decision: 'Active',
-                  creditDays: Number(creditDays) || 30,
-                  creditLimit: Number(creditLimit) || undefined,
+                  creditDays: daysParsed.value,
+                  creditLimit: limitParsed.value,
                 });
                 pushToast(res.ok ? { tone: 'success', title: 'Connection approved' } : { tone: 'error', title: res.message });
-                setApproveId(null);
+                if (res.ok) {
+                  setApproveId(null);
+                  setCreditErrors({});
+                }
               }}
             >
               Approve & add
@@ -135,11 +168,27 @@ export function StockistConnections() {
               {approvePharmacy?.phone} · {approvePharmacy?.email}
             </div>
           </div>
-          <Field label="Credit days">
-            <Input type="number" min={0} value={creditDays} onChange={(e) => setCreditDays(e.target.value)} />
+          <Field label="Credit days" error={creditErrors.days}>
+            <Input
+              type="number"
+              min={0}
+              value={creditDays}
+              onChange={(e) => {
+                setCreditDays(e.target.value);
+                setCreditErrors((err) => ({ ...err, days: undefined }));
+              }}
+            />
           </Field>
-          <Field label="Credit limit (₹)">
-            <Input type="number" min={0} value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} />
+          <Field label="Credit limit (₹)" error={creditErrors.limit}>
+            <Input
+              type="number"
+              min={1}
+              value={creditLimit}
+              onChange={(e) => {
+                setCreditLimit(e.target.value);
+                setCreditErrors((err) => ({ ...err, limit: undefined }));
+              }}
+            />
           </Field>
         </div>
       </Modal>

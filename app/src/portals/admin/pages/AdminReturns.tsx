@@ -1,23 +1,24 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
+import { localDayKey } from '../../../domain/utils/dateKeys';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
 import { EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 
 function dayKey(iso?: string): string {
-  return iso ? iso.slice(0, 10) : '';
+  return localDayKey(iso);
 }
 
-/** Platform returns oversight (AD-22 / P6) — read-only. */
+/** Platform returns oversight — read-only. */
 export function AdminReturns() {
   const { pushToast } = useUi();
   const navigate = useNavigate();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const returns = useLiveQuery(() => db.returns.toArray()) ?? [];
+  const { items: returns, loading: returnsLoading } = useLiveArray(() => db.returns.toArray());
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
   const orders = useLiveQuery(() => db.orders.toArray()) ?? [];
   const nameOf = (id: string) => businesses.find((b) => b.id === id)?.name ?? id.slice(0, 8);
@@ -87,11 +88,9 @@ export function AdminReturns() {
     defaultSortKey: 'createdAt',
   });
 
-  const selected = selectedId ? rows.find((r) => r.id === selectedId) : undefined;
-
   return (
     <div className="stack">
-      <PageHeader title="Platform returns" subtitle="Read-only oversight across pharmacies and stockists (P6)" />
+      <PageHeader title="Platform returns" subtitle="Read-only oversight across pharmacies and stockists" />
       <div className="row" style={{ alignItems: 'flex-end' }}>
         <Field label="From">
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -118,59 +117,16 @@ export function AdminReturns() {
         <>
           <DataListTable
             columns={columns}
+            loading={returnsLoading}
             rows={list.pageRows}
             sortKey={list.sortKey}
             sortDir={list.sortDir}
             onSort={list.toggleSort}
-            onRowClick={(r) => setSelectedId(r.id)}
+            onRowClick={(r) => navigate(`/admin/returns/${encodeURIComponent(r.returnNo)}`)}
           />
           <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
         </>
       )}
-
-      {selected ? (
-        <div className="card card-pad stack">
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <strong>
-              {selected.returnNo} · <StatusBadge status={selected.status} />
-            </strong>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedId(null)}>
-              Close
-            </button>
-          </div>
-          <div className="muted" style={{ fontSize: 13 }}>
-            {selected.pharmacyName} → {selected.stockistName} · order{' '}
-            <Link to={`/admin/orders/${encodeURIComponent(selected.orderNo)}`}>{selected.orderNo}</Link>
-          </div>
-          {selected.rejectReason ? <div style={{ fontSize: 13 }}>Reject: {selected.rejectReason}</div> : null}
-          {selected.disposition ? <div style={{ fontSize: 13 }}>Disposition: {selected.disposition}</div> : null}
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Qty</th>
-                  <th>Approved</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selected.lines.map((l, i) => (
-                  <tr key={`${selected.id}-${i}`}>
-                    <td>{l.productName}</td>
-                    <td>{l.qty}</td>
-                    <td>{l.approvedQty ?? '—'}</td>
-                    <td>{l.reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/admin/orders')}>
-            Browse related orders
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }

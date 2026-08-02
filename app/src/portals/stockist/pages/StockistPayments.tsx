@@ -1,11 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
 import { stockistReceivables } from '../../../domain/calc';
 import type { Payment } from '../../../domain/entities/types';
+import { localTodayKey } from '../../../domain/utils/dateKeys';
 import { makeIdempotencyKey } from '../../../domain/utils/idempotency';
 import { formatINR } from '../../../domain/utils/money';
+import { parseNumberInput } from '../../../domain/utils/validation';
 import { can } from '../../../domain/permissions';
 import { recordOfflinePayment, reviewPayment } from '../../../services/paymentService';
 import { sendPaymentReminder } from '../../../services/reminderService';
@@ -13,7 +16,7 @@ import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileLink, FileUpload } from '../../../ui/components/FileUpload';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, Money, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, LoadingState, Money, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 const METHODS: Payment['method'][] = ['Cash', 'UPI', 'NEFT', 'Cheque', 'RTGS', 'Other'];
@@ -23,8 +26,15 @@ export function StockistPayments() {
   const { pushToast } = useUi();
   const [params] = useSearchParams();
   const highlight = params.get('invoice') ?? '';
-  const payments = useLiveQuery(() => db.payments.where('stockistId').equals(business.id).reverse().sortBy('createdAt'), [business.id]) ?? [];
-  const invoices = useLiveQuery(() => db.invoices.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const paymentFocus = params.get('payment');
+  const { items: payments, loading: paymentsLoading } = useLiveArray(
+    () => db.payments.where('stockistId').equals(business.id).reverse().sortBy('createdAt'),
+    [business.id],
+  );
+  const { items: invoices, loading: invoicesLoading } = useLiveArray(
+    () => db.invoices.where('stockistId').equals(business.id).toArray(),
+    [business.id],
+  );
   const pharmacies = useLiveQuery(() => db.businesses.where('type').equals('Pharmacy').toArray()) ?? [];
   const connections =
     useLiveQuery(
@@ -34,13 +44,26 @@ export function StockistPayments() {
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [holdId, setHoldId] = useState<string | null>(null);
   const [reviewId, setReviewId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!paymentFocus || paymentsLoading) return;
+    const match = payments.find((p) => p.paymentNo === paymentFocus);
+    if (match) setReviewId(match.id);
+  }, [paymentFocus, payments, paymentsLoading]);
+  const [advancePrompt, setAdvancePrompt] = useState<{
+    paymentId: string;
+    paymentNo: string;
+    amount: number;
+    allocated: number;
+    surplus: number;
+  } | null>(null);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [recordOpen, setRecordOpen] = useState(false);
   const [recPharmacyId, setRecPharmacyId] = useState('');
   const [recMethod, setRecMethod] = useState<Payment['method']>('Cash');
   const [recReference, setRecReference] = useState('');
-  const [recDate, setRecDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [recDate, setRecDate] = useState(() => localTodayKey());
   const [recProof, setRecProof] = useState<string | undefined>();
   const [recAlloc, setRecAlloc] = useState<Record<string, number>>({});
   const [recDeclaredAmount, setRecDeclaredAmount] = useState('');
@@ -69,7 +92,7 @@ export function StockistPayments() {
     setRecPharmacyId(opts?.pharmacyId ?? '');
     setRecMethod('Cash');
     setRecReference('');
-    setRecDate(new Date().toISOString().slice(0, 10));
+    setRecDate(localTodayKey());
     setRecProof(undefined);
     setRecAlloc(opts?.invoiceId && opts.amount ? { [opts.invoiceId]: opts.amount } : {});
     setRecDeclaredAmount(opts?.amount != null ? String(opts.amount) : '');
@@ -143,7 +166,16 @@ export function StockistPayments() {
         key: 'status',
         label: 'Status',
         getValue: (i: (typeof invoices)[0]) => i.status,
-        render: (i: (typeof invoices)[0]) => <StatusBadge status={i.status} />,
+        render: (i: (typeof invoices)[0]) => (
+          <StatusBadge
+            status={
+              i.status === 'Overdue' ||
+              (!!i.dueDate && new Date(i.dueDate) < new Date() && i.outstanding > 0)
+                ? 'Overdue'
+                : i.status
+            }
+          />
+        ),
       },
       {
         key: 'grandTotal',
@@ -196,6 +228,9 @@ export function StockistPayments() {
     [pharmacies, canRecord, canRemind, user, business],
   );
 
+  const isOverdueInvoice = (i: { status: string; dueDate?: string; outstanding: number }) =>
+    i.status === 'Overdue' || (!!i.dueDate && new Date(i.dueDate) < new Date() && i.outstanding > 0);
+
   const invScoped = useMemo(
     () =>
       invoices.filter((i) => {
@@ -216,6 +251,11 @@ export function StockistPayments() {
         key: 'status',
         label: 'Status',
         options: ['Issued', 'PartiallyPaid', 'Paid', 'Overdue', 'Void'].map((s) => ({ value: s, label: s })),
+        // Match Home KPI: status-Overdue OR date-overdue with outstanding (same as pharmacy portal)
+        match: (i, selected) => {
+          if (selected === 'Overdue') return isOverdueInvoice(i);
+          return i.status === selected;
+        },
       },
     ],
     defaultSortKey: 'invoiceNo',
@@ -329,37 +369,45 @@ export function StockistPayments() {
             <div className="stack">
               <strong style={{ fontSize: 13 }}>Allocate to invoices</strong>
               {openForPharmacy.map((inv) => (
-                <div key={inv.id} className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+                <div key={inv.id} className="row" style={{ justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
                   <div style={{ fontSize: 13 }}>
                     <Link to={`/stockist/invoices/${inv.invoiceNo}`}>{inv.invoiceNo}</Link>
                     <div className="muted">
                       Outstanding <Money value={inv.outstanding} />
                     </div>
                   </div>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={inv.outstanding}
-                    step="0.01"
-                    style={{ maxWidth: 120 }}
-                    value={recAlloc[inv.id] ?? ''}
-                    onChange={(e) => {
-                      const n = Number(e.target.value);
-                      setRecAlloc((prev) => {
-                        const next = { ...prev };
-                        if (!e.target.value || n <= 0) delete next[inv.id];
-                        else next[inv.id] = Math.min(n, inv.outstanding);
-                        return next;
-                      });
-                    }}
-                    aria-label={`Allocate ${inv.invoiceNo}`}
-                  />
+                  <div className="stack" style={{ gap: 4, alignItems: 'flex-end' }}>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={inv.outstanding}
+                      step="0.01"
+                      style={{ maxWidth: 120 }}
+                      value={recAlloc[inv.id] ?? ''}
+                      onChange={(e) => {
+                        const parsed = parseNumberInput(e.target.value);
+                        setRecAlloc((prev) => {
+                          const next = { ...prev };
+                          if (parsed.status !== 'ok' || parsed.value <= 0) delete next[inv.id];
+                          else next[inv.id] = Math.min(parsed.value, inv.outstanding);
+                          return next;
+                        });
+                      }}
+                      aria-label={`Allocate ${inv.invoiceNo}`}
+                    />
+                    <span className="muted" style={{ fontSize: 11 }}>
+                      Remaining <Money value={Math.max(0, inv.outstanding - (recAlloc[inv.id] ?? 0))} />
+                    </span>
+                  </div>
                 </div>
               ))}
               <div style={{ fontSize: 13 }}>
                 Allocated <Money value={recAllocTotal} />
               </div>
-              <Field label="Payment amount (may exceed allocated → advance CN on approve)">
+              <Field
+                label="Payment amount"
+                hint="If the amount exceeds what you allocate to invoices, the surplus becomes an advance credit note when approved."
+              >
                 <Input
                   type="number"
                   value={recDeclaredAmount || String(recAllocTotal || '')}
@@ -411,6 +459,86 @@ export function StockistPayments() {
         }}
       />
       <Modal
+        open={!!advancePrompt}
+        title="Surplus payment — advance credit?"
+        onClose={() => setAdvancePrompt(null)}
+        footer={
+          <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
+            <Button variant="secondary" onClick={() => setAdvancePrompt(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                if (!advancePrompt) return;
+                const res = await reviewPayment({
+                  actor: user,
+                  stockist: business,
+                  paymentId: advancePrompt.paymentId,
+                  decision: 'Approved',
+                  issueAdvanceCredit: false,
+                });
+                pushToast(
+                  res.ok
+                    ? { tone: 'success', title: 'Payment approved', message: 'Surplus left without credit note' }
+                    : { tone: 'error', title: res.message },
+                );
+                if (res.ok) setAdvancePrompt(null);
+              }}
+            >
+              Approve without CN
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!advancePrompt) return;
+                const res = await reviewPayment({
+                  actor: user,
+                  stockist: business,
+                  paymentId: advancePrompt.paymentId,
+                  decision: 'Approved',
+                  issueAdvanceCredit: true,
+                });
+                pushToast(
+                  res.ok
+                    ? {
+                        tone: 'success',
+                        title: 'Payment approved',
+                        message: 'Advance credit note issued for surplus',
+                      }
+                    : { tone: 'error', title: res.message },
+                );
+                if (res.ok) setAdvancePrompt(null);
+              }}
+            >
+              Approve + issue advance CN
+            </Button>
+          </div>
+        }
+      >
+        {advancePrompt ? (
+          <div className="stack" style={{ gap: 8, fontSize: 13.5 }}>
+            <p>
+              Payment <strong>{advancePrompt.paymentNo}</strong> exceeds invoice allocations.
+            </p>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              <li>
+                Payment amount: <Money value={advancePrompt.amount} />
+              </li>
+              <li>
+                Allocated to invoices: <Money value={advancePrompt.allocated} />
+              </li>
+              <li>
+                Surplus: <strong><Money value={advancePrompt.surplus} /></strong>
+              </li>
+            </ul>
+            <p className="muted" style={{ margin: 0 }}>
+              Issuing an Advance credit note keeps the surplus as pharmacy credit. Approving without a CN records the
+              full payment without creating that credit.
+            </p>
+          </div>
+        ) : null}
+      </Modal>
+      <Modal
         open={!!review}
         title={review ? `Review ${review.paymentNo}` : 'Review payment'}
         onClose={() => setReviewId(null)}
@@ -452,26 +580,26 @@ export function StockistPayments() {
                 onClick={async () => {
                   const allocated = review.allocations.reduce((s, a) => s + a.amount, 0);
                   const surplus = review.amount - allocated;
-                  let issueAdvanceCredit = false;
                   if (review.recordedBy === 'Stockist' && surplus > 0.005) {
-                    issueAdvanceCredit = window.confirm(
-                      `Payment exceeds allocations by ₹${surplus.toFixed(2)}. Issue an Advance credit note for the surplus?`,
-                    );
+                    setAdvancePrompt({
+                      paymentId: review.id,
+                      paymentNo: review.paymentNo,
+                      amount: review.amount,
+                      allocated,
+                      surplus,
+                    });
+                    setReviewId(null);
+                    return;
                   }
                   const res = await reviewPayment({
                     actor: user,
                     stockist: business,
                     paymentId: review.id,
                     decision: 'Approved',
-                    issueAdvanceCredit: issueAdvanceCredit || undefined,
                   });
                   pushToast(
                     res.ok
-                      ? {
-                          tone: 'success',
-                          title: 'Payment approved',
-                          message: issueAdvanceCredit ? 'Advance credit note issued for surplus' : undefined,
-                        }
+                      ? { tone: 'success', title: 'Payment approved' }
                       : { tone: 'error', title: res.message },
                   );
                   setReviewId(null);
@@ -534,19 +662,10 @@ export function StockistPayments() {
         ) : null}
       </Modal>
 
-      <div className="row">
-        <label className="muted" style={{ fontSize: 12 }}>
-          From{' '}
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-        </label>
-        <label className="muted" style={{ fontSize: 12 }}>
-          To{' '}
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-        </label>
-      </div>
-
       <h3 style={{ margin: 0, fontSize: 15 }}>Payments</h3>
-      {!payments.length ? (
+      {paymentsLoading ? (
+        <LoadingState label="Loading payments…" />
+      ) : !payments.length ? (
         <EmptyState
           title="No payments yet"
           description="Pharmacy payment submissions appear here after you invoice fulfilled orders."
@@ -562,6 +681,12 @@ export function StockistPayments() {
             query={payList.query}
             onQuery={payList.setQuery}
             placeholder="Search payment / pharmacy / ref"
+            dateRange={{
+              from: dateFrom,
+              to: dateTo,
+              onFrom: setDateFrom,
+              onTo: setDateTo,
+            }}
             filters={[
               {
                 key: 'status',
@@ -577,6 +702,7 @@ export function StockistPayments() {
             }}
           />
           <DataListTable
+            loading={paymentsLoading}
             columns={[
               ...payColumns,
               {
@@ -600,7 +726,9 @@ export function StockistPayments() {
       )}
 
       <h3 style={{ margin: '8px 0 0', fontSize: 15 }}>Invoices</h3>
-      {!invoices.length ? (
+      {invoicesLoading ? (
+        <LoadingState label="Loading invoices…" />
+      ) : !invoices.length ? (
         <EmptyState
           title="No invoices yet"
           description="Issue an invoice after packing a fulfilled order."
@@ -631,6 +759,7 @@ export function StockistPayments() {
             }}
           />
           <DataListTable
+            loading={invoicesLoading}
             columns={invColumns}
             rows={invList.pageRows}
             sortKey={invList.sortKey}

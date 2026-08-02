@@ -1,15 +1,17 @@
 import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
 import { PageHeader, StatusBadge } from '../../../ui/components/primitives';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 
 export function AdminNetwork() {
   const { pushToast } = useUi();
   const navigate = useNavigate();
-  const businesses = useLiveQuery(() => db.businesses.filter((b) => b.type !== 'Platform').toArray()) ?? [];
+  const { items: businesses, loading: businessesLoading } = useLiveArray(() =>
+    db.businesses.filter((b) => b.type !== 'Platform').toArray(),
+  );
   const columns = useMemo(
     () => [
       {
@@ -77,6 +79,7 @@ export function AdminNetwork() {
         sortKey={list.sortKey}
         sortDir={list.sortDir}
         onSort={list.toggleSort}
+        loading={businessesLoading}
         onRowClick={(b) => navigate(`/admin/network/${b.id}`)}
       />
       <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />

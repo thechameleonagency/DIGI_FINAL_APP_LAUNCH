@@ -13,7 +13,7 @@ import { useSession } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { FileLink } from '../../../ui/components/FileUpload';
-import { Button, EmptyState, Field, Input, PageHeader, StatusBadge, Textarea } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, PageHeader, StatusBadge, Tabs, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type Tab = 'Queue' | 'Plan copy' | 'Premium list';
@@ -114,13 +114,12 @@ export function AdminPlans() {
   return (
     <div className="stack">
       <PageHeader title="Premium plans" subtitle="UTR/proof upgrade requests — conveniences only, no gateway" />
-      <div className="tabs">
-        {(['Queue', 'Plan copy', 'Premium list'] as Tab[]).map((t) => (
-          <button key={t} type="button" className={`tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        ariaLabel="Premium plans"
+        value={tab}
+        onChange={setTab}
+        items={(['Queue', 'Plan copy', 'Premium list'] as Tab[]).map((t) => ({ id: t, label: t }))}
+      />
 
       {tab === 'Queue' && (
         <div className="stack">

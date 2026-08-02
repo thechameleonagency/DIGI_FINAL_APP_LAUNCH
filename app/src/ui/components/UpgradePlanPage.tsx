@@ -110,8 +110,8 @@ export function UpgradePlanPage() {
       )}
 
       {history.length ? (
-        <div className="card" style={{ overflowX: 'auto' }}>
-          <table className="table">
+        <div className="table-wrap">
+          <table className="data">
             <thead>
               <tr>
                 <th>When</th>

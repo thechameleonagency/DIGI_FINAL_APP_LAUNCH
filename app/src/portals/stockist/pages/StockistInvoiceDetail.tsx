@@ -78,6 +78,11 @@ export function StockistInvoiceDetail() {
         payments={payments}
         stockistName={business.name}
         pharmacyName={pharmacy?.name}
+        intraState={
+          !pharmacy?.state || !business.state
+            ? true
+            : pharmacy.state.trim().toLowerCase() === business.state.trim().toLowerCase()
+        }
       />
     </div>
   );

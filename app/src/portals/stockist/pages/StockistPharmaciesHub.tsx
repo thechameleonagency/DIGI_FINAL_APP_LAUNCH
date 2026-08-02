@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
 import { formatINR } from '../../../domain/utils/money';
+import { parseNumberInput } from '../../../domain/utils/validation';
 import {
   blockConnection,
   disconnectConnection,
@@ -14,7 +15,7 @@ import { createManagedPharmacy, inviteManagedPharmacy } from '../../../services/
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
-import { Button, EmptyState, Field, Input, Modal, PageHeader, StatusBadge, Textarea } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge, Tabs, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type HubTab = 'Offline' | 'Invited' | 'Platform';
@@ -43,6 +44,7 @@ export function StockistPharmaciesHub() {
   const [approveId, setApproveId] = useState<string | null>(null);
   const [creditDays, setCreditDays] = useState('30');
   const [creditLimit, setCreditLimit] = useState('100000');
+  const [creditErrors, setCreditErrors] = useState<{ days?: string; limit?: string }>({});
 
   const managed =
     useLiveQuery(() => db.managedPharmacies.where('stockistId').equals(business.id).reverse().sortBy('updatedAt'), [
@@ -76,16 +78,28 @@ export function StockistPharmaciesHub() {
         }
       />
 
-      <div className="tabs">
-        {(['Offline', 'Invited', 'Platform'] as HubTab[]).map((t) => (
-          <button key={t} type="button" className={`tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-            {t}
-            <span className="muted" style={{ marginLeft: 6 }}>
-              {t === 'Offline' ? offline.length : t === 'Invited' ? invited.length : connections.length}
-            </span>
-          </button>
-        ))}
-      </div>
+      <Tabs
+        ariaLabel="Pharmacy hub"
+        value={tab}
+        onChange={setTab}
+        items={(
+          [
+            ['Offline', offline.length],
+            ['Invited', invited.length],
+            ['Platform', connections.length],
+          ] as const
+        ).map(([id, count]) => ({
+          id: id as HubTab,
+          label: (
+            <>
+              {id}
+              <span className="muted" style={{ marginLeft: 6 }}>
+                {count}
+              </span>
+            </>
+          ),
+        }))}
+      />
 
       <Modal
         open={createOpen}
@@ -255,18 +269,15 @@ export function StockistPharmaciesHub() {
         </div>
       ) : (
         <div className="stack">
-          <div className="tabs">
-            {['Requested', 'Active', 'Rejected', 'Blocked', 'Disconnected', 'All'].map((t) => (
-              <button
-                key={t}
-                type="button"
-                className={`tab${platformFilter === t ? ' active' : ''}`}
-                onClick={() => setPlatformFilter(t)}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          <Field label="Connection status">
+            <Select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} style={{ maxWidth: 220 }}>
+              {['Requested', 'Active', 'Rejected', 'Blocked', 'Disconnected', 'All'].map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <ConfirmDialog
             open={!!rejectId}
             title="Reject connection"
@@ -328,24 +339,55 @@ export function StockistPharmaciesHub() {
           <Modal
             open={!!approveId}
             title={`Approve ${approvePharmacy?.name ?? 'pharmacy'}`}
-            onClose={() => setApproveId(null)}
+            onClose={() => {
+              setApproveId(null);
+              setCreditErrors({});
+            }}
             footer={
               <div className="row">
-                <Button variant="secondary" onClick={() => setApproveId(null)}>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setApproveId(null);
+                    setCreditErrors({});
+                  }}
+                >
                   Cancel
                 </Button>
                 <Button
                   onClick={async () => {
+                    const daysParsed = parseNumberInput(creditDays);
+                    const limitParsed = parseNumberInput(creditLimit);
+                    const next: typeof creditErrors = {};
+                    if (daysParsed.status === 'empty') next.days = 'Credit days are required';
+                    else if (
+                      daysParsed.status === 'invalid' ||
+                      !Number.isInteger(daysParsed.value) ||
+                      daysParsed.value < 0
+                    ) {
+                      next.days = 'Enter a whole number of days (0 or more)';
+                    }
+                    if (limitParsed.status === 'empty') next.limit = 'Credit limit is required';
+                    else if (limitParsed.status === 'invalid' || limitParsed.value <= 0) {
+                      next.limit = 'Enter a credit limit greater than zero';
+                    }
+                    if (Object.keys(next).length || daysParsed.status !== 'ok' || limitParsed.status !== 'ok') {
+                      setCreditErrors(next);
+                      return;
+                    }
                     const res = await respondConnection({
                       actor: user,
                       stockist: business,
                       connectionId: approveId!,
                       decision: 'Active',
-                      creditDays: Number(creditDays) || 30,
-                      creditLimit: Number(creditLimit) || 100000,
+                      creditDays: daysParsed.value,
+                      creditLimit: limitParsed.value,
                     });
                     pushToast(res.ok ? { tone: 'success', title: 'Approved' } : { tone: 'error', title: res.message });
-                    setApproveId(null);
+                    if (res.ok) {
+                      setApproveId(null);
+                      setCreditErrors({});
+                    }
                   }}
                 >
                   Approve
@@ -354,11 +396,27 @@ export function StockistPharmaciesHub() {
             }
           >
             <div className="grid-2">
-              <Field label="Credit days">
-                <Input value={creditDays} onChange={(e) => setCreditDays(e.target.value)} />
+              <Field label="Credit days" error={creditErrors.days}>
+                <Input
+                  type="number"
+                  min={0}
+                  value={creditDays}
+                  onChange={(e) => {
+                    setCreditDays(e.target.value);
+                    setCreditErrors((err) => ({ ...err, days: undefined }));
+                  }}
+                />
               </Field>
-              <Field label="Credit limit">
-                <Input value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} />
+              <Field label="Credit limit (₹)" error={creditErrors.limit}>
+                <Input
+                  type="number"
+                  min={1}
+                  value={creditLimit}
+                  onChange={(e) => {
+                    setCreditLimit(e.target.value);
+                    setCreditErrors((err) => ({ ...err, limit: undefined }));
+                  }}
+                />
               </Field>
             </div>
           </Modal>

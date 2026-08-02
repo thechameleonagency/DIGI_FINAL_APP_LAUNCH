@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
+import { pluralize } from '../../../domain/utils/pluralize';
 import {
   confirmQuickOrder,
   resolveQuickOrder,
@@ -111,7 +112,7 @@ export function PharmacyQuickOrder() {
       pushToast({
         tone: 'success',
         title: 'Added to cart',
-        message: `${res.data.added} line(s). Nothing was ordered automatically.`,
+        message: `${pluralize(res.data.added, 'line')}. Nothing was ordered automatically.`,
       });
       navigate('/pharmacy/cart');
     });
@@ -141,9 +142,9 @@ export function PharmacyQuickOrder() {
           <Button disabled={busy || !text.trim()} onClick={() => void parse()}>
             {busy ? 'Working…' : 'Parse & match'}
           </Button>
-          <Link className="btn btn-secondary" to="/pharmacy/buy">
+          <Button variant="secondary" type="button" onClick={() => navigate(-1)}>
             Cancel
-          </Link>
+          </Button>
         </div>
       </div>
 

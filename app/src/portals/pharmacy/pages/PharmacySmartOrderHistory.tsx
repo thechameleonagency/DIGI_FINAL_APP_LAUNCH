@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
+import { pluralize } from '../../../domain/utils/pluralize';
 import { reapplySmartOrderRun } from '../../../services/smartOrderService';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
@@ -61,7 +62,7 @@ export function PharmacySmartOrderHistory() {
                         ? {
                             tone: 'success',
                             title: 'Re-applied to cart',
-                            message: `${res.data.added} line(s)${res.data.skipped.length ? `; skipped ${res.data.skipped.length}` : ''}`,
+                            message: `${pluralize(res.data.added, 'line')}${res.data.skipped.length ? `; skipped ${res.data.skipped.length}` : ''}`,
                           }
                         : { tone: 'error', title: res.message },
                     );

@@ -27,6 +27,17 @@ export async function upsertProduct(params: {
 }): Promise<Result<Product>> {
   const perm = assertCan(params.actor, params.stockist, 'catalogue.manage');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Product was not saved.');
+  if (!(params.product.mrp > 0) || !(params.product.ptr > 0) || !(params.product.gstPercent > 0)) {
+    return fail(
+      'Validation',
+      'PROD_PRICE',
+      'MRP, PTR, and GST % must be greater than zero.',
+      'Product was not saved.',
+    );
+  }
+  if (params.product.ptr > params.product.mrp) {
+    return fail('Validation', 'PROD_PTR_MRP', 'PTR cannot exceed MRP.', 'Product was not saved.');
+  }
   const cat = await db.catalogues.where('stockistId').equals(params.stockist.id).first();
   if (!cat) return fail('NotFound', 'CAT_MISSING', 'Catalogue not found.', 'Product was not saved.');
   const ts = new Date().toISOString();
@@ -203,6 +214,50 @@ export async function setCartLine(params: {
   return ok(true);
 }
 
+/**
+ * Bulk-path helper: if the line already exists, add `qty` on top of it;
+ * if new, set to at least MOQ. Never silently replaces a higher cart qty with MOQ.
+ */
+export async function addOrIncrementCartLine(params: {
+  actor: User;
+  pharmacy: Business;
+  stockistId: string;
+  productId: string;
+  qty: number;
+}): Promise<Result<{ previousQty: number; newQty: number; incremented: boolean }>> {
+  const product = await db.products.get(params.productId);
+  if (!product || product.stockistId !== params.stockistId || product.status !== 'Active') {
+    return fail('NotFound', 'CART_PROD', 'Product not available.', 'Cart was not updated.');
+  }
+  const cart = await db.carts.where({ pharmacyId: params.pharmacy.id, stockistId: params.stockistId }).first();
+  const previousQty = cart?.lines.find((l) => l.productId === params.productId)?.qty ?? 0;
+  const addQty = Math.max(0, Math.floor(params.qty));
+  if (addQty <= 0) {
+    return fail('Validation', 'CART_QTY', 'Quantity must be positive.', 'Cart was not updated.');
+  }
+  let newQty = previousQty > 0 ? previousQty + addQty : Math.max(addQty, product.moq);
+  if (product.maxQty != null && newQty > product.maxQty) {
+    if (previousQty >= product.maxQty) {
+      return fail(
+        'Validation',
+        'CART_MAX',
+        `Already at maximum quantity (${product.maxQty}).`,
+        'Cart was not updated.',
+      );
+    }
+    newQty = product.maxQty;
+  }
+  const res = await setCartLine({
+    actor: params.actor,
+    pharmacy: params.pharmacy,
+    stockistId: params.stockistId,
+    productId: params.productId,
+    qty: newQty,
+  });
+  if (!res.ok) return res;
+  return ok({ previousQty, newQty, incremented: previousQty > 0 });
+}
+
 export async function clearCart(params: {
   actor: User;
   pharmacy: Business;
@@ -227,7 +282,15 @@ export async function reorderFromOrder(params: {
   actor: User;
   pharmacy: Business;
   orderId: string;
-}): Promise<Result<{ stockistId: string; added: number; skipped: { productName: string; reason: string }[] }>> {
+}): Promise<
+  Result<{
+    stockistId: string;
+    added: number;
+    incremented: number;
+    skipped: { productName: string; reason: string }[];
+    changes: { productName: string; previousQty: number; newQty: number }[];
+  }>
+> {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Cart was not rebuilt.');
   const order = await db.orders.get(params.orderId);
@@ -235,7 +298,9 @@ export async function reorderFromOrder(params: {
     return fail('NotFound', 'ORD_MISSING', 'Order not found.', 'Cart was not rebuilt.');
   }
   const skipped: { productName: string; reason: string }[] = [];
+  const changes: { productName: string; previousQty: number; newQty: number }[] = [];
   let added = 0;
+  let incremented = 0;
   for (const line of order.lines) {
     const product = await db.products.get(line.productId);
     if (!product || product.status !== 'Active') {
@@ -247,7 +312,7 @@ export async function reorderFromOrder(params: {
       continue;
     }
     const qty = Math.max(line.qty, product.moq);
-    const res = await setCartLine({
+    const res = await addOrIncrementCartLine({
       actor: params.actor,
       pharmacy: params.pharmacy,
       stockistId: order.stockistId,
@@ -255,9 +320,13 @@ export async function reorderFromOrder(params: {
       qty,
     });
     if (!res.ok) skipped.push({ productName: line.productName, reason: res.message });
-    else added++;
+    else {
+      changes.push({ productName: line.productName, previousQty: res.data.previousQty, newQty: res.data.newQty });
+      if (res.data.incremented) incremented++;
+      else added++;
+    }
   }
-  if (!added) {
+  if (!added && !incremented) {
     return fail(
       'BusinessRule',
       'REORDER_EMPTY',
@@ -274,9 +343,9 @@ export async function reorderFromOrder(params: {
     entityType: 'Order',
     entityId: order.id,
     action: 'order.reorder',
-    after: { added, skipped: skipped.length, stockistId: order.stockistId },
+    after: { added, incremented, skipped: skipped.length, stockistId: order.stockistId },
   });
-  return ok({ stockistId: order.stockistId, added, skipped });
+  return ok({ stockistId: order.stockistId, added, incremented, skipped, changes });
 }
 
 export async function toggleWishlist(params: {

@@ -75,3 +75,10 @@ export function filterMutableCategories(muted: string[]): string[] {
   const blocked = new Set<string>(CRITICAL_NOTIFICATION_CATEGORIES);
   return muted.filter((c) => !blocked.has(c));
 }
+
+export async function markOnboardingSeen(userId: string): Promise<void> {
+  await db.users.update(userId, {
+    onboardingSeenAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+}

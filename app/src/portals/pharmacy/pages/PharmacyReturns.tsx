@@ -1,19 +1,23 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
 import { submitReturn } from '../../../services/paymentService';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { FileUpload } from '../../../ui/components/FileUpload';
-import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { ReturnLinesForm, validateReturnLines } from '../../../ui/components/ReturnLinesForm';
+import { Button, EmptyState, Field, Modal, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function PharmacyReturns() {
   const { business, user } = useBiz();
   const navigate = useNavigate();
   const { pushToast } = useUi();
-  const returns = useLiveQuery(() => db.returns.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
+  const { items: returns, loading: returnsLoading } = useLiveArray(
+    () => db.returns.where('pharmacyId').equals(business.id).toArray(),
+    [business.id],
+  );
   const orders = useLiveQuery(() => db.orders.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const stockists = useLiveQuery(() => db.businesses.where('type').equals('Stockist').toArray()) ?? [];
   const credits = useLiveQuery(() => db.creditNotes.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
@@ -21,10 +25,20 @@ export function PharmacyReturns() {
   const [orderId, setOrderId] = useState('');
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
   const [returnReasons, setReturnReasons] = useState<Record<string, string>>({});
+  const [returnFieldErrors, setReturnFieldErrors] = useState<
+    Record<string, { qty?: string; reason?: string }>
+  >({});
+  const [returnFormError, setReturnFormError] = useState<string | undefined>();
+  const [orderError, setOrderError] = useState<string | undefined>();
   const [evidenceFileId, setEvidenceFileId] = useState<string | undefined>();
 
   const deliveredOrders = orders.filter((o) => ['Delivered', 'PartiallyDelivered', 'Closed'].includes(o.status));
   const picked = deliveredOrders.find((o) => o.id === orderId);
+  const priorForOrder =
+    useLiveQuery(
+      () => (orderId ? db.returns.where('orderId').equals(orderId).toArray() : []),
+      [orderId],
+    ) ?? [];
 
   const rows = useMemo(
     () =>
@@ -88,13 +102,29 @@ export function PharmacyReturns() {
     defaultSortDir: 'desc',
   });
 
+  const resetForm = () => {
+    setReturnQty({});
+    setReturnReasons({});
+    setReturnFieldErrors({});
+    setReturnFormError(undefined);
+    setOrderError(undefined);
+    setEvidenceFileId(undefined);
+    setOrderId('');
+  };
+
   return (
     <div className="stack">
       <PageHeader
         title="Returns"
         subtitle="Search, filter, export — or raise a new return from a delivered order"
         actions={
-          <Button size="sm" onClick={() => setNewOpen(true)}>
+          <Button
+            size="sm"
+            onClick={() => {
+              resetForm();
+              setNewOpen(true);
+            }}
+          >
             New return
           </Button>
         }
@@ -107,25 +137,23 @@ export function PharmacyReturns() {
           <Button
             onClick={async () => {
               if (!picked) {
-                pushToast({ tone: 'error', title: 'Pick a delivered order' });
+                setOrderError('Pick a delivered order');
                 return;
               }
-              const lines = picked.lines
-                .filter((l) => (returnQty[l.productId] ?? 0) > 0)
-                .map((l) => ({
-                  productId: l.productId,
-                  qty: returnQty[l.productId],
-                  reason: returnReasons[l.productId] || 'Damaged',
-                }));
-              if (!lines.length) {
-                pushToast({ tone: 'error', title: 'Enter at least one qty' });
+              setOrderError(undefined);
+              const check = validateReturnLines(picked, priorForOrder, returnQty, returnReasons);
+              if (!check.ok) {
+                setReturnFieldErrors(check.fieldErrors);
+                setReturnFormError(Object.keys(check.fieldErrors).length ? undefined : check.message);
                 return;
               }
+              setReturnFieldErrors({});
+              setReturnFormError(undefined);
               const res = await submitReturn({
                 actor: user,
                 pharmacy: business,
                 orderId: picked.id,
-                lines,
+                lines: check.lines,
                 evidenceFileIds: evidenceFileId ? [evidenceFileId] : [],
               });
               pushToast(
@@ -135,8 +163,7 @@ export function PharmacyReturns() {
               );
               if (res.ok) {
                 setNewOpen(false);
-                setReturnQty({});
-                setOrderId('');
+                resetForm();
               }
             }}
           >
@@ -145,8 +172,19 @@ export function PharmacyReturns() {
         }
       >
         <div className="stack">
-          <Field label="Delivered order">
-            <Select value={orderId} onChange={(e) => setOrderId(e.target.value)}>
+          <Field label="Delivered order" error={orderError}>
+            <Select
+              value={orderId}
+              onChange={(e) => {
+                setOrderId(e.target.value);
+                setOrderError(undefined);
+                setReturnQty({});
+                setReturnReasons({});
+                setReturnFieldErrors({});
+                setReturnFormError(undefined);
+                setEvidenceFileId(undefined);
+              }}
+            >
               <option value="">Select…</option>
               {deliveredOrders.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -155,32 +193,41 @@ export function PharmacyReturns() {
               ))}
             </Select>
           </Field>
-          {picked
-            ? picked.lines.map((l) => (
-                <div key={l.id} className="grid-2">
-                  <Field label={`${l.productName} (delivered ${l.deliveredQty ?? l.qty})`}>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={l.deliveredQty ?? l.qty}
-                      value={returnQty[l.productId] ?? 0}
-                      onChange={(e) => setReturnQty((q) => ({ ...q, [l.productId]: Number(e.target.value) }))}
-                    />
-                  </Field>
-                  <Field label="Reason">
-                    <Select
-                      value={returnReasons[l.productId] ?? 'Damaged'}
-                      onChange={(e) => setReturnReasons((r) => ({ ...r, [l.productId]: e.target.value }))}
-                    >
-                      {['Short', 'Damaged', 'Expired', 'Wrong item', 'Short dated', 'Other'].map((r) => (
-                        <option key={r}>{r}</option>
-                      ))}
-                    </Select>
-                  </Field>
-                </div>
-              ))
-            : null}
-          <FileUpload label="Evidence (optional)" value={evidenceFileId} onChange={setEvidenceFileId} />
+          {picked ? (
+            <ReturnLinesForm
+              order={picked}
+              priorReturns={priorForOrder}
+              returnQty={returnQty}
+              returnReasons={returnReasons}
+              evidenceFileId={evidenceFileId}
+              fieldErrors={returnFieldErrors}
+              formError={returnFormError}
+              onQty={(productId, qty) => {
+                setReturnFieldErrors((e) => {
+                  if (!e[productId]?.qty) return e;
+                  const next = { ...e };
+                  const row = { ...next[productId], qty: undefined };
+                  if (!row.reason) delete next[productId];
+                  else next[productId] = row;
+                  return next;
+                });
+                setReturnFormError(undefined);
+                setReturnQty((q) => ({ ...q, [productId]: qty }));
+              }}
+              onReason={(productId, reason) => {
+                setReturnFieldErrors((e) => {
+                  if (!e[productId]?.reason) return e;
+                  const next = { ...e };
+                  const row = { ...next[productId], reason: undefined };
+                  if (!row.qty) delete next[productId];
+                  else next[productId] = row;
+                  return next;
+                });
+                setReturnReasons((r) => ({ ...r, [productId]: reason }));
+              }}
+              onEvidence={setEvidenceFileId}
+            />
+          ) : null}
         </div>
       </Modal>
 
@@ -218,11 +265,12 @@ export function PharmacyReturns() {
           />
           <DataListTable
             columns={columns}
+            loading={returnsLoading}
             rows={list.pageRows}
             sortKey={list.sortKey}
             sortDir={list.sortDir}
             onSort={list.toggleSort}
-            onRowClick={(r) => navigate(`/pharmacy/orders/${r.orderNo}`)}
+            onRowClick={(r) => navigate(`/pharmacy/returns/${encodeURIComponent(r.returnNo)}`)}
           />
           <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
         </>

@@ -29,8 +29,13 @@ export interface SessionState {
   role: () => OperationalRole | null;
 }
 
-const SESSION_KEY = 'ds.session';
-const LOCKOUT_KEY = 'ds.loginLockout';
+/** Shared across tabs (localStorage). Legacy sessionStorage is migrated on read. */
+export const SESSION_STORAGE_KEY = 'ds.session';
+/** Warn this long before TTL expiry so users can continue without losing form work. */
+export const SESSION_WARN_MS = 15 * 60 * 1000;
+/** Per-identifier lockout map (v2). Legacy single-key `ds.loginLockout` is ignored. */
+const LOCKOUT_KEY = 'ds.loginLockout.v2';
+const LOCKOUT_KEY_LEGACY = 'ds.loginLockout';
 
 export type PersistedSession = {
   userId: string;
@@ -54,11 +59,27 @@ export function persistSession(
 ) {
   const payload: PersistedSession = { userId, businessId, issuedAt };
   if (impersonation) payload.impersonation = impersonation;
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(payload));
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
+  try {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 export function readPersistedSession(): PersistedSession | null {
-  const raw = sessionStorage.getItem(SESSION_KEY);
+  let raw = localStorage.getItem(SESSION_STORAGE_KEY);
+  if (!raw) {
+    try {
+      raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (raw) {
+        localStorage.setItem(SESSION_STORAGE_KEY, raw);
+        sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+    } catch {
+      raw = null;
+    }
+  }
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as PersistedSession;
@@ -70,18 +91,30 @@ export function readPersistedSession(): PersistedSession | null {
 }
 
 export function clearPersistedSession() {
-  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+  try {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 const REAUTH_KEY = 'ds.reauthReason';
 
 export function setReauthReason(reason: 'timeout' | 'revoked' | 'removed') {
-  sessionStorage.setItem(REAUTH_KEY, reason);
+  localStorage.setItem(REAUTH_KEY, reason);
 }
 
 export function takeReauthReason(): string | null {
-  const v = sessionStorage.getItem(REAUTH_KEY);
-  if (v) sessionStorage.removeItem(REAUTH_KEY);
+  const v = localStorage.getItem(REAUTH_KEY) ?? sessionStorage.getItem(REAUTH_KEY);
+  if (v) {
+    localStorage.removeItem(REAUTH_KEY);
+    try {
+      sessionStorage.removeItem(REAUTH_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
   return v;
 }
 
@@ -89,46 +122,109 @@ export function isSessionExpired(issuedAt: number, now = Date.now()): boolean {
   return now - issuedAt > SESSION_TTL_MS;
 }
 
-export type LockoutState = { failures: number; lockedUntil?: number };
+export function sessionMsRemaining(issuedAt: number, now = Date.now()): number {
+  return Math.max(0, SESSION_TTL_MS - (now - issuedAt));
+}
 
-export function readLoginLockout(): LockoutState {
+export function shouldWarnSessionExpiry(issuedAt: number, now = Date.now()): boolean {
+  const rem = sessionMsRemaining(issuedAt, now);
+  return rem > 0 && rem <= SESSION_WARN_MS;
+}
+
+/** Reset the 8h TTL clock (Continue on expiry warning). */
+export function extendPersistedSession(now = Date.now()): PersistedSession | null {
+  const current = readPersistedSession();
+  if (!current) return null;
+  persistSession(current.userId, current.businessId, now, current.impersonation);
+  return readPersistedSession();
+}
+
+export type LockoutState = { failures: number; lockedUntil?: number };
+export type LockoutMap = Record<string, LockoutState>;
+
+/** Normalize email/phone so lockout is scoped per login identity. */
+export function normalizeLoginIdentifier(emailOrPhone: string): string {
+  return emailOrPhone.trim().toLowerCase().replace(/\s/g, '');
+}
+
+/** Only wrong-credential outcomes count toward lockout — not deactivated/suspended/invite states. */
+export function isCredentialLoginFailure(code: string | undefined): boolean {
+  return code === 'AUTH_INVALID';
+}
+
+function readLockoutMap(): LockoutMap {
   try {
+    // Drop legacy browser-global counter so one account cannot lock the whole shared PC.
+    if (localStorage.getItem(LOCKOUT_KEY_LEGACY)) localStorage.removeItem(LOCKOUT_KEY_LEGACY);
     const raw = localStorage.getItem(LOCKOUT_KEY);
-    if (!raw) return { failures: 0 };
-    return JSON.parse(raw) as LockoutState;
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as LockoutMap | LockoutState;
+    if (!parsed || typeof parsed !== 'object') return {};
+    const keys = Object.keys(parsed);
+    // Legacy single-state shape under the new key — discard
+    if (keys.length > 0 && keys.every((k) => k === 'failures' || k === 'lockedUntil')) return {};
+    return parsed as LockoutMap;
   } catch {
-    return { failures: 0 };
+    return {};
   }
 }
 
-export function writeLoginLockout(state: LockoutState) {
-  localStorage.setItem(LOCKOUT_KEY, JSON.stringify(state));
+function writeLockoutMap(map: LockoutMap) {
+  localStorage.setItem(LOCKOUT_KEY, JSON.stringify(map));
 }
 
-export function clearLoginLockout() {
-  localStorage.removeItem(LOCKOUT_KEY);
+export function readLoginLockout(identifier: string): LockoutState {
+  const id = normalizeLoginIdentifier(identifier);
+  if (!id) return { failures: 0 };
+  return readLockoutMap()[id] ?? { failures: 0 };
 }
 
-export function getLoginLockoutRemainingMs(now = Date.now()): number {
-  const state = readLoginLockout();
+export function writeLoginLockout(identifier: string, state: LockoutState) {
+  const id = normalizeLoginIdentifier(identifier);
+  if (!id) return;
+  const map = readLockoutMap();
+  map[id] = state;
+  writeLockoutMap(map);
+}
+
+export function clearLoginLockout(identifier?: string) {
+  if (!identifier) {
+    localStorage.removeItem(LOCKOUT_KEY);
+    localStorage.removeItem(LOCKOUT_KEY_LEGACY);
+    return;
+  }
+  const id = normalizeLoginIdentifier(identifier);
+  const map = readLockoutMap();
+  delete map[id];
+  writeLockoutMap(map);
+}
+
+export function getLoginLockoutRemainingMs(identifier: string, now = Date.now()): number {
+  const state = readLoginLockout(identifier);
   if (!state.lockedUntil) return 0;
   return Math.max(0, state.lockedUntil - now);
 }
 
-export function recordLoginFailure(): { locked: boolean; remainingMs: number; failures: number } {
-  const state = readLoginLockout();
-  const failures = (state.failures ?? 0) + 1;
+export function recordLoginFailure(identifier: string): { locked: boolean; remainingMs: number; failures: number } {
+  const id = normalizeLoginIdentifier(identifier);
+  if (!id) return { locked: false, remainingMs: 0, failures: 0 };
+  const state = readLoginLockout(id);
+  // Still within an active lockout window — don't reset the timer on extra attempts
+  if (state.lockedUntil && state.lockedUntil > Date.now()) {
+    return { locked: true, remainingMs: state.lockedUntil - Date.now(), failures: state.failures ?? 0 };
+  }
+  const failures = (state.lockedUntil && state.lockedUntil <= Date.now() ? 0 : state.failures ?? 0) + 1;
   if (failures >= LOGIN_MAX_FAILURES) {
     const lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
-    writeLoginLockout({ failures, lockedUntil });
+    writeLoginLockout(id, { failures, lockedUntil });
     return { locked: true, remainingMs: LOGIN_LOCKOUT_MS, failures };
   }
-  writeLoginLockout({ failures, lockedUntil: state.lockedUntil });
+  writeLoginLockout(id, { failures });
   return { locked: false, remainingMs: 0, failures };
 }
 
-export function recordLoginSuccess() {
-  clearLoginLockout();
+export function recordLoginSuccess(identifier: string) {
+  clearLoginLockout(identifier);
 }
 
 export const useSession = create<SessionState>((set, get) => ({

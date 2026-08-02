@@ -10,6 +10,7 @@ import { saveReportPreset } from '../../../services/planService';
 import { useSession } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { Button, EmptyState, Field, Input, Kpi, Money, PageHeader, Select } from '../../../ui/components/primitives';
+import { chartColors } from '../../../ui/chartTheme';
 import { useBiz } from './useBiz';
 
 type PeriodKey = '7' | '14' | '30' | '90';
@@ -34,6 +35,7 @@ export function PharmacyAnalytics() {
   const { business: sessionBiz, user } = useBiz();
   const { refreshEntities } = useSession();
   const { pushToast } = useUi();
+  const charts = chartColors();
   const [period, setPeriod] = useState<PeriodKey>('14');
   const [presetName, setPresetName] = useState('');
   const days = Number(period);
@@ -50,7 +52,7 @@ export function PharmacyAnalytics() {
 
   useEffect(() => {
     setLoading(true);
-    pharmacyAnalytics(business.id)
+    pharmacyAnalytics(business.id, days)
       .then(setBundle)
       .finally(() => setLoading(false));
   }, [business.id, days]);
@@ -206,11 +208,11 @@ export function PharmacyAnalytics() {
           <div style={{ width: '100%', height: 220 }}>
             <ResponsiveContainer>
               <BarChart data={aging}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={charts.grid} />
                 <XAxis dataKey="band" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v) => formatINR(Number(v))} />
-                <Bar dataKey="total" fill="#4A7399" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="total" fill={charts.primary} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -223,11 +225,11 @@ export function PharmacyAnalytics() {
             <div style={{ width: '100%', height: 220 }}>
               <ResponsiveContainer>
                 <BarChart data={bundle.series[0].points}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={charts.grid} />
                   <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v) => formatINR(Number(v))} />
-                  <Bar dataKey="value" fill="#6B8F71" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="value" fill={charts.secondary} radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

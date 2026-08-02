@@ -51,6 +51,31 @@ export function isUpi(value: string): boolean {
   return /^[\w.\-]{2,}@[\w]{2,}$/i.test(value.trim());
 }
 
+/**
+ * Parse a numeric field distinguishing empty from a real 0, and rejecting non-finite.
+ * Prefer this over `Number(raw)` — `Number('') === 0` silently traps empty inputs.
+ */
+export type ParsedNumberInput =
+  | { status: 'empty' }
+  | { status: 'invalid' }
+  | { status: 'ok'; value: number };
+
+export function parseNumberInput(raw: string): ParsedNumberInput {
+  const t = raw.trim();
+  if (t === '') return { status: 'empty' };
+  const n = Number(t);
+  if (!Number.isFinite(n)) return { status: 'invalid' };
+  return { status: 'ok', value: n };
+}
+
+/** Next controlled value for number inputs that allow a blank mid-edit. */
+export function nextNumberFieldValue(raw: string, previous: number | ''): number | '' {
+  const parsed = parseNumberInput(raw);
+  if (parsed.status === 'empty') return '';
+  if (parsed.status === 'invalid') return previous;
+  return parsed.value;
+}
+
 /** Rough bank name hint from IFSC bank code (first 4 letters). */
 export function bankNameFromIfsc(ifsc: string): string | undefined {
   const code = normalizeIfsc(ifsc).slice(0, 4);

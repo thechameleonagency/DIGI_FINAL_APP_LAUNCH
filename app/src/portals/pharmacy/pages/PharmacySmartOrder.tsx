@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
+import { pluralize } from '../../../domain/utils/pluralize';
 import type { SmartOrderSuggestionLine } from '../../../domain/entities/types';
 import {
   completeSmartOrderRun,
@@ -133,7 +134,7 @@ export function PharmacySmartOrder() {
       pushToast({
         tone: 'success',
         title: 'Added to cart',
-        message: `${res.data.acceptedLines.length} line(s). Nothing was ordered automatically.`,
+        message: `${pluralize(res.data.acceptedLines.length, 'line')}. Nothing was ordered automatically.`,
       });
       setStep(2);
     });

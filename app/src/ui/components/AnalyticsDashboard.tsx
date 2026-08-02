@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import type { AnalyticsBundle } from '../../services/analyticsService';
 import { formatINR } from '../../domain/utils/money';
+import { chartColors } from '../chartTheme';
 import { Button, Kpi, Money, PageHeader } from './primitives';
 
 export function AnalyticsDashboard({
@@ -26,6 +27,7 @@ export function AnalyticsDashboard({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeKpi, setActiveKpi] = useState<string | null>(null);
+  const charts = chartColors();
 
   const refresh = async () => {
     setLoading(true);
@@ -107,11 +109,11 @@ export function AnalyticsDashboard({
           <div style={{ width: '100%', height: 240 }}>
             <ResponsiveContainer>
               <BarChart data={data?.series[0]?.points ?? []}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={charts.grid} />
                 <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v) => formatINR(Number(v))} />
-                <Bar dataKey="value" fill="#4A7399" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="value" fill={charts.primary} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

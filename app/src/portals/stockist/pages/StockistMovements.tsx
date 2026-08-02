@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
@@ -14,7 +15,10 @@ export function StockistMovements() {
   const productFilter = params.get('productId') ?? '';
   const movements =
     useLiveQuery(() => db.inventoryMovements.where('businessId').equals(business.id).reverse().sortBy('at'), [business.id]) ?? [];
-  const products = useLiveQuery(() => db.products.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const { items: products, loading: productsLoading } = useLiveArray(
+    () => db.products.where('stockistId').equals(business.id).toArray(),
+    [business.id],
+  );
   const nameOf = (id: string) => products.find((p) => p.id === id)?.name ?? id.slice(0, 8);
   const scoped = useMemo(
     () => (productFilter ? movements.filter((m) => m.productId === productFilter) : movements),
@@ -91,7 +95,8 @@ export function StockistMovements() {
               pushToast({ tone: 'success', title: 'Exported movements' });
             }}
           />
-          <DataListTable columns={columns} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
+          <DataListTable
+            loading={productsLoading} columns={columns} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
           <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
         </>
       )}

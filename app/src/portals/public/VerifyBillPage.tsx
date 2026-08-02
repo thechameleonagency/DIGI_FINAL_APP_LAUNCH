@@ -1,25 +1,41 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { formatINR } from '../../domain/utils/money';
 import { verifyBillPayload } from '../../services/verifyBillService';
 import { Button, Field, Textarea } from '../../ui/components/primitives';
 
 export function VerifyBillPage() {
+  const [params] = useSearchParams();
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Awaited<ReturnType<typeof verifyBillPayload>> | null>(null);
+
+  useEffect(() => {
+    const p = params.get('p');
+    const payload = params.get('payload');
+    if (!p && !payload) return;
+    const encoded = p
+      ? `${window.location.origin}/verify-bill?p=${p}`
+      : `${window.location.origin}/verify-bill?payload=${encodeURIComponent(payload!)}`;
+    setRaw(encoded);
+    setBusy(true);
+    void verifyBillPayload(encoded).then((r) => {
+      setResult(r);
+      setBusy(false);
+    });
+  }, [params]);
 
   return (
     <div className="auth-page">
       <div className="auth-card" style={{ maxWidth: 520 }}>
         <h1 className="auth-brand">DigiSwasthya</h1>
         <p className="auth-sub">Verify a bill from this local installation</p>
-        <Field label="Paste QR payload">
+        <Field label="Paste QR payload or verify URL">
           <Textarea
             rows={6}
             value={raw}
             onChange={(e) => setRaw(e.target.value)}
-            placeholder='{"invoiceNo":"INV-…","grandTotal":…,"integrity":"…"}'
+            placeholder="Scan the bill QR, or paste the verify URL / JSON payload"
           />
         </Field>
         <Button

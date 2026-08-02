@@ -41,7 +41,7 @@ export function ActivityLogPage() {
     <div className="stack">
       <PageHeader
         title="Activity log"
-        subtitle="Own-business audit trail only (CF-37)"
+        subtitle="Own-business audit trail only"
         actions={
           <Button
             type="button"
@@ -91,8 +91,8 @@ export function ActivityLogPage() {
       {!rows.length ? (
         <EmptyState title="No activity" description="Actions for this business appear here as they are audited." />
       ) : (
-        <div className="card" style={{ overflowX: 'auto' }}>
-          <table className="table">
+        <div className="table-wrap">
+          <table className="data">
             <thead>
               <tr>
                 <th>When</th>

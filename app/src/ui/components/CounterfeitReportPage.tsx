@@ -6,7 +6,7 @@ import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { useBusyAction } from '../hooks/useBusyAction';
 import { FileUpload } from './FileUpload';
-import { Button, EmptyState, Field, PageHeader, Select, StatusBadge, Textarea } from './primitives';
+import { Button, EmptyState, Field, Modal, PageHeader, Select, StatusBadge, Textarea } from './primitives';
 
 export function CounterfeitReportPage() {
   const { user, business, can } = useSession();
@@ -17,6 +17,7 @@ export function CounterfeitReportPage() {
   const [batchId, setBatchId] = useState('');
   const [sellerBusinessId, setSellerBusinessId] = useState('');
   const [evidenceFileId, setEvidenceFileId] = useState<string | undefined>();
+  const [reportOpen, setReportOpen] = useState(false);
 
   const products = useLiveQuery(() => db.products.toArray()) ?? [];
   const batches = useLiveQuery(() => db.batches.toArray()) ?? [];
@@ -70,6 +71,7 @@ export function CounterfeitReportPage() {
       setBatchId('');
       setSellerBusinessId('');
       setEvidenceFileId(undefined);
+      setReportOpen(false);
       pushToast({ tone: 'success', title: `Report ${res.data.reportNo} filed` });
     });
 
@@ -82,11 +84,72 @@ export function CounterfeitReportPage() {
       <PageHeader
         title="Counterfeit reports"
         subtitle="Report suspicious product or batch — admin investigates and may issue a recall"
+        actions={
+          canReport ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                setDescription('');
+                setProductId('');
+                setBatchId('');
+                setSellerBusinessId('');
+                setEvidenceFileId(undefined);
+                setReportOpen(true);
+              }}
+            >
+              File report
+            </Button>
+          ) : null
+        }
       />
 
-      {canReport ? (
-        <div className="card card-pad stack">
-          <h3 style={{ margin: 0 }}>File a report</h3>
+      {!canReport ? <p className="muted">Your role cannot file counterfeit reports.</p> : null}
+
+      {!history.length ? (
+        <EmptyState title="No reports yet" description="Your filed reports and their status appear here." />
+      ) : (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Report</th>
+                <th>When</th>
+                <th>Status</th>
+                <th>Outcome</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.reportNo ?? r.id.slice(0, 8)}</td>
+                  <td>{new Date(r.createdAt).toLocaleString()}</td>
+                  <td>
+                    <StatusBadge status={r.status} />
+                  </td>
+                  <td>{r.decisionReason ?? r.outcome ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Modal
+        open={reportOpen}
+        title="File a report"
+        onClose={() => setReportOpen(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setReportOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" disabled={busy} onClick={() => void submit()}>
+              Submit report
+            </Button>
+          </>
+        }
+      >
+        <div className="stack">
           <Field label="Description">
             <Textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
           </Field>
@@ -123,42 +186,8 @@ export function CounterfeitReportPage() {
             </Select>
           </Field>
           <FileUpload label="Evidence (optional)" value={evidenceFileId} onChange={setEvidenceFileId} />
-          <Button type="button" disabled={busy} onClick={() => void submit()}>
-            Submit report
-          </Button>
         </div>
-      ) : (
-        <p className="muted">Your role cannot file counterfeit reports.</p>
-      )}
-
-      {!history.length ? (
-        <EmptyState title="No reports yet" description="Your filed reports and their status appear here." />
-      ) : (
-        <div className="card" style={{ overflowX: 'auto' }}>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Report</th>
-                <th>When</th>
-                <th>Status</th>
-                <th>Outcome</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.reportNo ?? r.id.slice(0, 8)}</td>
-                  <td>{new Date(r.createdAt).toLocaleString()}</td>
-                  <td>
-                    <StatusBadge status={r.status} />
-                  </td>
-                  <td>{r.decisionReason ?? r.outcome ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

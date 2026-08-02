@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
+import { localTodayKey } from '../../../domain/utils/dateKeys';
 import { formatINR } from '../../../domain/utils/money';
 import { acceptOrder, cancelOrder, closeOrder, editOrderLines, rejectOrder } from '../../../services/orderService';
 import {
@@ -14,14 +15,16 @@ import {
 import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
+import { OrderDeliveriesPanel } from '../../../ui/components/OrderDeliveriesPanel';
 import { PharmacyDeliveryPrefs } from '../../../ui/components/PharmacyDeliveryPrefs';
+import { PrintDocument } from '../../../ui/components/PrintDocument';
 import { Button, EmptyState, Field, Input, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function StockistOrderDetail() {
   const { orderNo } = useParams();
   const { business, user } = useBiz();
-  const { pushToast } = useUi();
+  const { pushToast, showSuccessSummary } = useUi();
   const canAccept = useCan('order.accept');
   const canReject = useCan('order.reject');
   const canAllocate = useCan('order.allocate');
@@ -93,16 +96,58 @@ export function StockistOrderDetail() {
     okTitle: string,
   ) => {
     const res = await fn();
-    pushToast(
-      res.ok
-        ? { tone: 'success', title: okTitle, message: res.data?.orderNo || res.data?.invoiceNo || res.data?.deliveryNo }
-        : { tone: 'error', title: res.message!, message: res.businessImpact },
-    );
+    if (!res.ok) {
+      pushToast({ tone: 'error', title: res.message!, message: res.businessImpact });
+      return;
+    }
+    // Milestone actions get SuccessSummary; lighter steps stay toast-only.
+    if (okTitle === 'Invoice issued') {
+      showSuccessSummary({
+        title: 'Invoice issued',
+        documentNo: res.data?.invoiceNo,
+        body: `Invoice created for ${order.orderNo}.`,
+        next: [
+          ...(res.data?.invoiceNo
+            ? [{ label: 'Open invoice', to: `/stockist/invoices/${res.data.invoiceNo}` }]
+            : []),
+          { label: 'Back to orders', to: '/stockist/orders' },
+        ],
+      });
+      return;
+    }
+    if (okTitle === 'Dispatched') {
+      showSuccessSummary({
+        title: 'Delivery dispatched',
+        documentNo: res.data?.deliveryNo,
+        body: `${order.orderNo} is out for fulfilment.`,
+        next: [
+          { label: 'Delivery board', to: '/stockist/delivery' },
+          { label: 'Back to orders', to: '/stockist/orders' },
+        ],
+      });
+      return;
+    }
+    pushToast({
+      tone: 'success',
+      title: okTitle,
+      message: res.data?.orderNo || res.data?.invoiceNo || res.data?.deliveryNo,
+    });
   };
 
   return (
     <div className="stack">
-      <PageHeader title={order.orderNo} subtitle={`${order.status} · ${pharmacy?.name ?? order.pharmacyId}`} />
+      <PageHeader
+        title={order.orderNo}
+        subtitle={`${order.status} · ${pharmacy?.name ?? order.pharmacyId}`}
+        actions={
+          <Link
+            className="btn btn-secondary btn-sm"
+            to={`/stockist/support?new=1&entityType=Order&entityId=${encodeURIComponent(order.id)}&entityNo=${encodeURIComponent(order.orderNo)}`}
+          >
+            Get help with this order
+          </Link>
+        }
+      />
       <div className="row">
         <StatusBadge status={order.status} />
         {order.source === 'Manual' ? <StatusBadge status="Manual" /> : null}
@@ -236,6 +281,10 @@ export function StockistOrderDetail() {
         </div>
       </div>
 
+      <div className="card card-pad">
+        <OrderDeliveriesPanel orderId={order.id} supportBase="/stockist/support" />
+      </div>
+
       <div className="row">
         {order.status === 'Pending' && canAccept ? (
           <Button
@@ -273,7 +322,20 @@ export function StockistOrderDetail() {
           </>
         ) : null}
         {canPack && order.status === 'Allocated' ? (
-          <Button onClick={() => act(() => packOrder({ actor: user, stockist: business, orderId: order.id }), 'Packed')}>Pack</Button>
+          <>
+            <Button onClick={() => act(() => packOrder({ actor: user, stockist: business, orderId: order.id }), 'Packed')}>
+              Pack
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                document.getElementById('order-pick-list')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                window.setTimeout(() => window.print(), 250);
+              }}
+            >
+              Print pick list
+            </Button>
+          </>
         ) : null}
         {canInvoice && order.status === 'Packed' && !order.invoiceId ? (
           <Button
@@ -297,6 +359,7 @@ export function StockistOrderDetail() {
             </Select>
             <Input
               type="date"
+              min={localTodayKey()}
               value={scheduleDate}
               onChange={(e) => setScheduleDate(e.target.value)}
               aria-label="Scheduled delivery date"
@@ -401,6 +464,9 @@ export function StockistOrderDetail() {
                 {order.status === 'Pending' && canAccept ? <th>Accept qty</th> : null}
                 <th>Accepted</th>
                 <th>Allocated</th>
+                <th>Delivered</th>
+                <th>Received</th>
+                <th>Discrepancy</th>
                 <th>Unit</th>
                 <th>GST%</th>
                 <th>Line total</th>
@@ -443,6 +509,15 @@ export function StockistOrderDetail() {
                   ) : null}
                   <td>{l.acceptedQty ?? '—'}</td>
                   <td>{l.allocatedQty ?? '—'}</td>
+                  <td>{l.deliveredQty ?? '—'}</td>
+                  <td>{l.receivedQty ?? '—'}</td>
+                  <td style={{ fontSize: 12 }}>
+                    {l.discrepancyReason ? (
+                      <span style={{ color: 'var(--danger, #b91c1c)' }}>{l.discrepancyReason}</span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>
                     <Money value={l.unitPrice} />
                   </td>
@@ -460,48 +535,147 @@ export function StockistOrderDetail() {
         </div>
       </div>
 
+      {['Allocated', 'Packed', 'Dispatched', 'Delivered', 'PartiallyDelivered', 'Closed'].includes(order.status) ? (
+        <PrintDocument
+          id="order-pick-list"
+          title={`Pick list · ${order.orderNo}`}
+          subtitle={`${pharmacy?.name ?? 'Pharmacy'} · ${business.name}`}
+          printLabel="Print pick list"
+        >
+          <div className="muted" style={{ fontSize: 13 }}>
+            {addr
+              ? `${addr.line1}${addr.line2 ? `, ${addr.line2}` : ''}, ${addr.city}, ${addr.state} ${addr.pincode}`
+              : 'No delivery address'}
+          </div>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>SKU</th>
+                  <th>Pick qty</th>
+                  <th>Batch × qty</th>
+                  <th>✓</th>
+                </tr>
+              </thead>
+              <tbody>
+                {order.lines
+                  .filter((l) => (l.acceptedQty ?? l.qty) > 0)
+                  .map((l) => (
+                    <tr key={l.id}>
+                      <td>{l.productName}</td>
+                      <td className="muted">{l.sku}</td>
+                      <td>{l.allocatedQty ?? l.acceptedQty ?? l.qty}</td>
+                      <td style={{ fontSize: 12 }}>
+                        {l.batchAllocations?.map((b) => `${b.batchNumber}×${b.qty}`).join(', ') || '—'}
+                      </td>
+                      <td style={{ width: 28 }}>☐</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </PrintDocument>
+      ) : null}
+
       {allocOpen ? (
         <div className="card card-pad stack">
           <strong>Manual batch allocation</strong>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            Override FEFO by picking sellable batches per line. Empty lines fall back to FEFO.
+            Override FEFO by picking one or more sellable batches per line. Lines with no rows fall back to FEFO.
           </p>
           {order.lines.map((l) => {
             const need = l.acceptedQty ?? l.qty;
-            const sellable = batches.filter((b) => b.productId === l.productId && b.status === 'Available' && new Date(b.expiryDate) > new Date());
-            const row = overrides[l.id]?.[0] ?? { batchId: sellable[0]?.id ?? '', qty: need };
+            const sellable = batches.filter(
+              (b) => b.productId === l.productId && b.status === 'Available' && new Date(b.expiryDate) > new Date(),
+            );
+            const rows = overrides[l.id] ?? [];
+            const allocated = rows.reduce((s, r) => s + (Number.isFinite(r.qty) ? r.qty : 0), 0);
+            const remaining = need - allocated;
+            const setLineRows = (next: { batchId: string; qty: number }[]) =>
+              setOverrides((prev) => {
+                const copy = { ...prev };
+                if (!next.length) delete copy[l.id];
+                else copy[l.id] = next;
+                return copy;
+              });
             return (
-              <div key={l.id} className="row" style={{ alignItems: 'flex-end' }}>
-                <div style={{ flex: 1 }}>
-                  <Field label={`${l.productName} (need ${need})`}>
-                    <Select
-                      value={row.batchId}
-                      onChange={(e) => setOverrides((prev) => ({ ...prev, [l.id]: [{ batchId: e.target.value, qty: row.qty }] }))}
-                    >
-                      <option value="">Select batch…</option>
-                      {sellable.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.batchNumber} · exp {b.expiryDate} · avail {b.onHand - b.reserved}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
+              <div key={l.id} className="stack" style={{ gap: 8, paddingBottom: 8, borderBottom: '1px solid var(--border, #e5e5e5)' }}>
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <strong style={{ fontSize: 14 }}>
+                    {l.productName} · need {need}
+                  </strong>
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    {rows.length === 0
+                      ? 'FEFO (no override)'
+                      : remaining === 0
+                        ? 'Covered'
+                        : remaining > 0
+                          ? `Remaining ${remaining}`
+                          : `Over by ${-remaining}`}
+                  </span>
                 </div>
-                <Field label="Qty">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={need}
-                    value={row.qty}
-                    onChange={(e) =>
-                      setOverrides((prev) => ({
-                        ...prev,
-                        [l.id]: [{ batchId: row.batchId, qty: Number(e.target.value) }],
-                      }))
-                    }
-                    style={{ width: 90 }}
-                  />
-                </Field>
+                {rows.map((row, idx) => {
+                  const usedElsewhere = new Set(rows.filter((_, i) => i !== idx).map((r) => r.batchId).filter(Boolean));
+                  const options = sellable.filter((b) => b.id === row.batchId || !usedElsewhere.has(b.id));
+                  return (
+                    <div key={idx} className="row" style={{ alignItems: 'flex-end', gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <Field label={`Batch ${idx + 1}`}>
+                          <Select
+                            value={row.batchId}
+                            onChange={(e) => {
+                              const next = rows.map((r, i) => (i === idx ? { ...r, batchId: e.target.value } : r));
+                              setLineRows(next);
+                            }}
+                          >
+                            <option value="">Select batch…</option>
+                            {options.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.batchNumber} · exp {b.expiryDate} · avail {b.onHand - b.reserved}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                      </div>
+                      <Field label="Qty">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={need}
+                          value={row.qty || ''}
+                          onChange={(e) => {
+                            const qty = e.target.value === '' ? 0 : Number(e.target.value);
+                            const next = rows.map((r, i) => (i === idx ? { ...r, qty } : r));
+                            setLineRows(next);
+                          }}
+                          style={{ width: 90 }}
+                        />
+                      </Field>
+                      <Button
+                        variant="secondary"
+                        type="button"
+                        onClick={() => setLineRows(rows.filter((_, i) => i !== idx))}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  );
+                })}
+                <div className="row">
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    disabled={sellable.length === 0 || remaining <= 0}
+                    onClick={() => {
+                      const used = new Set(rows.map((r) => r.batchId).filter(Boolean));
+                      const nextBatch = sellable.find((b) => !used.has(b.id));
+                      setLineRows([...rows, { batchId: nextBatch?.id ?? '', qty: Math.max(remaining, 0) || need }]);
+                    }}
+                  >
+                    Add batch
+                  </Button>
+                </div>
               </div>
             );
           })}
@@ -509,19 +683,53 @@ export function StockistOrderDetail() {
             <Button
               onClick={() => {
                 const clean: Record<string, { batchId: string; qty: number }[]> = {};
-                for (const [lineId, allocs] of Object.entries(overrides)) {
-                  if (allocs[0]?.batchId && allocs[0].qty > 0) clean[lineId] = allocs;
+                for (const line of order.lines) {
+                  const need = line.acceptedQty ?? line.qty;
+                  const allocs = (overrides[line.id] ?? []).filter((a) => a.batchId && a.qty > 0);
+                  if (!allocs.length) continue;
+                  const sum = allocs.reduce((s, a) => s + a.qty, 0);
+                  if (sum !== need) {
+                    pushToast({
+                      tone: 'error',
+                      title: 'Incomplete allocation',
+                      message: `${line.productName}: allocated ${sum} of ${need}. Cover the full qty or clear the line for FEFO.`,
+                    });
+                    return;
+                  }
+                  const ids = allocs.map((a) => a.batchId);
+                  if (new Set(ids).size !== ids.length) {
+                    pushToast({
+                      tone: 'error',
+                      title: 'Duplicate batch',
+                      message: `${line.productName}: each batch can only be used once per line.`,
+                    });
+                    return;
+                  }
+                  clean[line.id] = allocs;
                 }
                 void act(
-                  () => allocateOrder({ actor: user, stockist: business, orderId: order.id, overrides: Object.keys(clean).length ? clean : undefined }),
+                  () =>
+                    allocateOrder({
+                      actor: user,
+                      stockist: business,
+                      orderId: order.id,
+                      overrides: Object.keys(clean).length ? clean : undefined,
+                    }),
                   'Allocated (manual)',
                 );
                 setAllocOpen(false);
+                setOverrides({});
               }}
             >
               Apply allocation
             </Button>
-            <Button variant="secondary" onClick={() => setAllocOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setAllocOpen(false);
+                setOverrides({});
+              }}
+            >
               Cancel
             </Button>
           </div>

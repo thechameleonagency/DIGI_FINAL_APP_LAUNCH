@@ -18,7 +18,6 @@ export function PharmacyCompare() {
   const allProducts = useLiveQuery(() => db.products.filter((p) => p.status === 'Active').toArray()) ?? [];
   const stockists = useLiveQuery(() => db.businesses.where('type').equals('Stockist').toArray()) ?? [];
   const connections = useLiveQuery(() => db.connections.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
-  const batches = useLiveQuery(() => db.batches.toArray()) ?? [];
   const catalogues = useLiveQuery(() => db.catalogues.toArray()) ?? [];
   const settings = useLiveQuery(() => db.platformSettings.get('platform'));
 
@@ -32,22 +31,33 @@ export function PharmacyCompare() {
     );
   }, [seed, allProducts]);
 
-  const rows = matches.map((p) => {
-    const conn = connections.find((c) => c.stockistId === p.stockistId);
-    const active = conn?.status === 'Active';
-    const cat = catalogues.find((c) => c.stockistId === p.stockistId);
-    const avail = productAvailableSellable(batches.filter((b) => b.productId === p.id));
-    const showPrice = active && (!cat || cat.status === 'Active');
-    return {
-      p,
-      stockistName: stockists.find((s) => s.id === p.stockistId)?.name ?? p.stockistId.slice(0, 6),
-      connStatus: conn?.status ?? 'Disconnected',
-      active,
-      showPrice,
-      avail,
-      ptr: showPrice ? priceForPlatformPharmacy(p, settings).unitPrice : null as number | null,
-    };
-  });
+  const matchIdsKey = useMemo(() => matches.map((p) => p.id).sort().join(','), [matches]);
+  const batches =
+    useLiveQuery(() => {
+      const ids = matchIdsKey ? matchIdsKey.split(',') : [];
+      return ids.length ? db.batches.where('productId').anyOf(ids).toArray() : [];
+    }, [matchIdsKey]) ?? [];
+
+  const rows = useMemo(
+    () =>
+      matches.map((p) => {
+        const conn = connections.find((c) => c.stockistId === p.stockistId);
+        const active = conn?.status === 'Active';
+        const cat = catalogues.find((c) => c.stockistId === p.stockistId);
+        const avail = productAvailableSellable(batches.filter((b) => b.productId === p.id));
+        const showPrice = active && (!cat || cat.status === 'Active');
+        return {
+          p,
+          stockistName: stockists.find((s) => s.id === p.stockistId)?.name ?? p.stockistId.slice(0, 6),
+          connStatus: conn?.status ?? 'Disconnected',
+          active,
+          showPrice,
+          avail,
+          ptr: showPrice ? priceForPlatformPharmacy(p, settings).unitPrice : (null as number | null),
+        };
+      }),
+    [matches, connections, catalogues, batches, stockists, settings],
+  );
 
   const priced = rows.filter((r) => r.ptr != null).map((r) => r.ptr as number);
   const lowest = priced.length ? Math.min(...priced) : null;

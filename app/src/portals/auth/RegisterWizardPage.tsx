@@ -234,6 +234,7 @@ export function RegisterWizardPage() {
       ownerName: form.ownerName,
       email: form.email,
       phone: form.phone,
+      alternatePhone: form.altPhone || undefined,
       password: form.password,
       businessName: form.businessName,
       pharmacyType: form.pharmacyType,

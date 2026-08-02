@@ -20,6 +20,7 @@ export { StockistDelivery } from './pages/StockistDelivery';
 export { StockistPayments } from './pages/StockistPayments';
 export { StockistInvoiceDetail } from './pages/StockistInvoiceDetail';
 export { StockistReturns } from './pages/StockistReturns';
+export { StockistReturnDetail } from './pages/StockistReturnDetail';
 export { StockistCreditNotes } from './pages/StockistCreditNotes';
 export { StockistAnalytics } from './pages/StockistAnalytics';
 export { StockistStaff } from './pages/StockistStaff';

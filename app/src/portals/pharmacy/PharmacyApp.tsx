@@ -1,19 +1,23 @@
 import {
-  BarChart3,
   Building2,
   ClipboardList,
   CreditCard,
   FileText,
   Home,
+  ListPlus,
   MessageSquare,
-  Package,
+  Receipt,
   RotateCcw,
   Search,
   Settings,
-  AlertTriangle,
+  Sparkles,
+  Truck,
+  Warehouse,
 } from 'lucide-react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequirePermission } from '../../app/guards';
+import { AnnouncementsArchivePage } from '../../ui/components/AnnouncementsArchivePage';
+import { NotFoundPage } from '../../ui/components/NotFoundPage';
 import { AppShell } from '../../ui/layout/AppShell';
 import {
   PharmacyAnalytics,
@@ -33,9 +37,11 @@ import {
   PharmacyOrderDetail,
   PharmacyOrders,
   PharmacyPayments,
+  PharmacyPaymentDetail,
   PharmacyInvoices,
   PharmacyInvoiceDetail,
   PharmacyReturns,
+  PharmacyReturnDetail,
   PharmacySettings,
   PharmacyProfile,
   PharmacyStaff,
@@ -44,7 +50,6 @@ import {
   PharmacySmartOrder,
   PharmacySmartOrderHistory,
   PharmacyQuickOrder,
-  PharmacyMarketplace,
   PharmacySales,
   PharmacyDelivery,
   PharmacyDeliveryPreferences,
@@ -57,22 +62,19 @@ import {
 
 const nav = [
   { to: '/pharmacy', label: 'Home', icon: Home, end: true },
-  { to: '/pharmacy/buy', label: 'Buy', icon: Search, requires: 'order.place' as const },
-  { to: '/pharmacy/marketplace', label: 'Marketplace', icon: Search },
-  { to: '/pharmacy/smart-order', label: 'Smart Order', icon: Package, requires: 'order.place' as const },
-  { to: '/pharmacy/sales', label: 'Sales', icon: CreditCard, requires: 'sale.view' as const },
-  { to: '/pharmacy/delivery', label: 'Delivery', icon: Package, requires: 'sale.view' as const },
-  { to: '/pharmacy/orders', label: 'Orders', icon: ClipboardList },
-  { to: '/pharmacy/payments', label: 'Payments', icon: CreditCard, requires: 'payment.submit' as const },
-  { to: '/pharmacy/invoices', label: 'Invoices', icon: FileText, requires: 'payment.submit' as const },
-  { to: '/pharmacy/returns', label: 'Returns', icon: RotateCcw, requires: 'return.raise' as const },
-  { to: '/pharmacy/inventory', label: 'Inventory', icon: Package, requires: 'inventory.adjust' as const },
-  { to: '/pharmacy/connections', label: 'Connections', icon: Building2, requires: 'connection.request' as const },
-  { to: '/pharmacy/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/pharmacy/counterfeit', label: 'Counterfeit', icon: AlertTriangle, requires: 'counterfeit.report' as const },
-  { to: '/pharmacy/messages', label: 'Messages', icon: MessageSquare },
-  { to: '/pharmacy/activity', label: 'Activity', icon: ClipboardList },
-  { to: '/pharmacy/settings', label: 'More', icon: Settings },
+  { to: '/pharmacy/buy', label: 'Buy', icon: Search, section: 'Trade', requires: 'order.place' as const },
+  { to: '/pharmacy/smart-order', label: 'Smart order', icon: Sparkles, section: 'Trade', requires: 'order.place' as const },
+  { to: '/pharmacy/quick-order', label: 'Quick Order', icon: ListPlus, section: 'Trade', requires: 'order.place' as const },
+  { to: '/pharmacy/orders', label: 'Orders', icon: ClipboardList, section: 'Trade' },
+  { to: '/pharmacy/connections', label: 'Connections', icon: Building2, section: 'Trade', requires: 'connection.request' as const },
+  { to: '/pharmacy/payments', label: 'Payments', icon: CreditCard, section: 'Money', requires: 'payment.submit' as const },
+  { to: '/pharmacy/invoices', label: 'Invoices', icon: FileText, section: 'Money', requires: 'payment.submit' as const },
+  { to: '/pharmacy/returns', label: 'Returns', icon: RotateCcw, section: 'Money', requires: 'return.raise' as const },
+  { to: '/pharmacy/sales', label: 'Sales', icon: Receipt, section: 'Money', requires: 'sale.view' as const },
+  { to: '/pharmacy/inventory', label: 'Inventory', icon: Warehouse, section: 'Stock', requires: 'inventory.adjust' as const },
+  { to: '/pharmacy/delivery', label: 'Delivery', icon: Truck, section: 'Stock', requires: 'sale.view' as const },
+  { to: '/pharmacy/messages', label: 'Messages', icon: MessageSquare, section: 'Workspace' },
+  { to: '/pharmacy/settings', label: 'More', icon: Settings, section: 'Workspace' },
 ];
 
 const mobileNav = [
@@ -99,7 +101,7 @@ export function PharmacyApp() {
           <Route path="smart-order/history" element={<PharmacySmartOrderHistory />} />
           <Route path="quick-order" element={<PharmacyQuickOrder />} />
         </Route>
-        <Route path="marketplace" element={<PharmacyMarketplace />} />
+        <Route path="marketplace" element={<Navigate to="/pharmacy/buy?mode=all" replace />} />
         <Route element={<RequirePermission action="sale.view" />}>
           <Route path="sales" element={<PharmacySales />} />
           <Route path="sales/:id" element={<PharmacySales />} />
@@ -109,11 +111,13 @@ export function PharmacyApp() {
         <Route path="orders/:orderNo" element={<PharmacyOrderDetail />} />
         <Route element={<RequirePermission action="payment.submit" />}>
           <Route path="payments" element={<PharmacyPayments />} />
+          <Route path="payments/:paymentNo" element={<PharmacyPaymentDetail />} />
           <Route path="invoices" element={<PharmacyInvoices />} />
           <Route path="invoices/:invoiceNo" element={<PharmacyInvoiceDetail />} />
         </Route>
         <Route element={<RequirePermission action="return.raise" />}>
           <Route path="returns" element={<PharmacyReturns />} />
+          <Route path="returns/:returnNo" element={<PharmacyReturnDetail />} />
         </Route>
         <Route element={<RequirePermission action="inventory.adjust" />}>
           <Route path="inventory" element={<PharmacyInventory />} />
@@ -127,6 +131,7 @@ export function PharmacyApp() {
         <Route path="analytics" element={<PharmacyAnalytics />} />
         <Route path="reports" element={<PharmacyReports />} />
         <Route path="help" element={<PharmacyHelp />} />
+        <Route path="announcements" element={<AnnouncementsArchivePage audience="Pharmacy" />} />
         <Route path="activity" element={<PharmacyActivity />} />
         <Route path="upgrade" element={<PharmacyUpgrade />} />
         <Route element={<RequirePermission action="counterfeit.report" />}>
@@ -146,7 +151,7 @@ export function PharmacyApp() {
         <Route path="settings" element={<PharmacySettings />} />
         <Route path="profile" element={<PharmacyProfile />} />
         <Route path="more" element={<PharmacySettings />} />
-        <Route path="*" element={<Navigate to="/pharmacy" replace />} />
+        <Route path="*" element={<NotFoundPage homeTo="/pharmacy" />} />
       </Route>
     </Routes>
   );

@@ -8,15 +8,24 @@ import { formatINR } from '../../../domain/utils/money';
 import { AnnouncementStrip } from '../../../ui/components/AnnouncementStrip';
 import { BannerStrip } from '../../../ui/components/BannerStrip';
 import { Kpi, Money, PageHeader } from '../../../ui/components/primitives';
+import { chartColors } from '../../../ui/chartTheme';
 import { useBiz } from './useBiz';
-import { useSession } from '../../../store/session';
+import { useCan, useSession } from '../../../store/session';
 
 export function PharmacyHome() {
   const { business } = useBiz();
   const { user } = useSession();
+  const canSale = useCan('sale.view');
+  const canStaff = useCan('staff.manage');
+  const charts = chartColors();
   const orders = useLiveQuery(() => db.orders.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const invoices = useLiveQuery(() => db.invoices.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
-  const connections = useLiveQuery(() => db.connections.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
+  const connectionsRaw = useLiveQuery(
+    () => db.connections.where('pharmacyId').equals(business.id).toArray(),
+    [business.id],
+  );
+  const connectionsLoading = connectionsRaw === undefined;
+  const connections = connectionsRaw ?? [];
   const returns = useLiveQuery(() => db.returns.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const credits = useLiveQuery(() => db.creditNotes.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const inventory = useLiveQuery(() => db.pharmacyInventory.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
@@ -70,8 +79,12 @@ export function PharmacyHome() {
     <div className="stack">
       <PageHeader title="Pharmacy home" subtitle="Purchasing queues, payables, and next actions" />
       <BannerStrip placement="Pharmacy Home" />
-      <AnnouncementStrip audience="Pharmacy" placement="Pharmacy Home" />
-      {!activeConn ? (
+      <AnnouncementStrip audience="Pharmacy" placement="Pharmacy Home" archivePath="/pharmacy/announcements" />
+      {connectionsLoading ? (
+        <p className="muted" role="status" style={{ margin: 0 }}>
+          Loading workspace…
+        </p>
+      ) : !activeConn ? (
         <div className="banner-strip warning">
           No active stockist connections yet.{' '}
           <Link to="/pharmacy/connections">Find and connect</Link> to start ordering.
@@ -83,7 +96,7 @@ export function PharmacyHome() {
           <Link className="btn btn-secondary btn-sm" to="/pharmacy/orders?awaiting=1">
             Receive ({awaitingDelivery})
           </Link>
-          <Link className="btn btn-secondary btn-sm" to="/pharmacy/payments">
+          <Link className="btn btn-secondary btn-sm" to="/pharmacy/payments?status=Overdue">
             Pay ({overdue} overdue)
           </Link>
           <Link className="btn btn-secondary btn-sm" to="/pharmacy/inventory?filter=low">
@@ -97,51 +110,72 @@ export function PharmacyHome() {
           <Link className="btn btn-primary btn-sm" to="/pharmacy/buy">
             New order
           </Link>
-          <Link className="btn btn-secondary btn-sm" to="/pharmacy/sales">
-            Record sale
-          </Link>
-          <Link className="btn btn-secondary btn-sm" to="/pharmacy/staff">
-            Invite staff
-          </Link>
+          {canSale ? (
+            <Link className="btn btn-secondary btn-sm" to="/pharmacy/sales">
+              Record sale
+            </Link>
+          ) : null}
+          {canStaff ? (
+            <Link className="btn btn-secondary btn-sm" to="/pharmacy/staff">
+              Invite staff
+            </Link>
+          ) : null}
         </div>
       </div>
-      {!activeConn || business.verificationStatus !== 'Approved' ? (
-        <div className="card card-pad stack">
-          <strong>Setup checklist</strong>
-          <label style={{ fontSize: 13 }}>
-            <input type="checkbox" readOnly checked={business.verificationStatus === 'Approved'} /> Verify business
-          </label>
-          <label style={{ fontSize: 13 }}>
-            <input type="checkbox" readOnly checked={activeConn > 0} /> Connect to a stockist
-          </label>
-          <label style={{ fontSize: 13 }}>
-            <input type="checkbox" readOnly checked={orders.length > 0} /> Place first order
-          </label>
-          <label style={{ fontSize: 13 }}>
-            <input type="checkbox" readOnly checked={invoices.some((i) => i.paidAmount > 0)} /> Submit a payment
-          </label>
-        </div>
-      ) : null}
+      {(() => {
+        const verified = business.verificationStatus === 'Approved';
+        const connected = activeConn > 0;
+        const ordered = orders.length > 0;
+        const paid = invoices.some((i) => i.paidAmount > 0);
+        const done = verified && connected && ordered && paid;
+        if (done) {
+          return (
+            <div className="card card-pad stack">
+              <strong>Setup complete</strong>
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                You&apos;re verified, connected, ordered, and paid — ready for daily purchasing.
+              </p>
+            </div>
+          );
+        }
+        return (
+          <div className="card card-pad stack">
+            <strong>Setup checklist</strong>
+            <label style={{ fontSize: 13 }}>
+              <input type="checkbox" readOnly checked={verified} /> Verify business
+            </label>
+            <label style={{ fontSize: 13 }}>
+              <input type="checkbox" readOnly checked={connected} /> Connect to a stockist
+            </label>
+            <label style={{ fontSize: 13 }}>
+              <input type="checkbox" readOnly checked={ordered} /> Place first order
+            </label>
+            <label style={{ fontSize: 13 }}>
+              <input type="checkbox" readOnly checked={paid} /> Submit a payment
+            </label>
+          </div>
+        );
+      })()}
       <div className="kpi-grid">
-        <Link className="card card-pad" to="/pharmacy/orders?awaiting=1">
+        <Link className="kpi-link" to="/pharmacy/orders?awaiting=1">
           <Kpi label="Awaiting delivery" value={awaitingDelivery} />
         </Link>
-        <Link className="card card-pad" to="/pharmacy/payments?status=Overdue">
+        <Link className="kpi-link" to="/pharmacy/payments?status=Overdue">
           <Kpi label="Overdue payables" value={overdue} sub={formatINR(pharmacyOutstanding(invoices, business.id))} />
         </Link>
-        <Link className="card card-pad" to="/pharmacy/returns">
+        <Link className="kpi-link" to="/pharmacy/returns">
           <Kpi label="Open returns" value={openReturns} />
         </Link>
-        <Link className="card card-pad" to="/pharmacy/payments?tab=Credits">
+        <Link className="kpi-link" to="/pharmacy/payments?tab=Credits">
           <Kpi label="Available credit" value={<Money value={availableCredit} />} />
         </Link>
-        <Link className="card card-pad" to="/pharmacy/inventory?filter=low">
+        <Link className="kpi-link" to="/pharmacy/inventory?filter=low">
           <Kpi label="Low stock" value={low} />
         </Link>
-        <Link className="card card-pad" to="/pharmacy/expiry">
+        <Link className="kpi-link" to="/pharmacy/expiry">
           <Kpi label="Near expiry" value={near} />
         </Link>
-        <Link className="card card-pad" to="/pharmacy/notifications">
+        <Link className="kpi-link" to="/pharmacy/notifications">
           <Kpi label="Unread" value={notifications.length} />
         </Link>
       </div>
@@ -151,11 +185,11 @@ export function PharmacyHome() {
           <div style={{ width: '100%', height: 220 }}>
             <ResponsiveContainer>
               <BarChart data={aging}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={charts.grid} />
                 <XAxis dataKey="band" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v) => formatINR(Number(v))} />
-                <Bar dataKey="total" fill="#4A7399" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="total" fill={charts.primary} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -165,11 +199,11 @@ export function PharmacyHome() {
           <div style={{ width: '100%', height: 220 }}>
             <ResponsiveContainer>
               <BarChart data={topSuppliers}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={charts.grid} />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v) => formatINR(Number(v))} />
-                <Bar dataKey="total" fill="#6B8F71" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="total" fill={charts.secondary} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

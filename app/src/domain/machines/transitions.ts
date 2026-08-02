@@ -26,8 +26,10 @@ function allow(map: Record<string, string[]>, from: string, to: string): Transit
 
 const verification: Record<VerificationStatus, VerificationStatus[]> = {
   NotStarted: ['Submitted'],
-  Submitted: ['UnderReview', 'Rejected'],
-  UnderReview: ['Approved', 'Rejected', 'DocumentsRequested'],
+  /** Submitted → Submitted: business amends while still in queue */
+  Submitted: ['UnderReview', 'Rejected', 'Submitted'],
+  /** UnderReview → Submitted: amend bumps back to the front of the queue */
+  UnderReview: ['Approved', 'Rejected', 'DocumentsRequested', 'Submitted'],
   DocumentsRequested: ['Submitted', 'Rejected'],
   Approved: [],
   Rejected: ['Submitted'],
@@ -78,7 +80,7 @@ const invoice: Record<InvoiceStatus, InvoiceStatus[]> = {
 
 const payment: Record<PaymentStatus, PaymentStatus[]> = {
   Draft: ['Submitted', 'Cancelled'],
-  Submitted: ['UnderReview', 'Approved', 'Rejected', 'OnHold'],
+  Submitted: ['UnderReview', 'Approved', 'Rejected', 'OnHold', 'Cancelled'],
   UnderReview: ['Approved', 'Rejected', 'OnHold'],
   Approved: [],
   Rejected: [],
@@ -125,7 +127,8 @@ const batch: Record<BatchStatus, BatchStatus[]> = {
 const product: Record<ProductStatus, ProductStatus[]> = {
   Active: ['Inactive', 'Discontinued'],
   Inactive: ['Active', 'Discontinued'],
-  Discontinued: [],
+  /** Admin-level undo — reactivate a discontinued SKU */
+  Discontinued: ['Active'],
 };
 
 const catalogue: Record<CatalogueStatus, CatalogueStatus[]> = {

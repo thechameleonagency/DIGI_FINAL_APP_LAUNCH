@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
 import { reorderFromOrder } from '../../../services/catalogueService';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, LoadingState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 const ORDER_STATUSES = [
@@ -38,7 +39,10 @@ export function PharmacyOrders() {
   const awaiting = params.get('awaiting') === '1';
   const initialStatus = params.get('status') ?? '';
   const { pushToast } = useUi();
-  const orders = useLiveQuery(() => db.orders.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
+  const { items: orders, loading: ordersLoading } = useLiveArray(
+    () => db.orders.where('pharmacyId').equals(business.id).toArray(),
+    [business.id],
+  );
   const invoices = useLiveQuery(() => db.invoices.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const stockists = useLiveQuery(() => db.businesses.where('type').equals('Stockist').toArray()) ?? [];
   const [dateFrom, setDateFrom] = useState('');
@@ -129,10 +133,17 @@ export function PharmacyOrders() {
               }
               pushToast({
                 tone: res.data.skipped.length ? 'info' : 'success',
-                title: `Added ${res.data.added} to cart`,
+                title: `Cart updated — ${res.data.added} new, ${res.data.incremented} increased`,
                 message: res.data.skipped.length
                   ? `Skipped ${res.data.skipped.length}: ${res.data.skipped.map((s) => s.productName).join(', ')}`
-                  : undefined,
+                  : res.data.changes
+                      .slice(0, 3)
+                      .map((c) =>
+                        c.previousQty > 0
+                          ? `${c.productName}: ${c.previousQty}→${c.newQty}`
+                          : `${c.productName}: ${c.newQty}`,
+                      )
+                      .join('; ') || undefined,
               });
               navigate('/pharmacy/cart');
             }}
@@ -191,7 +202,9 @@ export function PharmacyOrders() {
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
         </Field>
       </div>
-      {!orders.length ? (
+      {ordersLoading ? (
+        <LoadingState label="Loading orders…" />
+      ) : !orders.length ? (
         <EmptyState
           title="No orders yet"
           description="Place a purchase order from a connected stockist catalogue."
@@ -240,6 +253,7 @@ export function PharmacyOrders() {
             sortKey={list.sortKey}
             sortDir={list.sortDir}
             onSort={list.toggleSort}
+            loading={ordersLoading}
             emptyTitle="No orders match"
             emptyDescription="Empty result is not an error — adjust filters or place an order."
             onRowClick={(o) => navigate(`/pharmacy/orders/${o.orderNo}`)}

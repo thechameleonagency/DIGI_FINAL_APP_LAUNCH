@@ -15,7 +15,8 @@ import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { Button, EmptyState, Field, Input, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { Button, EmptyState, Field, Input, LoadingState, Modal, PageHeader, Select, StatusBadge, Tabs } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type Tab = 'areas' | 'routes' | 'board';
@@ -27,10 +28,14 @@ export function PharmacyDelivery() {
   const canManage = useCan('sale.record');
   const [tab, setTab] = useState<Tab>('board');
 
-  const areas =
-    useLiveQuery(() => db.deliveryAreas.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
-  const routes =
-    useLiveQuery(() => db.pharmacyRoutes.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
+  const { items: areas, loading: areasLoading } = useLiveArray(
+    () => db.deliveryAreas.where('pharmacyId').equals(business.id).toArray(),
+    [business.id],
+  );
+  const { items: routes, loading: routesLoading } = useLiveArray(
+    () => db.pharmacyRoutes.where('pharmacyId').equals(business.id).toArray(),
+    [business.id],
+  );
   const sales =
     useLiveQuery(() => db.customerSales.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const staff =
@@ -61,8 +66,12 @@ export function PharmacyDelivery() {
   const [routeAssignee, setRouteAssignee] = useState('');
   const [assignSaleId, setAssignSaleId] = useState('');
   const [assignRouteId, setAssignRouteId] = useState('');
+  const [boardAssign, setBoardAssign] = useState<Record<string, string>>({});
   const [failStop, setFailStop] = useState<{ routeId: string; saleId: string } | null>(null);
   const [deleteRouteId, setDeleteRouteId] = useState<string | null>(null);
+  const [deleteAreaId, setDeleteAreaId] = useState<string | null>(null);
+  const [areaOpen, setAreaOpen] = useState(false);
+  const [routeOpen, setRouteOpen] = useState(false);
 
   return (
     <div className="stack">
@@ -76,56 +85,36 @@ export function PharmacyDelivery() {
         }
       />
 
-      <div className="row" style={{ flexWrap: 'wrap' }}>
-        {(
-          [
-            ['board', 'Route board'],
-            ['routes', 'Routes'],
-            ['areas', 'Areas'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={`chip${tab === id ? ' active' : ''}`}
-            onClick={() => setTab(id)}
-            style={tab === id ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        ariaLabel="Delivery views"
+        value={tab}
+        onChange={setTab}
+        items={[
+          { id: 'board', label: 'Route board' },
+          { id: 'routes', label: 'Routes' },
+          { id: 'areas', label: 'Areas' },
+        ]}
+      />
 
       {tab === 'areas' ? (
         <div className="stack">
           {canManage ? (
-            <div className="card card-pad stack">
-              <strong>New area</strong>
-              <Field label="Name">
-                <Input value={areaName} onChange={(e) => setAreaName(e.target.value)} placeholder="North Pune" />
-              </Field>
-              <Field label="PIN codes (comma or space separated)">
-                <Input value={areaPins} onChange={(e) => setAreaPins(e.target.value)} placeholder="411001, 411004" />
-              </Field>
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
               <Button
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    const pins = areaPins.split(/[\s,]+/).filter(Boolean);
-                    const res = await upsertDeliveryArea({ actor: user, pharmacy: business, name: areaName, pins });
-                    pushToast(res.ok ? { tone: 'success', title: 'Area saved' } : { tone: 'error', title: res.message });
-                    if (res.ok) {
-                      setAreaName('');
-                      setAreaPins('');
-                    }
-                  })
-                }
+                size="sm"
+                onClick={() => {
+                  setAreaName('');
+                  setAreaPins('');
+                  setAreaOpen(true);
+                }}
               >
-                Save area
+                New area
               </Button>
             </div>
           ) : null}
-          {!areas.length ? (
+          {areasLoading ? (
+            <LoadingState label="Loading areas…" />
+          ) : !areas.length ? (
             <EmptyState title="No delivery areas" description="Define serviceable PIN groups for routing." />
           ) : (
             areas.map((a) => (
@@ -141,14 +130,7 @@ export function PharmacyDelivery() {
                     size="sm"
                     variant="danger"
                     disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        const res = await deleteDeliveryArea({ actor: user, pharmacy: business, id: a.id });
-                        pushToast(
-                          res.ok ? { tone: 'info', title: 'Area deleted' } : { tone: 'error', title: res.message },
-                        );
-                      })
-                    }
+                    onClick={() => setDeleteAreaId(a.id)}
                   >
                     Delete
                   </Button>
@@ -162,52 +144,17 @@ export function PharmacyDelivery() {
       {tab === 'routes' ? (
         <div className="stack">
           {canManage ? (
-            <div className="card card-pad stack">
-              <strong>New route</strong>
-              <Field label="Name">
-                <Input value={routeName} onChange={(e) => setRouteName(e.target.value)} />
-              </Field>
-              <Field label="Area (optional)">
-                <Select value={routeAreaId} onChange={(e) => setRouteAreaId(e.target.value)}>
-                  <option value="">—</option>
-                  {areas.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Assignee (optional)">
-                <Select value={routeAssignee} onChange={(e) => setRouteAssignee(e.target.value)}>
-                  <option value="">—</option>
-                  {staff.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} · {s.role}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
               <Button
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    const res = await upsertPharmacyRoute({
-                      actor: user,
-                      pharmacy: business,
-                      name: routeName,
-                      areaId: routeAreaId || undefined,
-                      assigneeUserId: routeAssignee || undefined,
-                    });
-                    pushToast(res.ok ? { tone: 'success', title: 'Route saved' } : { tone: 'error', title: res.message });
-                    if (res.ok) {
-                      setRouteName('');
-                      setRouteAreaId('');
-                      setRouteAssignee('');
-                    }
-                  })
-                }
+                size="sm"
+                onClick={() => {
+                  setRouteName('');
+                  setRouteAreaId('');
+                  setRouteAssignee('');
+                  setRouteOpen(true);
+                }}
               >
-                Save route
+                New route
               </Button>
             </div>
           ) : null}
@@ -262,7 +209,9 @@ export function PharmacyDelivery() {
             </div>
           ) : null}
 
-          {!visibleRoutes.length ? (
+          {routesLoading ? (
+            <LoadingState label="Loading routes…" />
+          ) : !visibleRoutes.length ? (
             <EmptyState title="No routes" description="Create a route, then assign home-delivery sales." />
           ) : (
             visibleRoutes.map((r) => {
@@ -295,21 +244,67 @@ export function PharmacyDelivery() {
       {tab === 'board' ? (
         <div className="stack">
           {canManage && unassigned.length ? (
-            <div className="card card-pad">
+            <div className="card card-pad stack">
               <strong>Unassigned home deliveries ({unassigned.length})</strong>
-              <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-                Assign them under the Routes tab.
-              </div>
-              {unassigned.slice(0, 8).map((s) => (
-                <div key={s.id} style={{ fontSize: 13, marginTop: 6 }}>
-                  <Link to={`/pharmacy/sales/${s.saleNo}`}>{s.saleNo}</Link> · {s.customerName}
-                  {s.address ? ` · ${s.address}` : ''}
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                Pick a route for each sale — no need to switch tabs.
+              </p>
+              {unassigned.slice(0, 12).map((s) => (
+                <div key={s.id} className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 160, fontSize: 13 }}>
+                    <Link to={`/pharmacy/sales/${s.saleNo}`}>{s.saleNo}</Link> · {s.customerName}
+                    {s.address ? <div className="muted">{s.address}</div> : null}
+                  </div>
+                  <Field label="Route">
+                    <Select
+                      value={boardAssign[s.id] ?? ''}
+                      onChange={(e) => setBoardAssign((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                      style={{ minWidth: 160 }}
+                    >
+                      <option value="">Select…</option>
+                      {routes.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Button
+                    size="sm"
+                    disabled={busy || !boardAssign[s.id]}
+                    onClick={() =>
+                      void run(async () => {
+                        const routeId = boardAssign[s.id];
+                        if (!routeId) return;
+                        const res = await assignSaleToRoute({
+                          actor: user,
+                          pharmacy: business,
+                          saleId: s.id,
+                          routeId,
+                        });
+                        pushToast(
+                          res.ok ? { tone: 'success', title: 'Assigned to route' } : { tone: 'error', title: res.message },
+                        );
+                        if (res.ok) {
+                          setBoardAssign((prev) => {
+                            const next = { ...prev };
+                            delete next[s.id];
+                            return next;
+                          });
+                        }
+                      })
+                    }
+                  >
+                    Assign
+                  </Button>
                 </div>
               ))}
             </div>
           ) : null}
 
-          {!visibleRoutes.length ? (
+          {routesLoading ? (
+            <LoadingState label="Loading board…" />
+          ) : !visibleRoutes.length ? (
             <EmptyState title="No route board yet" description="Create areas and routes, then assign sales." />
           ) : (
             visibleRoutes.map((r) => {
@@ -390,6 +385,107 @@ export function PharmacyDelivery() {
         </div>
       ) : null}
 
+      <Modal
+        open={areaOpen}
+        title="New area"
+        onClose={() => setAreaOpen(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAreaOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  const pins = areaPins.split(/[\s,]+/).filter(Boolean);
+                  const res = await upsertDeliveryArea({ actor: user, pharmacy: business, name: areaName, pins });
+                  pushToast(res.ok ? { tone: 'success', title: 'Area saved' } : { tone: 'error', title: res.message });
+                  if (res.ok) {
+                    setAreaName('');
+                    setAreaPins('');
+                    setAreaOpen(false);
+                  }
+                })
+              }
+            >
+              Save area
+            </Button>
+          </>
+        }
+      >
+        <div className="stack">
+          <Field label="Name">
+            <Input value={areaName} onChange={(e) => setAreaName(e.target.value)} placeholder="North Pune" />
+          </Field>
+          <Field label="PIN codes (comma or space separated)">
+            <Input value={areaPins} onChange={(e) => setAreaPins(e.target.value)} placeholder="411001, 411004" />
+          </Field>
+        </div>
+      </Modal>
+
+      <Modal
+        open={routeOpen}
+        title="New route"
+        onClose={() => setRouteOpen(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRouteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  const res = await upsertPharmacyRoute({
+                    actor: user,
+                    pharmacy: business,
+                    name: routeName,
+                    areaId: routeAreaId || undefined,
+                    assigneeUserId: routeAssignee || undefined,
+                  });
+                  pushToast(res.ok ? { tone: 'success', title: 'Route saved' } : { tone: 'error', title: res.message });
+                  if (res.ok) {
+                    setRouteName('');
+                    setRouteAreaId('');
+                    setRouteAssignee('');
+                    setRouteOpen(false);
+                  }
+                })
+              }
+            >
+              Save route
+            </Button>
+          </>
+        }
+      >
+        <div className="stack">
+          <Field label="Name">
+            <Input value={routeName} onChange={(e) => setRouteName(e.target.value)} />
+          </Field>
+          <Field label="Area (optional)">
+            <Select value={routeAreaId} onChange={(e) => setRouteAreaId(e.target.value)}>
+              <option value="">—</option>
+              {areas.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Assignee (optional)">
+            <Select value={routeAssignee} onChange={(e) => setRouteAssignee(e.target.value)}>
+              <option value="">—</option>
+              {staff.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} · {s.role}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      </Modal>
+
       <ConfirmDialog
         open={!!failStop}
         title="Mark stop failed"
@@ -424,6 +520,22 @@ export function PharmacyDelivery() {
           const res = await deletePharmacyRoute({ actor: user, pharmacy: business, id: deleteRouteId! });
           pushToast(res.ok ? { tone: 'info', title: 'Route deleted' } : { tone: 'error', title: res.message });
           setDeleteRouteId(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!deleteAreaId}
+        title="Delete delivery area?"
+        body="PIN mapping for this area will be removed. Routes are not deleted."
+        confirmLabel="Delete area"
+        tone="danger"
+        onClose={() => setDeleteAreaId(null)}
+        onConfirm={async () => {
+          await run(async () => {
+            const res = await deleteDeliveryArea({ actor: user, pharmacy: business, id: deleteAreaId! });
+            pushToast(res.ok ? { tone: 'info', title: 'Area deleted' } : { tone: 'error', title: res.message });
+            if (res.ok) setDeleteAreaId(null);
+          });
         }}
       />
     </div>

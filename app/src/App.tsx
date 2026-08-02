@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { RequireAuth, RequirePortal } from './app/guards';
 import { db } from './data/db';
@@ -20,18 +20,24 @@ import { StockistApp } from './portals/stockist/StockistApp';
 import { runPolicyClock } from './services/supportService';
 import {
   clearPersistedSession,
+  extendPersistedSession,
   isSessionExpired,
   persistSession,
   readPersistedSession,
+  SESSION_STORAGE_KEY,
+  sessionMsRemaining,
   setReauthReason,
+  shouldWarnSessionExpiry,
   useSession,
 } from './store/session';
 import { useUi } from './store/ui';
-import { ToastHost } from './ui/components/primitives';
+import { NotFoundPage } from './ui/components/NotFoundPage';
+import { Button, Modal, ToastHost } from './ui/components/primitives';
 
 async function revalidateSession(params: {
   clearSession: () => void;
   refreshEntities: (user: import('./domain/entities/types').User, business: import('./domain/entities/types').Business) => void;
+  onWarnExpiry?: () => void;
 }): Promise<void> {
   const persisted = readPersistedSession();
   if (!persisted) return;
@@ -40,6 +46,9 @@ async function revalidateSession(params: {
     params.clearSession();
     setReauthReason('timeout');
     return;
+  }
+  if (shouldWarnSessionExpiry(persisted.issuedAt)) {
+    params.onWarnExpiry?.();
   }
   const user = await db.users.get(persisted.userId);
   const business = await db.businesses.get(persisted.businessId);
@@ -61,6 +70,8 @@ async function revalidateSession(params: {
 export default function App() {
   const { setSession, setHydrated, clearSession, refreshEntities } = useSession();
   const { toasts, dismissToast } = useUi();
+  const [expiryWarn, setExpiryWarn] = useState(false);
+  const [expiryMinutes, setExpiryMinutes] = useState(15);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,7 +135,16 @@ export default function App() {
 
   useEffect(() => {
     const tick = () => {
-      void revalidateSession({ clearSession, refreshEntities });
+      void revalidateSession({
+        clearSession,
+        refreshEntities,
+        onWarnExpiry: () => {
+          const p = readPersistedSession();
+          if (!p) return;
+          setExpiryMinutes(Math.max(1, Math.ceil(sessionMsRemaining(p.issuedAt) / 60_000)));
+          setExpiryWarn(true);
+        },
+      });
       void runPolicyClock();
     };
     window.addEventListener('focus', tick);
@@ -133,6 +153,20 @@ export default function App() {
       window.removeEventListener('focus', tick);
       window.clearInterval(id);
     };
+  }, [clearSession, refreshEntities]);
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== SESSION_STORAGE_KEY) return;
+      if (!e.newValue) {
+        setExpiryWarn(false);
+        clearSession();
+        return;
+      }
+      void revalidateSession({ clearSession, refreshEntities });
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [clearSession, refreshEntities]);
 
   const { hydrated } = useSession();
@@ -150,6 +184,40 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <>
+      <Modal
+        open={expiryWarn}
+        title="Session about to expire"
+        onClose={() => setExpiryWarn(false)}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setExpiryWarn(false);
+                clearPersistedSession();
+                clearSession();
+                setReauthReason('timeout');
+              }}
+            >
+              Sign out
+            </Button>
+            <Button
+              onClick={() => {
+                extendPersistedSession();
+                setExpiryWarn(false);
+              }}
+            >
+              Continue working
+            </Button>
+          </>
+        }
+      >
+        <p style={{ margin: 0, fontSize: 14 }}>
+          Your session expires in about {expiryMinutes} minute{expiryMinutes === 1 ? '' : 's'}. Continue to stay signed
+          in, or sign out now. Unsaved form work is lost if the session ends.
+        </p>
+      </Modal>
       <Routes>
         <Route path="/" element={<Navigate to="/auth/login" replace />} />
         <Route path="/auth/login" element={<LoginPage />} />
@@ -174,9 +242,10 @@ export default function App() {
           </Route>
         </Route>
 
-        <Route path="*" element={<Navigate to="/auth/login" replace />} />
+        <Route path="*" element={<NotFoundPage homeTo="/auth/login" homeLabel="Back to sign in" />} />
       </Routes>
       <ToastHost toasts={toasts} onDismiss={dismissToast} />
+      </>
     </BrowserRouter>
   );
 }

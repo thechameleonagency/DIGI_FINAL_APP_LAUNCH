@@ -76,6 +76,14 @@ export async function createCustomerSale(params: {
   if (params.homeDelivery && !params.address?.trim()) {
     return fail('Validation', 'SALE_ADDR', 'Delivery address is required for home delivery.', 'Sale was not recorded.');
   }
+  if (params.paymentMode === 'Credit' && !params.phone?.trim()) {
+    return fail(
+      'Validation',
+      'SALE_CREDIT_PHONE',
+      'Phone is required for credit sales so the receivable can be collected later.',
+      'Sale was not recorded.',
+    );
+  }
 
   const built: CustomerSaleLine[] = [];
   for (const draft of params.lines) {
@@ -87,6 +95,7 @@ export async function createCustomerSale(params: {
     built.push({ ...alloc.data, unitPrice: roundMoney(draft.unitPrice) });
   }
 
+  const revenue = roundMoney(built.reduce((s, l) => s + l.qty * l.unitPrice, 0));
   const ts = new Date().toISOString();
   const sale: CustomerSale = {
     id: newId(),
@@ -96,6 +105,8 @@ export async function createCustomerSale(params: {
     phone: params.phone?.trim() || undefined,
     lines: built,
     paymentMode: params.paymentMode,
+    amountCollected: params.paymentMode === 'Credit' ? 0 : revenue,
+    collections: [],
     homeDelivery: !!params.homeDelivery,
     address: params.homeDelivery ? params.address?.trim() : undefined,
     deliveryStatus: params.homeDelivery ? 'Unassigned' : undefined,
@@ -278,10 +289,15 @@ export async function returnCustomerSaleLines(params: {
       }
 
       const allReturned = lines.every((l) => l.returnedQty >= l.qty);
+      const nextRevenue = roundMoney(lines.reduce((s, l) => s + Math.max(0, l.qty - l.returnedQty) * l.unitPrice, 0));
+      const collected = sale.amountCollected ?? 0;
+      // Returns reduce what the customer owes; clamp collections that exceed remaining net total.
+      const amountCollected = sale.paymentMode === 'Credit' ? Math.min(collected, nextRevenue) : collected;
       await db.customerSales.update(sale.id, {
         lines,
         returnedLines,
         status: allReturned ? 'Returned' : 'PartiallyReturned',
+        amountCollected,
       });
     });
   } catch (e) {
@@ -302,6 +318,64 @@ export async function returnCustomerSaleLines(params: {
   return ok(next);
 }
 
+export async function collectCustomerSalePayment(params: {
+  actor: User;
+  pharmacy: Business;
+  saleId: string;
+  amount: number;
+  note?: string;
+}): Promise<Result<CustomerSale>> {
+  const perm = assertCan(params.actor, params.pharmacy, 'sale.record');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Collection was not recorded.');
+  const sale = await db.customerSales.get(params.saleId);
+  if (!sale || sale.pharmacyId !== params.pharmacy.id) {
+    return fail('NotFound', 'SALE_MISSING', 'Sale not found.', 'Collection was not recorded.');
+  }
+  if (sale.paymentMode !== 'Credit') {
+    return fail('BusinessRule', 'SALE_NOT_CREDIT', 'Only credit sales have a receivable to collect.', 'Collection was not recorded.');
+  }
+  if (sale.status === 'Voided') {
+    return fail('StateConflict', 'SALE_VOIDED', 'Voided sales cannot be collected.', 'Collection was not recorded.');
+  }
+  const due = saleCreditOutstanding(sale);
+  if (due <= 0) {
+    return fail('BusinessRule', 'SALE_PAID', 'Nothing outstanding on this sale.', 'Collection was not recorded.');
+  }
+  const amount = roundMoney(params.amount);
+  if (!(amount > 0)) {
+    return fail('Validation', 'SALE_COLLECT_AMT', 'Collection amount must be positive.', 'Collection was not recorded.');
+  }
+  if (amount > due) {
+    return fail('Validation', 'SALE_COLLECT_OVER', `Amount exceeds outstanding (${due}).`, 'Collection was not recorded.');
+  }
+
+  const ts = new Date().toISOString();
+  const entry = {
+    id: newId(),
+    amount,
+    at: ts,
+    actorId: params.actor.id,
+    note: params.note?.trim() || undefined,
+  };
+  const amountCollected = roundMoney((sale.amountCollected ?? 0) + amount);
+  await db.customerSales.update(sale.id, {
+    amountCollected,
+    collections: [...(sale.collections ?? []), entry],
+  });
+
+  const next = (await db.customerSales.get(sale.id))!;
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.pharmacy.id,
+    entityType: 'CustomerSale',
+    entityId: sale.id,
+    action: 'sale.collect',
+    after: { amount, amountCollected, saleNo: sale.saleNo },
+  });
+  return ok(next);
+}
+
 export function saleTotals(sale: CustomerSale) {
   const activeLines = sale.lines.map((l) => ({
     ...l,
@@ -309,4 +383,12 @@ export function saleTotals(sale: CustomerSale) {
   }));
   const revenue = roundMoney(activeLines.reduce((s, l) => s + l.netQty * l.unitPrice, 0));
   return { revenue, activeLines };
+}
+
+/** Outstanding customer credit for a POS sale (0 for cash/UPI or voided). */
+export function saleCreditOutstanding(sale: CustomerSale): number {
+  if (sale.paymentMode !== 'Credit' || sale.status === 'Voided') return 0;
+  const { revenue } = saleTotals(sale);
+  const collected = sale.amountCollected ?? 0;
+  return roundMoney(Math.max(0, revenue - collected));
 }

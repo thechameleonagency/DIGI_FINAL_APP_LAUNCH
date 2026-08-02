@@ -22,6 +22,27 @@ describe('resolveNotificationLink', () => {
     expect(link.includes('N-016')).toBe(false);
     expect(link.startsWith('/stockist/')).toBe(true);
   });
+
+  it('deep-links Order/Invoice/Payment by human number', () => {
+    expect(
+      resolveNotificationLink(
+        { entityType: 'Order', entityId: 'o1', entityNo: 'ORD-1042', code: 'N-016' },
+        'stockist',
+      ),
+    ).toBe('/stockist/orders/ORD-1042');
+    expect(
+      resolveNotificationLink(
+        { entityType: 'Invoice', entityId: 'i1', entityNo: 'INV-9', code: 'N-028' },
+        'pharmacy',
+      ),
+    ).toBe('/pharmacy/invoices/INV-9');
+    expect(
+      resolveNotificationLink(
+        { entityType: 'Payment', entityId: 'p1', entityNo: 'PAY-3', code: 'N-030' },
+        'admin',
+      ),
+    ).toBe('/admin/payments/PAY-3');
+  });
 });
 
 describe('notification fan-out prefs (T-1)', () => {

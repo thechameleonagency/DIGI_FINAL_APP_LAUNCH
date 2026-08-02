@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
-import { setCartLine, toggleWishlist } from '../../../services/catalogueService';
+import { addOrIncrementCartLine, toggleWishlist } from '../../../services/catalogueService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useUi } from '../../../store/ui';
 import { Button, EmptyState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
@@ -32,26 +32,41 @@ export function PharmacyWishlist() {
 
   const moveAll = async () => {
     let added = 0;
+    let incremented = 0;
     let skipped = 0;
+    const changes: string[] = [];
     for (const r of rows) {
       if (!r.product || !r.active || r.product.status !== 'Active') {
         skipped++;
         continue;
       }
-      const res = await setCartLine({
+      const res = await addOrIncrementCartLine({
         actor: user,
         pharmacy: business,
         stockistId: r.item.stockistId,
         productId: r.product.id,
         qty: r.product.moq,
       });
-      if (res.ok) added++;
-      else skipped++;
+      if (!res.ok) {
+        skipped++;
+        continue;
+      }
+      if (res.data.incremented) {
+        incremented++;
+        changes.push(`${r.product.name}: ${res.data.previousQty} → ${res.data.newQty}`);
+      } else {
+        added++;
+        changes.push(`${r.product.name}: added ${res.data.newQty}`);
+      }
     }
+    const summary = changes.slice(0, 4).join('; ') + (changes.length > 4 ? ` (+${changes.length - 4} more)` : '');
     pushToast({
-      tone: added ? 'success' : 'error',
-      title: added ? `Added ${added} to cart` : 'Nothing added',
-      message: skipped ? `${skipped} skipped (inactive or disconnected)` : undefined,
+      tone: added || incremented ? 'success' : 'error',
+      title:
+        added || incremented
+          ? `Cart updated — ${added} new, ${incremented} increased`
+          : 'Nothing added',
+      message: [summary, skipped ? `${skipped} skipped` : ''].filter(Boolean).join(' · ') || undefined,
     });
   };
 
@@ -117,18 +132,24 @@ export function PharmacyWishlist() {
                   disabled={!active || !product || product.status !== 'Active'}
                   onClick={async () => {
                     if (!product) return;
-                    const res = await setCartLine({
+                    const res = await addOrIncrementCartLine({
                       actor: user,
                       pharmacy: business,
                       stockistId: item.stockistId,
                       productId: product.id,
                       qty: product.moq,
                     });
-                    pushToast(
-                      res.ok
-                        ? { tone: 'success', title: 'Added to cart' }
-                        : { tone: 'error', title: res.message },
-                    );
+                    if (!res.ok) {
+                      pushToast({ tone: 'error', title: res.message });
+                      return;
+                    }
+                    pushToast({
+                      tone: 'success',
+                      title: res.data.incremented ? 'Cart quantity increased' : 'Added to cart',
+                      message: res.data.incremented
+                        ? `${product.name}: ${res.data.previousQty} → ${res.data.newQty}`
+                        : `${product.name}: qty ${res.data.newQty}`,
+                    });
                   }}
                 >
                   Add to cart

@@ -1,25 +1,44 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Search } from 'lucide-react';
 import { db } from '../../data/db';
+import type { Business, Invoice, Order, Payment, Product, ReturnRequest } from '../../domain/entities/types';
 import { useSession } from '../../store/session';
 import { Input } from './primitives';
 
 type Hit = { label: string; sub?: string; to: string; group: string };
+
+const EMPTY_ORDERS: Order[] = [];
+const EMPTY_INVOICES: Invoice[] = [];
+const EMPTY_PAYMENTS: Payment[] = [];
+const EMPTY_RETURNS: ReturnRequest[] = [];
+const EMPTY_PRODUCTS: Product[] = [];
+const EMPTY_BUSINESSES: Business[] = [];
 
 export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'admin' }) {
   const { business } = useSession();
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [active, setActive] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // PF-01: only subscribe while the search surface is active
+  const searching = open || expanded || q.trim().length > 0;
 
-  const orders = useLiveQuery(() => db.orders.toArray(), []) ?? [];
-  const invoices = useLiveQuery(() => db.invoices.toArray(), []) ?? [];
-  const payments = useLiveQuery(() => db.payments.toArray(), []) ?? [];
-  const returns = useLiveQuery(() => db.returns.toArray(), []) ?? [];
-  const products = useLiveQuery(() => db.products.toArray(), []) ?? [];
-  const businesses = useLiveQuery(() => db.businesses.toArray(), []) ?? [];
+  const orders = useLiveQuery(() => (searching ? db.orders.toArray() : EMPTY_ORDERS), [searching]) ?? EMPTY_ORDERS;
+  const invoices =
+    useLiveQuery(() => (searching ? db.invoices.toArray() : EMPTY_INVOICES), [searching]) ?? EMPTY_INVOICES;
+  const payments =
+    useLiveQuery(() => (searching ? db.payments.toArray() : EMPTY_PAYMENTS), [searching]) ?? EMPTY_PAYMENTS;
+  const returns =
+    useLiveQuery(() => (searching ? db.returns.toArray() : EMPTY_RETURNS), [searching]) ?? EMPTY_RETURNS;
+  const products =
+    useLiveQuery(() => (searching ? db.products.toArray() : EMPTY_PRODUCTS), [searching]) ?? EMPTY_PRODUCTS;
+  const businesses =
+    useLiveQuery(() => (searching ? db.businesses.toArray() : EMPTY_BUSINESSES), [searching]) ?? EMPTY_BUSINESSES;
 
   const hits = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -84,7 +103,10 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
           group: 'Invoices',
           label: i.invoiceNo,
           sub: i.status,
-          to: portal === 'admin' ? '/admin/payments' : `/${portal}/payments`,
+          to:
+            portal === 'admin'
+              ? `/admin/payments?invoice=${encodeURIComponent(i.invoiceNo)}`
+              : `/${portal}/invoices/${encodeURIComponent(i.invoiceNo)}`,
         });
       }
     }
@@ -99,7 +121,10 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
           group: 'Payments',
           label: p.paymentNo,
           sub: p.reference ?? p.status,
-          to: portal === 'admin' ? `/admin/payments/${encodeURIComponent(p.paymentNo)}` : `/${portal}/payments`,
+          to:
+            portal === 'admin'
+              ? `/admin/payments/${encodeURIComponent(p.paymentNo)}`
+              : `/${portal}/payments?payment=${encodeURIComponent(p.paymentNo)}`,
         });
       }
     }
@@ -148,7 +173,7 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
             group: 'Partners',
             label: b.name,
             sub: b.city,
-            to: portal === 'pharmacy' ? '/pharmacy/connections' : '/stockist/pharmacies',
+            to: portal === 'pharmacy' ? `/pharmacy/stockists/${b.id}` : `/stockist/pharmacies/${b.id}`,
           });
         }
       }
@@ -157,24 +182,113 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
     return out.slice(0, 25);
   }, [q, business, portal, orders, invoices, payments, returns, products, businesses]);
 
+  useEffect(() => {
+    setActive(0);
+  }, [q]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+      if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setExpanded(true);
+        setOpen(true);
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+        return;
+      }
+      if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setExpanded(true);
+        setOpen(true);
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const go = (hit: Hit) => {
+    navigate(hit.to);
+    setQ('');
+    setOpen(false);
+    setActive(0);
+  };
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setOpen(false);
+      setExpanded(false);
+      e.currentTarget.blur();
+      return;
+    }
+    if (!open || !hits.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActive((i) => Math.min(hits.length - 1, i + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive((i) => Math.max(0, i - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const hit = hits[active] ?? hits[0];
+      if (hit) go(hit);
+    }
+  };
+
   return (
-    <div style={{ position: 'relative', minWidth: 180, maxWidth: 280, flex: 1 }}>
-      <div className="row" style={{ gap: 6 }}>
-        <Search size={14} style={{ color: 'var(--muted)' }} />
+    <div ref={rootRef} className={`global-search${expanded ? ' is-expanded' : ''}`}>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm global-search-toggle"
+        aria-label="Open search"
+        onClick={() => {
+          setExpanded(true);
+          setOpen(true);
+          window.setTimeout(() => inputRef.current?.focus(), 0);
+        }}
+      >
+        <Search size={16} />
+      </button>
+      <div className="row global-search-field" style={{ gap: 6 }}>
+        <Search size={14} style={{ color: 'var(--muted)' }} aria-hidden />
         <Input
+          ref={inputRef}
           aria-label="Global search"
-          placeholder="Search docs / names…"
+          aria-expanded={open && !!q.trim()}
+          aria-controls="global-search-results"
+          aria-autocomplete="list"
+          aria-activedescendant={
+            open && q.trim() && hits[active] ? `global-search-option-${active}` : undefined
+          }
+          role="combobox"
+          placeholder="Search… (/ or ⌘K)"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={onKeyDown}
+          onBlur={(e) => {
+            const next = e.relatedTarget as Node | null;
+            if (next && rootRef.current?.contains(next)) return;
+            window.setTimeout(() => {
+              setOpen(false);
+              if (!q.trim()) setExpanded(false);
+            }, 120);
+          }}
         />
       </div>
       {open && q.trim() ? (
         <div
+          id="global-search-results"
+          role="listbox"
           className="card"
           style={{
             position: 'absolute',
@@ -196,15 +310,20 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
             hits.map((h, i) => (
               <button
                 key={`${h.to}-${h.label}-${i}`}
+                id={`global-search-option-${i}`}
                 type="button"
+                role="option"
+                aria-selected={i === active}
                 className="btn btn-ghost btn-sm"
-                style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left' }}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  navigate(h.to);
-                  setQ('');
-                  setOpen(false);
+                style={{
+                  width: '100%',
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  background: i === active ? 'var(--subtle)' : undefined,
                 }}
+                onMouseEnter={() => setActive(i)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => go(h)}
               >
                 <span>
                   <span className="muted" style={{ fontSize: 10 }}>

@@ -62,6 +62,7 @@ export async function registerBusiness(input: {
   ownerName: string;
   email: string;
   phone: string;
+  alternatePhone?: string;
   password: string;
   businessName: string;
   gstNumber: string;
@@ -96,6 +97,11 @@ export async function registerBusiness(input: {
   }
   if (!input.phoneVerified) {
     return fail('Validation', 'AUTH_PHONE_UNVERIFIED', 'Verify your phone with the demo OTP first.', 'Registration was not completed.');
+  }
+  if (input.alternatePhone?.trim() && !isPhone(input.alternatePhone)) {
+    return fail('Validation', 'AUTH_ALT_PHONE_BAD', 'Alternate/WhatsApp phone is invalid.', 'Registration was not completed.', {
+      fields: { alternatePhone: 'Invalid phone' },
+    });
   }
   if (input.password.length < 6) {
     return fail('Validation', 'AUTH_WEAK_PASSWORD', 'Password must be at least 6 characters.', 'Registration was not completed.', {
@@ -184,6 +190,7 @@ export async function registerBusiness(input: {
     panNumber: input.panNumber ? normalizePan(input.panNumber) : undefined,
     pharmacyType: input.type === 'Pharmacy' ? input.pharmacyType : undefined,
     phone,
+    alternatePhone: input.alternatePhone?.trim() ? normalizePhone(input.alternatePhone) : undefined,
     email: input.email.trim().toLowerCase(),
     city: input.city.trim(),
     state: input.state.trim(),
@@ -420,6 +427,9 @@ export async function inviteStaff(params: {
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Staff was not invited.');
   if (params.role === 'Owner') {
     return fail('Permission', 'STAFF_OWNER_INVITE', 'Cannot invite as Owner. Transfer ownership instead.', 'Staff was not invited.');
+  }
+  if (!params.name.trim() || !params.email.trim() || !params.phone.trim()) {
+    return fail('Validation', 'STAFF_FIELDS', 'Name, email, and phone are required.', 'Staff was not invited.');
   }
   const exists = await db.users.filter((u) => u.email.toLowerCase() === params.email.trim().toLowerCase()).count();
   if (exists) return fail('Duplicate', 'AUTH_EMAIL_DUP', 'Email already in use.', 'Staff was not invited.');

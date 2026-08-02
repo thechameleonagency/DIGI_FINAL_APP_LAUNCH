@@ -4,11 +4,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
 import { makeIdempotencyKey } from '../../../domain/utils/idempotency';
+import { pluralize } from '../../../domain/utils/pluralize';
 import { recordManualOrder } from '../../../services/orderService';
 import {
   matchQuickOrderLines,
   parseQuickOrderText,
   type QuickOrderSeller,
+  type UnmatchedQuickLine,
 } from '../../../services/quickOrderService';
 import { productAvailableSellable } from '../../../domain/calc';
 import { useUi } from '../../../store/ui';
@@ -54,6 +56,7 @@ export function StockistManualOrder() {
   const [pickQty, setPickQty] = useState(1);
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [paste, setPaste] = useState('');
+  const [unmatched, setUnmatched] = useState<UnmatchedQuickLine[]>([]);
   const [notes, setNotes] = useState('');
 
   const activePharmacies = useMemo(
@@ -99,13 +102,16 @@ export function StockistManualOrder() {
 
   const applyPaste = () => {
     const parsed = parseQuickOrderText(paste);
-    const { matched, unmatched } = matchQuickOrderLines({ parsed, sellable });
-    if (unmatched.length) {
+    const { matched, unmatched: nextUnmatched } = matchQuickOrderLines({ parsed, sellable });
+    setUnmatched(nextUnmatched);
+    if (nextUnmatched.length) {
       pushToast({
         tone: 'warning',
-        title: `${unmatched.length} unmatched line(s)`,
-        message: unmatched.map((u) => u.raw).slice(0, 3).join('; '),
+        title: `${pluralize(nextUnmatched.length, 'unmatched line')}`,
+        message: 'Resolve them in the unmatched panel below — nothing was dropped silently.',
       });
+    } else if (matched.length) {
+      pushToast({ tone: 'success', title: `${pluralize(matched.length, 'line')} matched` });
     }
     setLines((prev) => {
       const next = [...prev];
@@ -123,6 +129,21 @@ export function StockistManualOrder() {
       }
       return next;
     });
+  };
+
+  const promoteUnmatched = (idx: number, productId: string) => {
+    const u = unmatched[idx];
+    const p = products.find((x) => x.id === productId);
+    if (!u || !p) return;
+    const qty = Math.max(u.qty || 1, p.moq);
+    setLines((prev) => {
+      const existing = prev.find((l) => l.productId === p.id);
+      if (existing) {
+        return prev.map((l) => (l.productId === p.id ? { ...l, qty: l.qty + qty } : l));
+      }
+      return [...prev, { productId: p.id, productName: p.name, qty, ptr: p.ptr, moq: p.moq }];
+    });
+    setUnmatched((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const total = lines.reduce((s, l) => s + l.qty * l.ptr, 0);
@@ -195,7 +216,7 @@ export function StockistManualOrder() {
             </Button>
           </div>
 
-          <strong>Or paste text (CF-02 parser)</strong>
+          <strong>Or paste order text</strong>
           <Field label="Lines">
             <Textarea
               rows={4}
@@ -207,6 +228,44 @@ export function StockistManualOrder() {
           <Button variant="secondary" disabled={!paste.trim()} onClick={applyPaste}>
             Parse into lines
           </Button>
+
+          {unmatched.length ? (
+            <div className="card card-pad stack">
+              <strong>Unmatched ({unmatched.length})</strong>
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                These lines did not match catalogue products. Pick a product or discard — they stay here until resolved.
+              </p>
+              {unmatched.map((u, idx) => (
+                <div key={`${u.raw}-${idx}`} className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <div style={{ fontSize: 13 }}>{u.raw}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      {u.reason}
+                      {u.qty != null ? ` · qty ${u.qty}` : ''}
+                    </div>
+                  </div>
+                  <Field label="Pick product">
+                    <Select
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) promoteUnmatched(idx, e.target.value);
+                      }}
+                    >
+                      <option value="">Select…</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} · {p.sku}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Button size="sm" variant="secondary" onClick={() => setUnmatched((prev) => prev.filter((_, i) => i !== idx))}>
+                    Discard
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {!lines.length ? (
             <div className="muted" style={{ fontSize: 13 }}>

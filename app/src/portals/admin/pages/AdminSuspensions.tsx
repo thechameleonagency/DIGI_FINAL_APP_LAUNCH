@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
-import { reactivateBusiness, suspendBusiness } from '../../../services/verificationService';
+import { archiveNotification } from '../../../services/notifications';
+import { reactivateBusiness } from '../../../services/verificationService';
 import { useUi } from '../../../store/ui';
 import { ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, Modal, PageHeader, StatusBadge, Textarea } from '../../../ui/components/primitives';
+import { SuspendBusinessDialog } from '../../../ui/components/SuspendBusinessDialog';
+import { Button, EmptyState, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function AdminSuspensions() {
@@ -15,8 +17,6 @@ export function AdminSuspensions() {
   const notifications =
     useLiveQuery(() => db.notifications.filter((n) => n.code === 'N-057' && n.status !== 'Archived').toArray()) ?? [];
   const [suspendTarget, setSuspendTarget] = useState<(typeof businesses)[0] | null>(null);
-  const [reason, setReason] = useState('');
-  const [auditNote, setAuditNote] = useState('');
 
   const rows = useMemo(
     () =>
@@ -63,27 +63,6 @@ export function AdminSuspensions() {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [notifications, businesses]);
 
-  const confirmSuspend = async () => {
-    if (!suspendTarget) return;
-    if (!reason.trim()) {
-      pushToast({ tone: 'error', title: 'Reason is required' });
-      return;
-    }
-    const full = auditNote.trim() ? `${reason.trim()} — ${auditNote.trim()}` : reason.trim();
-    const res = await suspendBusiness({
-      actor: user,
-      adminBusiness: business,
-      targetBusinessId: suspendTarget.id,
-      reason: full,
-    });
-    pushToast(res.ok ? { tone: 'warning', title: 'Suspended' } : { tone: 'error', title: res.message });
-    if (res.ok) {
-      setSuspendTarget(null);
-      setReason('');
-      setAuditNote('');
-    }
-  };
-
   return (
     <div className="stack">
       <PageHeader title="Suspensions" subtitle="Suspended-first directory, confirm impact, reactivation-request inbox" />
@@ -92,7 +71,7 @@ export function AdminSuspensions() {
         <strong>Reactivation requests</strong>
         {!inbox.length ? (
           <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-            No open reactivation requests (N-057).
+            No open reactivation requests.
           </p>
         ) : (
           inbox.map((n) => (
@@ -117,7 +96,7 @@ export function AdminSuspensions() {
                       targetBusinessId: n.bizId,
                     });
                     pushToast(res.ok ? { tone: 'success', title: 'Reactivated' } : { tone: 'error', title: res.message });
-                    if (res.ok) await db.notifications.update(n.id, { status: 'Archived' });
+                    if (res.ok) await archiveNotification(n.id);
                   }}
                 >
                   Reactivate
@@ -187,36 +166,13 @@ export function AdminSuspensions() {
         </>
       )}
 
-      <Modal
+      <SuspendBusinessDialog
         open={!!suspendTarget}
-        title="Suspend account"
+        target={suspendTarget}
+        actor={user}
+        adminBusiness={business}
         onClose={() => setSuspendTarget(null)}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setSuspendTarget(null)}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={() => void confirmSuspend()}>
-              Confirm suspend
-            </Button>
-          </>
-        }
-      >
-        {suspendTarget ? (
-          <div className="stack">
-            <div className="banner-strip warning">
-              <strong>{suspendTarget.name}</strong> will lose trade permissions (orders, payments, catalogue). History is
-              retained. Users can request reactivation from the suspended page.
-            </div>
-            <Field label="Reason (required — shown to business)">
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Policy violation / docs expired…" />
-            </Field>
-            <Field label="Internal audit note (optional)">
-              <Textarea value={auditNote} onChange={(e) => setAuditNote(e.target.value)} rows={2} />
-            </Field>
-          </div>
-        ) : null}
-      </Modal>
+      />
     </div>
   );
 }

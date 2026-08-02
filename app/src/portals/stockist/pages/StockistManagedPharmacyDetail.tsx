@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
+import { parseNumberInput } from '../../../domain/utils/validation';
 import { inviteManagedPharmacy, updateManagedPharmacy } from '../../../services/managedPharmacyService';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
@@ -15,13 +16,25 @@ export function StockistManagedPharmacyDetail() {
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
   const managed = useLiveQuery(() => (managedId ? db.managedPharmacies.get(managedId) : undefined), [managedId]);
+  const settings = useLiveQuery(() => db.platformSettings.get('platform'));
   const orders =
     useLiveQuery(
       () => (managedId ? db.orders.where('stockistId').equals(business.id).filter((o) => o.managedPharmacyId === managedId).toArray() : []),
       [business.id, managedId],
     ) ?? [];
   const [note, setNote] = useState('');
+  const [creditLimit, setCreditLimit] = useState('');
+  const [limitError, setLimitError] = useState<string | undefined>();
   const [shareText, setShareText] = useState('');
+  const [hydratedId, setHydratedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!managed) return;
+    if (hydratedId === managed.id) return;
+    setNote(managed.note ?? '');
+    setCreditLimit(managed.creditLimit != null ? String(managed.creditLimit) : '');
+    setHydratedId(managed.id);
+  }, [managed, hydratedId]);
 
   if (!managed || managed.stockistId !== business.id) {
     return (
@@ -36,6 +49,8 @@ export function StockistManagedPharmacyDetail() {
       />
     );
   }
+
+  const flatPerLine = settings?.offlineManagedFlatPerLine ?? 1;
 
   return (
     <div className="stack">
@@ -89,12 +104,20 @@ export function StockistManagedPharmacyDetail() {
         </div>
       ) : null}
       <div className="card card-pad stack">
-        <strong>Note</strong>
-        <Field label="Internal note">
-          <Textarea
-            value={note || managed.note || ''}
-            onChange={(e) => setNote(e.target.value)}
+        <strong>Credit & notes</strong>
+        <Field label="Credit limit (₹)" error={limitError} hint="Leave blank for no limit">
+          <Input
+            value={creditLimit}
+            onChange={(e) => {
+              setCreditLimit(e.target.value);
+              setLimitError(undefined);
+            }}
+            inputMode="decimal"
+            placeholder="No limit"
           />
+        </Field>
+        <Field label="Internal note" hint="Clear the field and save to remove the note">
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} />
         </Field>
         <Button
           size="sm"
@@ -102,17 +125,28 @@ export function StockistManagedPharmacyDetail() {
           disabled={busy}
           onClick={() =>
             void run(async () => {
+              let nextLimit: number | undefined;
+              if (creditLimit.trim()) {
+                const parsed = parseNumberInput(creditLimit);
+                if (parsed.status !== 'ok' || parsed.value <= 0) {
+                  setLimitError('Enter a limit greater than zero, or leave blank');
+                  return;
+                }
+                nextLimit = parsed.value;
+              } else {
+                nextLimit = undefined;
+              }
               const res = await updateManagedPharmacy({
                 actor: user,
                 stockist: business,
                 id: managed.id,
-                patch: { note: note || managed.note },
+                patch: { note: note.trim() ? note.trim() : undefined, creditLimit: nextLimit },
               });
               pushToast(res.ok ? { tone: 'success', title: 'Saved' } : { tone: 'error', title: res.message });
             })
           }
         >
-          Save note
+          Save
         </Button>
       </div>
       <div className="card card-pad stack">
@@ -130,11 +164,9 @@ export function StockistManagedPharmacyDetail() {
         )}
       </div>
       <div className="muted" style={{ fontSize: 13 }}>
-        Offline trade uses ₹{1}/line commission (platform Generic/Ethical schedule does not apply until Linked + Active).
+        Offline trade uses {formatINR(flatPerLine)}/line commission (platform Generic/Ethical schedule does not apply until
+        Linked + Active).
       </div>
-      <Field label="Credit limit">
-        <Input value={String(managed.creditLimit ?? '')} disabled />
-      </Field>
     </div>
   );
 }

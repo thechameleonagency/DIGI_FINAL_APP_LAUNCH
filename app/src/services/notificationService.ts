@@ -2,28 +2,35 @@ import type { Notification } from '../domain/entities/types';
 import { db } from '../data/db';
 import { filterMutableCategories } from './preferencesService';
 
-/** Deep-link by entityType (never N-code — app catalog ≠ docs/13 numbering). */
+/** Deep-link by entityType + human number when present (never N-code in the path). */
 export function resolveNotificationLink(
-  n: Pick<Notification, 'entityType' | 'entityId' | 'code'>,
+  n: Pick<Notification, 'entityType' | 'entityId' | 'entityNo' | 'code'>,
   portal: 'pharmacy' | 'stockist' | 'admin',
 ): string {
   const base = `/${portal}`;
   const id = n.entityId;
+  const no = n.entityNo ? encodeURIComponent(n.entityNo) : '';
   switch (n.entityType) {
     case 'Order':
-      if (portal === 'admin') return id ? `${base}/orders` : `${base}/orders`;
-      return id ? `${base}/orders` : `${base}/orders`;
+      return no ? `${base}/orders/${no}` : `${base}/orders`;
     case 'Invoice':
-      return `${base}/payments`;
+      if (portal === 'admin') return no ? `${base}/payments?invoice=${no}` : `${base}/payments`;
+      return no ? `${base}/invoices/${no}` : `${base}/payments`;
     case 'Payment':
-      return portal === 'admin' && id ? `${base}/payments` : `${base}/payments`;
+      if (portal === 'admin') return no ? `${base}/payments/${no}` : `${base}/payments`;
+      if (portal === 'pharmacy') return no ? `${base}/payments/${no}` : `${base}/payments`;
+      return no ? `${base}/payments?payment=${no}` : `${base}/payments`;
     case 'Return':
     case 'ReturnRequest':
-      return `${base}/returns`;
+      return no ? `${base}/returns/${no}` : `${base}/returns`;
     case 'CreditNote':
-      return portal === 'pharmacy' ? `${base}/payments` : `${base}/credit-notes`;
+      if (portal === 'pharmacy') return no ? `${base}/payments?tab=Credits&credit=${no}` : `${base}/payments?tab=Credits`;
+      return `${base}/credit-notes`;
     case 'Connection':
-      return portal === 'stockist' ? `${base}/pharmacies` : `${base}/connections`;
+      if (portal === 'stockist') return `${base}/pharmacies`;
+      // Admin has no /connections route; entityId is a connection id, not a business id.
+      if (portal === 'admin') return `${base}/network`;
+      return `${base}/connections`;
     case 'Delivery':
       return portal === 'stockist' ? `${base}/delivery` : `${base}/orders`;
     case 'Verification':
@@ -33,7 +40,9 @@ export function resolveNotificationLink(
     case 'SupportTicket':
       return id ? `${base}/support/${id}` : `${base}/support`;
     case 'MessageThread':
-      return `${base}/messages`;
+      // Admin has no messages route — land on support queue instead of a dead path.
+      if (portal === 'admin') return `${base}/support`;
+      return no || id ? `${base}/messages?thread=${encodeURIComponent(n.entityNo ?? id ?? '')}` : `${base}/messages`;
     case 'Announcement':
       return base;
     default:
@@ -58,6 +67,19 @@ export async function archiveNotification(notificationId: string, userId: string
   const n = await db.notifications.get(notificationId);
   if (!n || n.userId !== userId) return;
   await db.notifications.update(notificationId, { status: 'Archived', readAt: n.readAt ?? new Date().toISOString() });
+}
+
+export async function unarchiveNotification(
+  notificationId: string,
+  userId: string,
+  restoreStatus: 'Unread' | 'Read' = 'Unread',
+): Promise<void> {
+  const n = await db.notifications.get(notificationId);
+  if (!n || n.userId !== userId) return;
+  await db.notifications.update(notificationId, {
+    status: restoreStatus,
+    readAt: restoreStatus === 'Unread' ? undefined : n.readAt ?? new Date().toISOString(),
+  });
 }
 
 export async function setMutedCategories(userId: string, mutedCategories: string[]): Promise<void> {

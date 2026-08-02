@@ -8,10 +8,14 @@ import { formatINR } from '../../../domain/utils/money';
 import { AnnouncementStrip } from '../../../ui/components/AnnouncementStrip';
 import { BannerStrip } from '../../../ui/components/BannerStrip';
 import { Kpi, Money, PageHeader } from '../../../ui/components/primitives';
+import { chartColors } from '../../../ui/chartTheme';
+import { useCan } from '../../../store/session';
 import { useBiz } from './useBiz';
 
 export function StockistHome() {
   const { business, user } = useBiz();
+  const canStaff = useCan('staff.manage');
+  const charts = chartColors();
   const slaReminders =
     useLiveQuery(
       () =>
@@ -22,7 +26,9 @@ export function StockistHome() {
           .toArray(),
       [user.id],
     ) ?? [];
-  const orders = useLiveQuery(() => db.orders.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const ordersRaw = useLiveQuery(() => db.orders.where('stockistId').equals(business.id).toArray(), [business.id]);
+  const homeLoading = ordersRaw === undefined;
+  const orders = ordersRaw ?? [];
   const invoices = useLiveQuery(() => db.invoices.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const payments = useLiveQuery(() => db.payments.where({ stockistId: business.id, status: 'Submitted' }).toArray(), [business.id]) ?? [];
   const returns = useLiveQuery(() => db.returns.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
@@ -103,7 +109,12 @@ export function StockistHome() {
     <div className="stack">
       <PageHeader title="Stockist home" subtitle="Fulfilment queues and receivables" />
       <BannerStrip placement="Stockist Home" />
-      <AnnouncementStrip audience="Stockist" placement="Stockist Home" />
+      <AnnouncementStrip audience="Stockist" placement="Stockist Home" archivePath="/stockist/announcements" />
+      {homeLoading ? (
+        <p className="muted" role="status" style={{ margin: 0 }}>
+          Loading workspace…
+        </p>
+      ) : null}
       {slaReminders.length ? (
         <div className="card card-pad stack">
           <strong>SLA reminders</strong>
@@ -147,38 +158,40 @@ export function StockistHome() {
           <Link className="btn btn-secondary btn-sm" to="/stockist/inventory">
             Stock in
           </Link>
-          <Link className="btn btn-secondary btn-sm" to="/stockist/staff">
-            Invite staff
-          </Link>
+          {canStaff ? (
+            <Link className="btn btn-secondary btn-sm" to="/stockist/staff">
+              Invite staff
+            </Link>
+          ) : null}
         </div>
       </div>
       {!isAccountant ? (
         <div className="kpi-grid">
-          <Link className="card card-pad" to="/stockist/orders?status=Allocated">
+          <Link className="kpi-link" to="/stockist/orders?status=Allocated">
             <Kpi label="To pack" value={toPack} />
           </Link>
-          <Link className="card card-pad" to="/stockist/orders?status=Packed">
+          <Link className="kpi-link" to="/stockist/orders?status=Packed">
             <Kpi label="To dispatch" value={toDispatch} />
           </Link>
-          <Link className="card card-pad" to="/stockist/delivery">
+          <Link className="kpi-link" to="/stockist/delivery">
             <Kpi label="Out for delivery" value={outForDelivery} />
           </Link>
-          <Link className="card card-pad" to="/stockist/inventory?filter=low">
+          <Link className="kpi-link" to="/stockist/inventory?filter=low">
             <Kpi label="Low stock" value={low} />
           </Link>
-          <Link className="card card-pad" to="/stockist/inventory?filter=near-expiry">
+          <Link className="kpi-link" to="/stockist/inventory?filter=near-expiry">
             <Kpi label="Near expiry" value={near} />
           </Link>
-          <Link className="card card-pad" to="/stockist/returns">
+          <Link className="kpi-link" to="/stockist/returns">
             <Kpi label="Returns to review" value={returnsReview} />
           </Link>
         </div>
       ) : null}
       <div className="kpi-grid">
-        <Link className="card card-pad" to="/stockist/payments?status=Overdue">
+        <Link className="kpi-link" to="/stockist/payments?status=Overdue">
           <Kpi label="Overdue receivables" value={overdue} sub={formatINR(stockistReceivables(invoices, business.id))} />
         </Link>
-        <Link className="card card-pad" to="/stockist/payments">
+        <Link className="kpi-link" to="/stockist/payments">
           <Kpi label="Payments to review" value={payments.length} />
         </Link>
         <Kpi label="Receivables" value={<Money value={stockistReceivables(invoices, business.id)} />} />
@@ -189,11 +202,11 @@ export function StockistHome() {
           <div style={{ width: '100%', height: 220 }}>
             <ResponsiveContainer>
               <BarChart data={aging}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={charts.grid} />
                 <XAxis dataKey="band" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v) => formatINR(Number(v))} />
-                <Bar dataKey="total" fill="#4A7399" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="total" fill={charts.primary} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -203,11 +216,11 @@ export function StockistHome() {
           <div style={{ width: '100%', height: 220 }}>
             <ResponsiveContainer>
               <BarChart data={topPharmacies}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={charts.grid} />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v) => formatINR(Number(v))} />
-                <Bar dataKey="total" fill="#6B8F71" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="total" fill={charts.secondary} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

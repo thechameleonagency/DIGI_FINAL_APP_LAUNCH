@@ -36,6 +36,16 @@ export async function placeOrder(params: {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Order was not created.');
 
+  const platform = await db.platformSettings.get('platform');
+  if (platform?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'ORD_MAINTENANCE',
+      'Platform maintenance is on — new orders are paused. Try again after the banner clears.',
+      'Order was not created.',
+    );
+  }
+
   const existing = await db.orders.where('idempotencyKey').equals(params.idempotencyKey).first();
   if (existing) {
     return fail('Duplicate', 'ORD_IDEMPOTENT', 'This order was already placed.', 'A duplicate order was not created.', {

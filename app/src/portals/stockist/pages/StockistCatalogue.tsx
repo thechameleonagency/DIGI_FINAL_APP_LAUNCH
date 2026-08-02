@@ -1,8 +1,12 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
 import { applyReferenceFill, matchMedicineReference } from '../../../content/medicineReference';
+import { parseCsvTable } from '../../../domain/utils/csv';
+import { catalogueFieldLabel } from '../../../domain/utils/humanLabels';
+import { parseNumberInput } from '../../../domain/utils/validation';
 import {
   bulkUpdatePrices,
   importProductsCsv,
@@ -11,8 +15,9 @@ import {
   upsertProduct,
 } from '../../../services/catalogueService';
 import { useUi } from '../../../store/ui';
+import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, Money, PageHeader, Select, StatusBadge, Textarea } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, Select, StatusBadge, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 const emptyForm = {
@@ -21,9 +26,9 @@ const emptyForm = {
   brand: '',
   category: '',
   packSize: '',
-  mrp: 0,
-  ptr: 0,
-  gstPercent: 0,
+  mrp: '' as number | '',
+  ptr: '' as number | '',
+  gstPercent: '' as number | '',
   moq: 5,
   maxQty: undefined as number | undefined,
   hsn: '',
@@ -44,16 +49,49 @@ const CSV_TEMPLATE =
 export function StockistCatalogue() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
-  const products = useLiveQuery(() => db.products.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const [params] = useSearchParams();
+  const highlightId = params.get('highlight');
+  const { items: products, loading: productsLoading } = useLiveArray(
+    () => db.products.where('stockistId').equals(business.id).toArray(),
+    [business.id],
+  );
   const catalogue = useLiveQuery(() => db.catalogues.where('stockistId').equals(business.id).first(), [business.id]);
   const [csv, setCsv] = useState(CSV_TEMPLATE);
-  const [importReport, setImportReport] = useState<{ succeeded: string[]; failed: { sku: string; reason: string }[] } | null>(null);
+  const [importReport, setImportReport] = useState<{
+    succeeded: string[];
+    failed: { sku: string; reason: string }[];
+    skipped: number;
+    headerError?: string;
+  } | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState<string | undefined>();
+  const [productModalOpen, setProductModalOpen] = useState(false);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [bulkMode, setBulkMode] = useState<'percent' | 'absolute'>('percent');
   const [bulkField, setBulkField] = useState<'ptr' | 'mrp'>('ptr');
   const [bulkValue, setBulkValue] = useState('5');
+  const [discontinueId, setDiscontinueId] = useState<string | null>(null);
+  const discontinueTarget = discontinueId ? products.find((p) => p.id === discontinueId) : undefined;
+  const [pendingCatalogueStatus, setPendingCatalogueStatus] = useState<'Active' | 'Maintenance' | 'Inactive' | null>(
+    null,
+  );
+
+  const closeProductModal = () => {
+    setProductModalOpen(false);
+    setEditId(undefined);
+    setForm(emptyForm);
+  };
+
+  const carts =
+    useLiveQuery(() => db.carts.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const pharmaciesWithCartLines = carts.filter((c) => (c.lines?.length ?? 0) > 0).length;
+  const activePharmacyConnections =
+    useLiveQuery(
+      () => db.connections.where({ stockistId: business.id, status: 'Active' }).count(),
+      [business.id],
+    ) ?? 0;
 
   const columns = useMemo(
     () => [
@@ -123,6 +161,7 @@ export function StockistCatalogue() {
                   rxRequired: !!p.rxRequired,
                   narcotic: !!p.narcotic,
                 });
+                setProductModalOpen(true);
               }}
             >
               Edit
@@ -139,7 +178,7 @@ export function StockistCatalogue() {
                 Deactivate
               </Button>
             ) : null}
-            {p.status === 'Inactive' ? (
+            {p.status === 'Inactive' || p.status === 'Discontinued' ? (
               <Button
                 size="sm"
                 variant="ghost"
@@ -152,14 +191,7 @@ export function StockistCatalogue() {
               </Button>
             ) : null}
             {p.status !== 'Discontinued' ? (
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={async () => {
-                  const res = await setProductStatus({ actor: user, stockist: business, productId: p.id, status: 'Discontinued' });
-                  pushToast(res.ok ? { tone: 'warning', title: 'Discontinued' } : { tone: 'error', title: res.message });
-                }}
-              >
+              <Button size="sm" variant="danger" onClick={() => setDiscontinueId(p.id)}>
                 Discontinue
               </Button>
             ) : null}
@@ -172,7 +204,7 @@ export function StockistCatalogue() {
 
   const list = useListControls(products, {
     columns,
-    searchKeys: [(p) => `${p.name} ${p.sku} ${p.brand} ${p.category}`],
+    searchKeys: [(p) => `${p.name} ${p.sku} ${p.brand} ${p.category} ${p.id}`],
     filters: [
       {
         key: 'category',
@@ -189,17 +221,131 @@ export function StockistCatalogue() {
     defaultSortDir: 'asc',
   });
 
+  useEffect(() => {
+    if (!highlightId || !products.length) return;
+    const hit = products.find((p) => p.id === highlightId);
+    if (!hit) return;
+    list.setQuery(hit.name);
+  }, [highlightId, products]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const t = window.setTimeout(() => {
+      document.querySelector(`[data-row-id="${highlightId}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [highlightId, list.pageRows]);
+
   const selectedIds = Object.entries(selected)
     .filter(([, v]) => v)
     .map(([id]) => id);
 
+  const bulkPreview = useMemo(() => {
+    const n = Number(bulkValue);
+    if (!Number.isFinite(n) || !selectedIds.length) return [];
+    return products
+      .filter((p) => selected[p.id])
+      .slice(0, 40)
+      .map((p) => {
+        const before = bulkField === 'ptr' ? p.ptr : p.mrp;
+        const after =
+          bulkMode === 'percent' ? Math.round(before * (1 + n / 100) * 100) / 100 : n;
+        return { id: p.id, name: p.name, before, after };
+      });
+  }, [products, selected, selectedIds.length, bulkField, bulkMode, bulkValue]);
+
   return (
     <div className="stack">
+      <ConfirmDialog
+        open={!!discontinueTarget}
+        title="Discontinue product?"
+        tone="danger"
+        confirmLabel="Discontinue"
+        body={
+          discontinueTarget ? (
+            <p>
+              <strong>{discontinueTarget.name}</strong> ({discontinueTarget.sku}) will be discontinued and hidden from
+              buyers. You can Reactivate later from the catalogue if needed.
+            </p>
+          ) : null
+        }
+        onClose={() => setDiscontinueId(null)}
+        onConfirm={async () => {
+          if (!discontinueTarget) return;
+          const res = await setProductStatus({
+            actor: user,
+            stockist: business,
+            productId: discontinueTarget.id,
+            status: 'Discontinued',
+          });
+          pushToast(res.ok ? { tone: 'warning', title: 'Discontinued' } : { tone: 'error', title: res.message });
+          if (res.ok) setDiscontinueId(null);
+        }}
+      />
+      <ConfirmDialog
+        open={!!pendingCatalogueStatus}
+        title="Change catalogue status?"
+        tone={pendingCatalogueStatus && pendingCatalogueStatus !== 'Active' ? 'danger' : 'primary'}
+        confirmLabel={`Set catalogue to ${pendingCatalogueStatus ?? ''}`}
+        body={
+          pendingCatalogueStatus ? (
+            <div className="stack" style={{ gap: 8 }}>
+              <p>
+                Catalogue will change from <strong>{catalogue?.status}</strong> to{' '}
+                <strong>{pendingCatalogueStatus}</strong>.
+              </p>
+              {pendingCatalogueStatus !== 'Active' ? (
+                <p>
+                  This blocks browsing and carting for connected pharmacies (
+                  {activePharmacyConnections} active connection
+                  {activePharmacyConnections === 1 ? '' : 's'}).{' '}
+                  {pharmaciesWithCartLines > 0
+                    ? `${pharmaciesWithCartLines} pharmac${pharmaciesWithCartLines === 1 ? 'y has' : 'ies have'} carts with you right now.`
+                    : 'No pharmacies currently have cart lines with you.'}
+                </p>
+              ) : (
+                <p>Catalogue will become available for browsing and ordering again.</p>
+              )}
+            </div>
+          ) : null
+        }
+        onClose={() => setPendingCatalogueStatus(null)}
+        onConfirm={async () => {
+          if (!pendingCatalogueStatus) return;
+          const res = await setCatalogueStatus({
+            actor: user,
+            stockist: business,
+            status: pendingCatalogueStatus,
+          });
+          pushToast(
+            res.ok
+              ? { tone: 'success', title: `Catalogue ${pendingCatalogueStatus}` }
+              : { tone: 'error', title: res.message },
+          );
+          if (res.ok) setPendingCatalogueStatus(null);
+        }}
+      />
       <PageHeader
         title="Catalogue"
         subtitle={`${products.length} products`}
         actions={
           <div className="row">
+            <Button
+              size="sm"
+              onClick={() => {
+                setEditId(undefined);
+                setForm(emptyForm);
+                setProductModalOpen(true);
+              }}
+            >
+              Add product
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setBulkModalOpen(true)}>
+              Bulk price
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setCsvModalOpen(true)}>
+              Import CSV
+            </Button>
             <Link className="btn btn-secondary btn-sm" to="/stockist/price-history">
               Price history
             </Link>
@@ -224,13 +370,10 @@ export function StockistCatalogue() {
             {catalogue ? (
               <Select
                 value={catalogue.status}
-                onChange={async (e) => {
-                  const res = await setCatalogueStatus({
-                    actor: user,
-                    stockist: business,
-                    status: e.target.value as 'Active' | 'Maintenance' | 'Inactive',
-                  });
-                  pushToast(res.ok ? { tone: 'success', title: `Catalogue ${e.target.value}` } : { tone: 'error', title: res.message });
+                onChange={(e) => {
+                  const next = e.target.value as 'Active' | 'Maintenance' | 'Inactive';
+                  if (next === catalogue.status) return;
+                  setPendingCatalogueStatus(next);
                 }}
                 style={{ maxWidth: 160 }}
               >
@@ -268,22 +411,182 @@ export function StockistCatalogue() {
           pushToast({ tone: 'success', title: 'Catalogue exported' });
         }}
       />
-      <DataListTable columns={columns} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
+      <DataListTable
+        columns={columns}
+        loading={productsLoading}
+        rows={list.pageRows}
+        sortKey={list.sortKey}
+        sortDir={list.sortDir}
+        onSort={list.toggleSort}
+        activeRowId={highlightId}
+      />
       <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
 
-      <div className="card card-pad stack">
-        <strong>{editId ? 'Edit product' : 'Add product'}</strong>
-        <div className="grid-3">
+      <Modal
+        open={productModalOpen}
+        title={editId ? 'Edit product' : 'Add product'}
+        onClose={closeProductModal}
+        footer={
+          <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            <Button size="sm" variant="secondary" onClick={closeProductModal}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                const ref = matchMedicineReference(form.name);
+                if (!ref) {
+                  pushToast({ tone: 'warning', title: 'No reference match', message: 'Try a name like Dolo 650' });
+                  return;
+                }
+                const { next, filled } = applyReferenceFill(form, ref, { fillPrices: !editId });
+                setForm(next as typeof form);
+                pushToast({
+                  tone: 'info',
+                  title: `Auto-fill: ${ref.name}`,
+                  message: filled.length ? `Filled: ${filled.join(', ')}` : 'No empty fields to fill',
+                });
+              }}
+            >
+              Auto-fill
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                let touched = 0;
+                const report: string[] = [];
+                for (const p of products) {
+                  const ref = matchMedicineReference(p.name);
+                  if (!ref) continue;
+                  const draft = {
+                    brand: p.brand,
+                    category: p.category,
+                    packSize: p.packSize,
+                    hsn: p.hsn ?? '',
+                    manufacturer: p.manufacturer ?? '',
+                    genericName: p.genericName ?? '',
+                    gstPercent: p.gstPercent,
+                    name: p.name,
+                  };
+                  const { next, filled } = applyReferenceFill(draft, ref, { fillPrices: false });
+                  if (!filled.length) continue;
+                  const res = await upsertProduct({
+                    actor: user,
+                    stockist: business,
+                    productId: p.id,
+                    product: {
+                      name: p.name,
+                      sku: p.sku,
+                      brand: String(next.brand),
+                      category: String(next.category),
+                      packSize: String(next.packSize),
+                      mrp: p.mrp,
+                      ptr: p.ptr,
+                      gstPercent: Number(next.gstPercent) || p.gstPercent,
+                      moq: p.moq,
+                      maxQty: p.maxQty,
+                      hsn: String(next.hsn) || undefined,
+                      reorderLevel: p.reorderLevel,
+                      manufacturer: String(next.manufacturer) || undefined,
+                      genericName: String(next.genericName) || undefined,
+                    },
+                  });
+                  if (res.ok) {
+                    touched += 1;
+                    report.push(`${p.sku}: ${filled.join(', ')}`);
+                  }
+                }
+                pushToast({
+                  tone: touched ? 'success' : 'info',
+                  title: `Enhance all: ${touched} updated`,
+                  message: report.slice(0, 5).join(' · ') || 'Nothing to fill',
+                });
+              }}
+            >
+              Enhance all
+            </Button>
+            <Button
+              onClick={async () => {
+                const mrp = form.mrp === '' ? NaN : Number(form.mrp);
+                const ptr = form.ptr === '' ? NaN : Number(form.ptr);
+                const gstPercent = form.gstPercent === '' ? NaN : Number(form.gstPercent);
+                if (!(mrp > 0) || !(ptr > 0) || !(gstPercent > 0)) {
+                  pushToast({
+                    tone: 'error',
+                    title: 'Pricing required',
+                    message: 'MRP, PTR, and GST % must be greater than zero.',
+                  });
+                  return;
+                }
+                if (ptr > mrp) {
+                  pushToast({ tone: 'error', title: 'PTR exceeds MRP', message: 'PTR must be less than or equal to MRP.' });
+                  return;
+                }
+                const res = await upsertProduct({
+                  actor: user,
+                  stockist: business,
+                  productId: editId,
+                  product: {
+                    ...form,
+                    mrp,
+                    ptr,
+                    gstPercent,
+                    hsn: form.hsn || undefined,
+                    manufacturer: form.manufacturer || undefined,
+                    genericName: form.genericName || undefined,
+                    composition: form.composition || undefined,
+                    description: form.description || undefined,
+                    purchaseRate: form.purchaseRate,
+                    pricingClass: form.pricingClass,
+                    rxRequired: form.rxRequired,
+                    narcotic: form.narcotic,
+                  },
+                });
+                pushToast(res.ok ? { tone: 'success', title: editId ? 'Product updated' : 'Product added' } : { tone: 'error', title: res.message });
+                if (res.ok) closeProductModal();
+              }}
+            >
+              {editId ? 'Save changes' : 'Save product'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="stack">
+          {editId ? (
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              Editing selected row — save or cancel when finished.
+            </p>
+          ) : null}
+          <div className="grid-3">
           {(['name', 'sku', 'brand', 'category', 'packSize', 'hsn', 'manufacturer', 'genericName', 'composition'] as const).map((k) => (
-            <Field key={k} label={k}>
+            <Field key={k} label={catalogueFieldLabel(k)}>
               <Input value={String(form[k] ?? '')} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} />
             </Field>
           ))}
-          <Field label="MRP">
-            <Input type="number" value={form.mrp} onChange={(e) => setForm((f) => ({ ...f, mrp: Number(e.target.value) }))} />
+          <Field label="MRP *">
+            <Input
+              type="number"
+              min={0.01}
+              step="0.01"
+              value={form.mrp}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, mrp: e.target.value === '' ? '' : Number(e.target.value) }))
+              }
+            />
           </Field>
-          <Field label="PTR">
-            <Input type="number" value={form.ptr} onChange={(e) => setForm((f) => ({ ...f, ptr: Number(e.target.value) }))} />
+          <Field label="PTR *">
+            <Input
+              type="number"
+              min={0.01}
+              step="0.01"
+              placeholder="Must be ≤ MRP"
+              value={form.ptr}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, ptr: e.target.value === '' ? '' : Number(e.target.value) }))
+              }
+            />
           </Field>
           <Field label="Purchase rate">
             <Input
@@ -301,8 +604,16 @@ export function StockistCatalogue() {
               <option value="Ethical">Ethical (flat / line)</option>
             </Select>
           </Field>
-          <Field label="GST %">
-            <Input type="number" value={form.gstPercent} onChange={(e) => setForm((f) => ({ ...f, gstPercent: Number(e.target.value) }))} />
+          <Field label="GST % *">
+            <Input
+              type="number"
+              min={0.01}
+              step="0.01"
+              value={form.gstPercent}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, gstPercent: e.target.value === '' ? '' : Number(e.target.value) }))
+              }
+            />
           </Field>
           <Field label="MOQ">
             <Input type="number" value={form.moq} onChange={(e) => setForm((f) => ({ ...f, moq: Number(e.target.value) }))} />
@@ -340,231 +651,243 @@ export function StockistCatalogue() {
             />
             Narcotic
           </label>
+          </div>
         </div>
-        <div className="row">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              const ref = matchMedicineReference(form.name);
-              if (!ref) {
-                pushToast({ tone: 'warning', title: 'No reference match', message: 'Try a name like Dolo 650' });
-                return;
-              }
-              const { next, filled } = applyReferenceFill(form, ref, { fillPrices: !editId });
-              setForm(next as typeof form);
-              pushToast({
-                tone: 'info',
-                title: `Auto-fill: ${ref.name}`,
-                message: filled.length ? `Filled: ${filled.join(', ')}` : 'No empty fields to fill',
-              });
-            }}
-          >
-            Auto-fill
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={async () => {
-              let touched = 0;
-              const report: string[] = [];
-              for (const p of products) {
-                const ref = matchMedicineReference(p.name);
-                if (!ref) continue;
-                const draft = {
-                  brand: p.brand,
-                  category: p.category,
-                  packSize: p.packSize,
-                  hsn: p.hsn ?? '',
-                  manufacturer: p.manufacturer ?? '',
-                  genericName: p.genericName ?? '',
-                  gstPercent: p.gstPercent,
-                  name: p.name,
-                };
-                const { next, filled } = applyReferenceFill(draft, ref, { fillPrices: false });
-                if (!filled.length) continue;
-                const res = await upsertProduct({
+      </Modal>
+
+      <Modal
+        open={bulkModalOpen}
+        title="Bulk price update"
+        onClose={() => setBulkModalOpen(false)}
+        footer={
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setBulkModalOpen(false)}>
+              Close
+            </Button>
+            <Button
+              disabled={!bulkPreview.length}
+              onClick={async () => {
+                const res = await bulkUpdatePrices({
                   actor: user,
                   stockist: business,
-                  productId: p.id,
-                  product: {
-                    name: p.name,
-                    sku: p.sku,
-                    brand: String(next.brand),
-                    category: String(next.category),
-                    packSize: String(next.packSize),
-                    mrp: p.mrp,
-                    ptr: p.ptr,
-                    gstPercent: Number(next.gstPercent) || p.gstPercent,
-                    moq: p.moq,
-                    maxQty: p.maxQty,
-                    hsn: String(next.hsn) || undefined,
-                    reorderLevel: p.reorderLevel,
-                    manufacturer: String(next.manufacturer) || undefined,
-                    genericName: String(next.genericName) || undefined,
-                  },
+                  productIds: selectedIds,
+                  mode: bulkMode,
+                  value: Number(bulkValue),
+                  field: bulkField,
                 });
-                if (res.ok) {
-                  touched += 1;
-                  report.push(`${p.sku}: ${filled.join(', ')}`);
-                }
-              }
-              pushToast({
-                tone: touched ? 'success' : 'info',
-                title: `Enhance all: ${touched} updated`,
-                message: report.slice(0, 5).join(' · ') || 'Nothing to fill',
-              });
-            }}
-          >
-            Enhance all
-          </Button>
-          <Button
-            onClick={async () => {
-              const res = await upsertProduct({
-                actor: user,
-                stockist: business,
-                productId: editId,
-                product: {
-                  ...form,
-                  hsn: form.hsn || undefined,
-                  manufacturer: form.manufacturer || undefined,
-                  genericName: form.genericName || undefined,
-                  composition: form.composition || undefined,
-                  description: form.description || undefined,
-                  purchaseRate: form.purchaseRate,
-                  pricingClass: form.pricingClass,
-                  rxRequired: form.rxRequired,
-                  narcotic: form.narcotic,
-                },
-              });
-              pushToast(res.ok ? { tone: 'success', title: editId ? 'Product updated' : 'Product added' } : { tone: 'error', title: res.message });
-              if (res.ok) {
-                setForm(emptyForm);
-                setEditId(undefined);
-              }
-            }}
-          >
-            {editId ? 'Save changes' : 'Save product'}
-          </Button>
-          {editId ? (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setEditId(undefined);
-                setForm(emptyForm);
+                pushToast(
+                  res.ok ? { tone: 'success', title: `Updated ${res.data.updated} products` } : { tone: 'error', title: res.message },
+                );
+                if (res.ok) setBulkModalOpen(false);
               }}
             >
-              Clear
+              Confirm apply
             </Button>
+          </div>
+        }
+      >
+        <div className="stack">
+          <div className="row">
+            <Button size="sm" variant="secondary" onClick={() => setSelected(Object.fromEntries(list.pageRows.map((p) => [p.id, true])))}>
+              Select page
+            </Button>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {selectedIds.length} selected
+            </span>
+          </div>
+          <div className="row">
+            <Select value={bulkField} onChange={(e) => setBulkField(e.target.value as 'ptr' | 'mrp')}>
+              <option value="ptr">PTR</option>
+              <option value="mrp">MRP</option>
+            </Select>
+            <Select value={bulkMode} onChange={(e) => setBulkMode(e.target.value as 'percent' | 'absolute')}>
+              <option value="percent">Percent ±</option>
+              <option value="absolute">Absolute</option>
+            </Select>
+            <Input type="number" value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} style={{ width: 100 }} />
+          </div>
+          {bulkPreview.length ? (
+            <div className="table-wrap" style={{ maxHeight: 220, overflow: 'auto' }}>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Before ({bulkField.toUpperCase()})</th>
+                    <th>After</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkPreview.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.name}</td>
+                      <td>
+                        <Money value={r.before} />
+                      </td>
+                      <td>
+                        <Money value={r.after} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {selectedIds.length > bulkPreview.length ? (
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  Showing first {bulkPreview.length} of {selectedIds.length} selected
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <EmptyState title="No preview" description="Select products and enter a value to preview before→after." />
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={csvModalOpen}
+        title="Import CSV"
+        onClose={() => setCsvModalOpen(false)}
+        footer={
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setCsvModalOpen(false)}>
+              Close
+            </Button>
+            <Button
+              onClick={async () => {
+                const expected = [
+                  'name',
+                  'sku',
+                  'brand',
+                  'category',
+                  'packsize',
+                  'mrp',
+                  'ptr',
+                  'gstpercent',
+                  'moq',
+                ];
+                const { header, rows: rawRows } = parseCsvTable(csv);
+                if (!header.length) {
+                  setImportReport({
+                    succeeded: [],
+                    failed: [],
+                    skipped: 0,
+                    headerError: 'CSV is empty',
+                  });
+                  pushToast({ tone: 'error', title: 'CSV is empty' });
+                  return;
+                }
+                const normalizedHeader = header.map((h) => h.toLowerCase().replace(/\s+/g, ''));
+                const missing = expected.filter((h) => !normalizedHeader.includes(h));
+                if (missing.length) {
+                  const msg = `Header missing: ${missing.join(', ')}. Expected name,sku,brand,category,packSize,mrp,ptr,gstPercent,moq[,pricingClass]`;
+                  setImportReport({ succeeded: [], failed: [], skipped: 0, headerError: msg });
+                  pushToast({ tone: 'error', title: 'Invalid CSV header', message: msg });
+                  return;
+                }
+                let skipped = 0;
+                const rows: {
+                  name: string;
+                  sku: string;
+                  brand: string;
+                  category: string;
+                  packSize: string;
+                  mrp: number;
+                  ptr: number;
+                  gstPercent: number;
+                  moq: number;
+                  pricingClass: 'Generic' | 'Ethical';
+                }[] = [];
+                rawRows.forEach((cols, idx) => {
+                  if (cols.every((c) => !c)) {
+                    skipped += 1;
+                    return;
+                  }
+                  if (cols.length < 9) {
+                    skipped += 1;
+                    return;
+                  }
+                  const mrp = parseNumberInput(cols[5]);
+                  const ptr = parseNumberInput(cols[6]);
+                  const gst = parseNumberInput(cols[7]);
+                  const moq = parseNumberInput(cols[8]);
+                  if (
+                    mrp.status !== 'ok' ||
+                    ptr.status !== 'ok' ||
+                    gst.status !== 'ok' ||
+                    moq.status !== 'ok'
+                  ) {
+                    skipped += 1;
+                    return;
+                  }
+                  rows.push({
+                    name: cols[0],
+                    sku: cols[1] || `ROW-${idx + 2}`,
+                    brand: cols[2],
+                    category: cols[3],
+                    packSize: cols[4],
+                    mrp: mrp.value,
+                    ptr: ptr.value,
+                    gstPercent: gst.value,
+                    moq: moq.value,
+                    pricingClass: cols[9] === 'Ethical' ? 'Ethical' : 'Generic',
+                  });
+                });
+                const res = await importProductsCsv({ actor: user, stockist: business, rows });
+                if (res.ok) {
+                  setImportReport({ ...res.data, skipped });
+                  pushToast({
+                    tone: res.data.failed.length || skipped ? 'warning' : 'success',
+                    title: `Import: ${res.data.succeeded.length} ok, ${res.data.failed.length} failed, ${skipped} skipped`,
+                  });
+                } else pushToast({ tone: 'error', title: res.message });
+              }}
+            >
+              Run import
+            </Button>
+          </div>
+        }
+      >
+        <div className="stack">
+          <div className="row">
+            <a
+              className="btn btn-secondary btn-sm"
+              href={`data:text/csv;charset=utf-8,${encodeURIComponent(CSV_TEMPLATE)}`}
+              download="catalogue-template.csv"
+            >
+              Download template
+            </a>
+            <label className="btn btn-secondary btn-sm">
+              Upload file
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                hidden
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  setCsv(await file.text());
+                }}
+              />
+            </label>
+          </div>
+          <Textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={5} />
+          {importReport ? (
+            <div className="muted" style={{ fontSize: 12 }}>
+              {importReport.headerError ? (
+                <>
+                  {importReport.headerError}
+                  <br />
+                </>
+              ) : null}
+              Succeeded: {importReport.succeeded.join(', ') || '—'}
+              <br />
+              Failed: {importReport.failed.map((f) => `${f.sku} (${f.reason})`).join('; ') || '—'}
+              <br />
+              Skipped rows: {importReport.skipped}
+            </div>
           ) : null}
         </div>
-      </div>
-
-      <div className="card card-pad stack">
-        <strong>Bulk price update</strong>
-        <div className="row">
-          <Button size="sm" variant="secondary" onClick={() => setSelected(Object.fromEntries(list.pageRows.map((p) => [p.id, true])))}>
-            Select page
-          </Button>
-          <span className="muted" style={{ fontSize: 12 }}>
-            {selectedIds.length} selected
-          </span>
-        </div>
-        <div className="row">
-          <Select value={bulkField} onChange={(e) => setBulkField(e.target.value as 'ptr' | 'mrp')}>
-            <option value="ptr">PTR</option>
-            <option value="mrp">MRP</option>
-          </Select>
-          <Select value={bulkMode} onChange={(e) => setBulkMode(e.target.value as 'percent' | 'absolute')}>
-            <option value="percent">Percent ±</option>
-            <option value="absolute">Absolute</option>
-          </Select>
-          <Input type="number" value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} style={{ width: 100 }} />
-          <Button
-            onClick={async () => {
-              const res = await bulkUpdatePrices({
-                actor: user,
-                stockist: business,
-                productIds: selectedIds,
-                mode: bulkMode,
-                value: Number(bulkValue),
-                field: bulkField,
-              });
-              pushToast(
-                res.ok ? { tone: 'success', title: `Updated ${res.data.updated} products` } : { tone: 'error', title: res.message },
-              );
-            }}
-          >
-            Apply to selected
-          </Button>
-        </div>
-      </div>
-
-      <div className="card card-pad stack">
-        <strong>Import CSV</strong>
-        <div className="row">
-          <a
-            className="btn btn-secondary btn-sm"
-            href={`data:text/csv;charset=utf-8,${encodeURIComponent(CSV_TEMPLATE)}`}
-            download="catalogue-template.csv"
-          >
-            Download template
-          </a>
-          <label className="btn btn-secondary btn-sm">
-            Upload file
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              hidden
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                e.target.value = '';
-                if (!file) return;
-                setCsv(await file.text());
-              }}
-            />
-          </label>
-        </div>
-        <Textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={5} />
-        <Button
-          variant="secondary"
-          onClick={async () => {
-            const lines = csv.trim().split(/\r?\n/).slice(1);
-            const rows = lines
-              .map((line) => line.split(',').map((x) => x.trim()))
-              .filter((cols) => cols.length >= 9)
-              .map((cols) => ({
-                name: cols[0],
-                sku: cols[1],
-                brand: cols[2],
-                category: cols[3],
-                packSize: cols[4],
-                mrp: Number(cols[5]),
-                ptr: Number(cols[6]),
-                gstPercent: Number(cols[7]),
-                moq: Number(cols[8]),
-                pricingClass: (cols[9] === 'Ethical' ? 'Ethical' : 'Generic') as 'Generic' | 'Ethical',
-              }));
-            const res = await importProductsCsv({ actor: user, stockist: business, rows });
-            if (res.ok) {
-              setImportReport(res.data);
-              pushToast({
-                tone: res.data.failed.length ? 'warning' : 'success',
-                title: `Import: ${res.data.succeeded.length} ok, ${res.data.failed.length} failed`,
-              });
-            } else pushToast({ tone: 'error', title: res.message });
-          }}
-        >
-          Run import
-        </Button>
-        {importReport ? (
-          <div className="muted" style={{ fontSize: 12 }}>
-            Succeeded: {importReport.succeeded.join(', ') || '—'}
-            <br />
-            Failed: {importReport.failed.map((f) => `${f.sku} (${f.reason})`).join('; ') || '—'}
-          </div>
-        ) : null}
-      </div>
+      </Modal>
     </div>
   );
 }

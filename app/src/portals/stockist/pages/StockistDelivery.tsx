@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
+import { localTodayKey } from '../../../domain/utils/dateKeys';
 import {
   assignDelivery,
   returnFailedDeliveryToStockist,
@@ -20,7 +21,8 @@ import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileLink, FileUpload } from '../../../ui/components/FileUpload';
 import { ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
 import { PharmacyDeliveryPrefs } from '../../../ui/components/PharmacyDeliveryPrefs';
-import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { Button, EmptyState, Field, Input, LoadingState, Modal, PageHeader, Select, StatusBadge, Tabs } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function StockistDelivery() {
@@ -28,7 +30,10 @@ export function StockistDelivery() {
   const { pushToast } = useUi();
   const canAssign = useCan('delivery.assign');
   const canRoutes = useCan('route.manage');
-  const deliveries = useLiveQuery(() => db.deliveries.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const { items: deliveries, loading: deliveriesLoading } = useLiveArray(
+    () => db.deliveries.where('stockistId').equals(business.id).toArray(),
+    [business.id],
+  );
   const pharmacies = useLiveQuery(() => db.businesses.where('type').equals('Pharmacy').toArray()) ?? [];
   const orders = useLiveQuery(() => db.orders.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const staff = useLiveQuery(
@@ -42,6 +47,17 @@ export function StockistDelivery() {
 
   const [tab, setTab] = useState<'Board' | 'Routes' | 'Execute'>('Board');
   const [failId, setFailId] = useState<string | null>(null);
+  const [deleteRouteId, setDeleteRouteId] = useState<string | null>(null);
+  const [restockId, setRestockId] = useState<string | null>(null);
+  const restockDelivery = restockId ? deliveries.find((d) => d.id === restockId) : undefined;
+  const restockOrder = restockDelivery ? orders.find((o) => o.id === restockDelivery.orderId) : undefined;
+  const restockQtySummary = (restockOrder?.lines ?? [])
+    .map((l) => {
+      const qty = (l.batchAllocations ?? []).reduce((s, a) => s + a.qty, 0) || l.qty;
+      return `${l.productName}: ${qty}`;
+    })
+    .join(', ');
+
   const [partialId, setPartialId] = useState<string | null>(null);
   const [partialQtys, setPartialQtys] = useState<Record<string, number>>({});
   const [deliverId, setDeliverId] = useState<string | null>(null);
@@ -52,6 +68,8 @@ export function StockistDelivery() {
   const [routePins, setRoutePins] = useState('');
   const [routeAssignee, setRouteAssignee] = useState('');
   const [editRouteId, setEditRouteId] = useState<string | null>(null);
+  const [routeModalOpen, setRouteModalOpen] = useState(false);
+  const [assignStopsModalOpen, setAssignStopsModalOpen] = useState(false);
   const [stopPickRoute, setStopPickRoute] = useState('');
   const [selectedStops, setSelectedStops] = useState<string[]>([]);
   const [execRouteId, setExecRouteId] = useState('');
@@ -129,26 +147,42 @@ export function StockistDelivery() {
     .map((s) => deliveries.find((d) => d.id === s.deliveryId))
     .filter(Boolean);
 
+  const closeRouteModal = () => {
+    setRouteModalOpen(false);
+    setEditRouteId(null);
+    setRouteName('');
+    setRoutePins('');
+    setRouteAssignee('');
+  };
+
+  const openEditRoute = (r: (typeof routes)[0]) => {
+    setEditRouteId(r.id);
+    setRouteName(r.name);
+    setRoutePins(r.pins.join(', '));
+    setRouteAssignee(r.assigneeId ?? '');
+    setRouteModalOpen(true);
+  };
+
   return (
     <div className="stack">
       <PageHeader title={isBoy ? 'My delivery board' : 'Delivery'} subtitle="Board, routes, scheduling & route execution" />
-      {!isBoy ? (
-        <div className="tabs">
-          {(['Board', 'Routes', 'Execute'] as const).map((t) => (
-            <button key={t} className={`tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-              {t}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="tabs">
-          {(['Board', 'Execute'] as const).map((t) => (
-            <button key={t} className={`tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-              {t}
-            </button>
-          ))}
-        </div>
-      )}
+      <Tabs
+        ariaLabel="Delivery views"
+        value={tab}
+        onChange={setTab}
+        items={
+          isBoy
+            ? [
+                { id: 'Board' as const, label: 'Board' },
+                { id: 'Execute' as const, label: 'Execute' },
+              ]
+            : [
+                { id: 'Board' as const, label: 'Board' },
+                { id: 'Routes' as const, label: 'Routes' },
+                { id: 'Execute' as const, label: 'Execute' },
+              ]
+        }
+      />
       <ConfirmDialog
         open={!!failId}
         title="Mark delivery failed"
@@ -168,6 +202,53 @@ export function StockistDelivery() {
           });
           pushToast(res.ok ? { tone: 'warning', title: 'Delivery failed' } : { tone: 'error', title: res.message });
           setFailId(null);
+        }}
+      />
+      <ConfirmDialog
+        open={!!deleteRouteId}
+        title="Delete route?"
+        body="This removes the route definition. Assigned deliveries are not cancelled."
+        confirmLabel="Delete route"
+        tone="danger"
+        onClose={() => setDeleteRouteId(null)}
+        onConfirm={async () => {
+          const res = await deleteStockistRoute({ actor: user, stockist: business, id: deleteRouteId! });
+          pushToast(res.ok ? { tone: 'info', title: 'Deleted' } : { tone: 'error', title: res.message });
+          if (res.ok) setDeleteRouteId(null);
+        }}
+      />
+      <ConfirmDialog
+        open={!!restockDelivery}
+        title="Return stock to inventory?"
+        confirmLabel="Restock now"
+        body={
+          restockDelivery ? (
+            <p>
+              Restock failed delivery <strong>{restockDelivery.deliveryNo}</strong>
+              {restockQtySummary ? (
+                <>
+                  {' '}
+                  — quantities: <strong>{restockQtySummary}</strong>
+                </>
+              ) : null}
+              . Batch on-hand will increase.
+            </p>
+          ) : null
+        }
+        onClose={() => setRestockId(null)}
+        onConfirm={async () => {
+          if (!restockDelivery) return;
+          const res = await returnFailedDeliveryToStockist({
+            actor: user,
+            stockist: business,
+            deliveryId: restockDelivery.id,
+          });
+          pushToast(
+            res.ok
+              ? { tone: 'success', title: 'Returned to stockist', message: 'Stock restocked' }
+              : { tone: 'error', title: res.message },
+          );
+          if (res.ok) setRestockId(null);
         }}
       />
 
@@ -199,13 +280,16 @@ export function StockistDelivery() {
         }
       >
         <div className="stack">
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            Starts at full ordered qty. Lower only the lines that were short-delivered.
+          </p>
           {partialDelivery?.lines.map((l) => (
             <Field key={l.productId} label={`${l.productName} (ordered ${l.qty})`}>
               <Input
                 type="number"
                 min={0}
                 max={l.qty}
-                value={partialQtys[l.productId] ?? l.deliveredQty ?? 0}
+                value={partialQtys[l.productId] ?? l.deliveredQty ?? l.qty}
                 onChange={(e) => setPartialQtys((prev) => ({ ...prev, [l.productId]: Number(e.target.value) }))}
               />
             </Field>
@@ -275,130 +359,178 @@ export function StockistDelivery() {
 
       {tab === 'Routes' && canRoutes ? (
         <div className="stack">
-          <div className="card card-pad stack">
-            <strong>{editRouteId ? 'Edit route' : 'New route'}</strong>
-            <Field label="Name">
-              <Input value={routeName} onChange={(e) => setRouteName(e.target.value)} />
-            </Field>
-            <Field label="Coverage PINs (comma-separated)">
-              <Input value={routePins} onChange={(e) => setRoutePins(e.target.value)} />
-            </Field>
-            <Field label="Default assignee">
-              <Select value={routeAssignee} onChange={(e) => setRouteAssignee(e.target.value)}>
-                <option value="">None</option>
-                {staff.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
             <Button
-              onClick={async () => {
-                const res = await upsertStockistRoute({
-                  actor: user,
-                  stockist: business,
-                  id: editRouteId ?? undefined,
-                  name: routeName,
-                  pins: routePins.split(',').map((p) => p.trim()).filter(Boolean),
-                  assigneeId: routeAssignee || undefined,
-                });
-                pushToast(res.ok ? { tone: 'success', title: 'Route saved' } : { tone: 'error', title: res.message });
-                if (res.ok) {
-                  setRouteName('');
-                  setRoutePins('');
-                  setRouteAssignee('');
-                  setEditRouteId(null);
-                }
+              size="sm"
+              onClick={() => {
+                setEditRouteId(null);
+                setRouteName('');
+                setRoutePins('');
+                setRouteAssignee('');
+                setRouteModalOpen(true);
               }}
             >
-              Save route
+              New route
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!routes.length}
+              onClick={() => {
+                setStopPickRoute(routes[0]?.id ?? '');
+                const r = routes[0];
+                setSelectedStops(r?.stops.slice().sort((a, b) => a.seq - b.seq).map((s) => s.deliveryId) ?? []);
+                setAssignStopsModalOpen(true);
+              }}
+            >
+              Assign stops
             </Button>
           </div>
-          {routes.map((r) => (
-            <div key={r.id} className="card card-pad stack">
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <strong>{r.name}</strong>
-                <span className="muted" style={{ fontSize: 12 }}>
-                  {r.stops.length} stops · {r.pins.join(', ') || 'no PINs'}
-                </span>
-              </div>
-              <div className="row">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    setEditRouteId(r.id);
-                    setRouteName(r.name);
-                    setRoutePins(r.pins.join(', '));
-                    setRouteAssignee(r.assigneeId ?? '');
-                  }}
-                >
-                  Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={async () => {
-                    const res = await deleteStockistRoute({ actor: user, stockist: business, id: r.id });
-                    pushToast(res.ok ? { tone: 'info', title: 'Deleted' } : { tone: 'error', title: res.message });
-                  }}
-                >
-                  Delete
-                </Button>
-              </div>
-            </div>
-          ))}
-          <div className="card card-pad stack">
-            <strong>Assign stops to route</strong>
-            <Field label="Route">
-              <Select
-                value={stopPickRoute}
-                onChange={(e) => {
-                  setStopPickRoute(e.target.value);
-                  const r = routes.find((x) => x.id === e.target.value);
-                  setSelectedStops(r?.stops.slice().sort((a, b) => a.seq - b.seq).map((s) => s.deliveryId) ?? []);
-                }}
-              >
-                <option value="">Select</option>
-                {routes.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            {deliveries
-              .filter((d) => !['Delivered', 'Cancelled'].includes(d.status))
-              .map((d) => (
-                <label key={d.id} className="row" style={{ fontSize: 13 }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedStops.includes(d.id)}
-                    onChange={(e) => {
-                      setSelectedStops((prev) =>
-                        e.target.checked ? [...prev, d.id] : prev.filter((x) => x !== d.id),
-                      );
+          {!routes.length ? (
+            <EmptyState title="No routes" description="Create a route, then assign open deliveries as stops." />
+          ) : (
+            routes.map((r) => (
+              <div key={r.id} className="card card-pad stack">
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <strong>{r.name}</strong>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {r.stops.length} stops · {r.pins.join(', ') || 'no PINs'}
+                  </span>
+                </div>
+                <div className="row">
+                  <Button size="sm" variant="secondary" onClick={() => openEditRoute(r)}>
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setStopPickRoute(r.id);
+                      setSelectedStops(r.stops.slice().sort((a, b) => a.seq - b.seq).map((s) => s.deliveryId));
+                      setAssignStopsModalOpen(true);
                     }}
-                  />
-                  {d.deliveryNo} · {pharmacyName(d.pharmacyId)}
-                </label>
-              ))}
-            <Button
-              disabled={!stopPickRoute}
-              onClick={async () => {
-                const res = await setRouteStops({
-                  actor: user,
-                  stockist: business,
-                  routeId: stopPickRoute,
-                  deliveryIds: selectedStops,
-                });
-                pushToast(res.ok ? { tone: 'success', title: 'Stops updated' } : { tone: 'error', title: res.message });
-              }}
-            >
-              Save stop order
-            </Button>
-          </div>
+                  >
+                    Assign stops
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={() => setDeleteRouteId(r.id)}>
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+
+          <Modal
+            open={routeModalOpen}
+            title={editRouteId ? 'Edit route' : 'New route'}
+            onClose={closeRouteModal}
+            footer={
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <Button variant="secondary" onClick={closeRouteModal}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={async () => {
+                    const res = await upsertStockistRoute({
+                      actor: user,
+                      stockist: business,
+                      id: editRouteId ?? undefined,
+                      name: routeName,
+                      pins: routePins.split(',').map((p) => p.trim()).filter(Boolean),
+                      assigneeId: routeAssignee || undefined,
+                    });
+                    pushToast(res.ok ? { tone: 'success', title: 'Route saved' } : { tone: 'error', title: res.message });
+                    if (res.ok) closeRouteModal();
+                  }}
+                >
+                  Save route
+                </Button>
+              </div>
+            }
+          >
+            <div className="stack">
+              <Field label="Name">
+                <Input value={routeName} onChange={(e) => setRouteName(e.target.value)} />
+              </Field>
+              <Field label="Coverage PINs (comma-separated)">
+                <Input value={routePins} onChange={(e) => setRoutePins(e.target.value)} />
+              </Field>
+              <Field label="Default assignee">
+                <Select value={routeAssignee} onChange={(e) => setRouteAssignee(e.target.value)}>
+                  <option value="">None</option>
+                  {staff.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+          </Modal>
+
+          <Modal
+            open={assignStopsModalOpen}
+            title="Assign stops to route"
+            onClose={() => setAssignStopsModalOpen(false)}
+            footer={
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <Button variant="secondary" onClick={() => setAssignStopsModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  disabled={!stopPickRoute}
+                  onClick={async () => {
+                    const res = await setRouteStops({
+                      actor: user,
+                      stockist: business,
+                      routeId: stopPickRoute,
+                      deliveryIds: selectedStops,
+                    });
+                    pushToast(res.ok ? { tone: 'success', title: 'Stops updated' } : { tone: 'error', title: res.message });
+                    if (res.ok) setAssignStopsModalOpen(false);
+                  }}
+                >
+                  Save stop order
+                </Button>
+              </div>
+            }
+          >
+            <div className="stack">
+              <Field label="Route">
+                <Select
+                  value={stopPickRoute}
+                  onChange={(e) => {
+                    setStopPickRoute(e.target.value);
+                    const r = routes.find((x) => x.id === e.target.value);
+                    setSelectedStops(r?.stops.slice().sort((a, b) => a.seq - b.seq).map((s) => s.deliveryId) ?? []);
+                  }}
+                >
+                  <option value="">Select</option>
+                  {routes.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {deliveries
+                .filter((d) => !['Delivered', 'Cancelled'].includes(d.status))
+                .map((d) => (
+                  <label key={d.id} className="row" style={{ fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedStops.includes(d.id)}
+                      onChange={(e) => {
+                        setSelectedStops((prev) =>
+                          e.target.checked ? [...prev, d.id] : prev.filter((x) => x !== d.id),
+                        );
+                      }}
+                    />
+                    {d.deliveryNo} · {pharmacyName(d.pharmacyId)}
+                  </label>
+                ))}
+            </div>
+          </Modal>
         </div>
       ) : null}
 
@@ -579,18 +711,15 @@ export function StockistDelivery() {
             <PharmacyDeliveryPrefs pharmacy={pharmacy} />
             <div className="row" style={{ flexWrap: 'wrap' }}>
               {canAssign && !['Delivered', 'Cancelled'].includes(d.status) ? (
-                <Input
-                  type="date"
-                  defaultValue={d.scheduledDate ?? ''}
-                  style={{ maxWidth: 160 }}
-                  aria-label={`Schedule ${d.deliveryNo}`}
-                  onBlur={async (e) => {
-                    if (!e.target.value || e.target.value === d.scheduledDate) return;
+                <ScheduleDateRow
+                  deliveryNo={d.deliveryNo}
+                  scheduledDate={d.scheduledDate}
+                  onSave={async (scheduledDate) => {
                     const res = await scheduleDelivery({
                       actor: user,
                       stockist: business,
                       deliveryId: d.id,
-                      scheduledDate: e.target.value,
+                      scheduledDate,
                     });
                     pushToast(
                       res.ok ? { tone: 'success', title: 'Schedule saved' } : { tone: 'error', title: res.message },
@@ -654,9 +783,8 @@ export function StockistDelivery() {
                       variant="secondary"
                       onClick={() => {
                         setPartialId(d.id);
-                        setPartialQtys(
-                          Object.fromEntries(d.lines.map((l) => [l.productId, Math.max(0, l.qty - 1)])),
-                        );
+                        // Prefill full qty — user edits only the short lines deliberately.
+                        setPartialQtys(Object.fromEntries(d.lines.map((l) => [l.productId, l.qty])));
                       }}
                     >
                       Partial…
@@ -686,22 +814,7 @@ export function StockistDelivery() {
                     Retry
                   </Button>
                   {canAssign && !d.returnedToStockistAt ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={async () => {
-                        const res = await returnFailedDeliveryToStockist({
-                          actor: user,
-                          stockist: business,
-                          deliveryId: d.id,
-                        });
-                        pushToast(
-                          res.ok
-                            ? { tone: 'success', title: 'Returned to stockist', message: 'Stock restocked' }
-                            : { tone: 'error', title: res.message },
-                        );
-                      }}
-                    >
+                    <Button size="sm" variant="secondary" onClick={() => setRestockId(d.id)}>
                       Return to stockist
                     </Button>
                   ) : null}
@@ -716,12 +829,50 @@ export function StockistDelivery() {
       })
         : null}
 
-      {tab === 'Board' && !visible.length ? (
+      {tab === 'Board' && deliveriesLoading ? <LoadingState label="Loading deliveries…" /> : null}
+      {tab === 'Board' && !deliveriesLoading && !visible.length ? (
         <EmptyState title="No deliveries" description="Dispatch a packed & invoiced order to create one." />
       ) : null}
       {tab === 'Board' && !isBoy && visible.length ? (
         <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
       ) : null}
+    </div>
+  );
+}
+
+function ScheduleDateRow({
+  deliveryNo,
+  scheduledDate,
+  onSave,
+}: {
+  deliveryNo: string;
+  scheduledDate?: string;
+  onSave: (date: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(scheduledDate ?? '');
+  const [busy, setBusy] = useState(false);
+  const dirty = draft !== (scheduledDate ?? '');
+  return (
+    <div className="row" style={{ alignItems: 'center' }}>
+      <Input
+        type="date"
+        min={localTodayKey()}
+        value={draft}
+        style={{ maxWidth: 160 }}
+        aria-label={`Schedule ${deliveryNo}`}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={!draft || !dirty || busy}
+        onClick={() => {
+          setBusy(true);
+          void onSave(draft).finally(() => setBusy(false));
+        }}
+      >
+        {busy ? '…' : 'Save date'}
+      </Button>
     </div>
   );
 }

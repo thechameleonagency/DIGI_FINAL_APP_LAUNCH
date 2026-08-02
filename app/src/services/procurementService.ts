@@ -8,6 +8,7 @@ import type {
   User,
 } from '../domain/entities/types';
 import { fail, ok, type Result } from '../domain/errors/types';
+import { localTodayKey } from '../domain/utils/dateKeys';
 import { newId, nextNumber } from '../domain/utils/ids';
 import { db } from '../data/db';
 import { writeAudit } from './audit';
@@ -231,7 +232,7 @@ export async function receivePurchaseOrder(params: {
       );
     }
     const expiry = recv.expiryDate.slice(0, 10);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localTodayKey();
     const expired = expiry < today;
     const batchNumber = recv.batchNumber.trim();
     if (!batchNumber) {

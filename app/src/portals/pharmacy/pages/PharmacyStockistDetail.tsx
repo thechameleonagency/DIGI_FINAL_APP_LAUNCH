@@ -56,6 +56,7 @@ export function PharmacyStockistDetail() {
               size="sm"
               variant="secondary"
               onClick={async () => {
+                const wasFav = !!favourite;
                 const res = await setFavourite({
                   actor: user,
                   pharmacy: business,
@@ -64,7 +65,19 @@ export function PharmacyStockistDetail() {
                 });
                 pushToast(
                   res.ok
-                    ? { tone: 'success', title: favourite ? 'Unpinned' : 'Pinned favourite' }
+                    ? {
+                        tone: 'success',
+                        title: wasFav ? 'Unpinned' : 'Pinned favourite',
+                        actionLabel: 'Undo',
+                        onAction: async () => {
+                          await setFavourite({
+                            actor: user,
+                            pharmacy: business,
+                            stockistId: stockist.id,
+                            favourite: wasFav,
+                          });
+                        },
+                      }
                     : { tone: 'error', title: res.message },
                 );
               }}
@@ -78,6 +91,9 @@ export function PharmacyStockistDetail() {
                 </Link>
                 <Link className="btn btn-secondary btn-sm" to={`/pharmacy/ledger/${stockist.id}`}>
                   Ledger
+                </Link>
+                <Link className="btn btn-secondary btn-sm" to={`/pharmacy/messages?with=${stockist.id}`}>
+                  Message
                 </Link>
               </>
             ) : null}

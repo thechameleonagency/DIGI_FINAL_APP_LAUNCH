@@ -1,14 +1,20 @@
-import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { reorderFromOrder } from '../../../services/catalogueService';
 import { cancelOrder, editOrderLines } from '../../../services/orderService';
-import { recordGrn } from '../../../services/fulfilmentService';
+import { deliveryPendingGrnQty, recordGrn } from '../../../services/fulfilmentService';
 import { submitReturn } from '../../../services/paymentService';
-import { sendMessage } from '../../../services/supportService';
+import { ensureMessageThread } from '../../../services/supportService';
+import { pluralize } from '../../../domain/utils/pluralize';
+import { nextNumberFieldValue } from '../../../domain/utils/validation';
 import { useUi } from '../../../store/ui';
+import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileUpload } from '../../../ui/components/FileUpload';
+import { BarcodeScanField } from '../../../ui/components/BarcodeScanField';
+import { OrderDeliveriesPanel } from '../../../ui/components/OrderDeliveriesPanel';
+import { alreadyReturnedQty, ReturnLinesForm, validateReturnLines } from '../../../ui/components/ReturnLinesForm';
 import { Button, EmptyState, Field, Input, Money, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -17,17 +23,30 @@ const GRN_DISCREPANCY = ['Short', 'Damaged', 'Wrong', 'Expired', 'Other'] as con
 export function PharmacyOrderDetail() {
   const { orderNo } = useParams();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const [placedBanner, setPlacedBanner] = useState(params.get('placed') === '1');
   const order = useLiveQuery(() => db.orders.where('orderNo').equals(orderNo!).first(), [orderNo]);
+
+  useEffect(() => {
+    if (params.get('placed') !== '1') return;
+    setPlacedBanner(true);
+    const next = new URLSearchParams(params);
+    next.delete('placed');
+    setParams(next, { replace: true });
+  }, [params, setParams]);
   const invoice = useLiveQuery(() => (order?.invoiceId ? db.invoices.get(order.invoiceId) : undefined), [order?.invoiceId]);
   const stockist = useLiveQuery(() => (order ? db.businesses.get(order.stockistId) : undefined), [order?.stockistId]);
   const delivery = useLiveQuery(() => (order?.deliveryId ? db.deliveries.get(order.deliveryId) : undefined), [order?.deliveryId]);
+  const deliveries =
+    useLiveQuery(() => (order ? db.deliveries.where('orderId').equals(order.id).toArray() : []), [order?.id]) ?? [];
   const priorReturns =
     useLiveQuery(() => (order ? db.returns.where('orderId').equals(order.id).toArray() : []), [order?.id]) ?? [];
   const [grnOpen, setGrnOpen] = useState(false);
+  const [grnDeliveryId, setGrnDeliveryId] = useState<string | null>(null);
   const [returnOpen, setReturnOpen] = useState(false);
-  const [received, setReceived] = useState<Record<string, number>>({});
+  const [received, setReceived] = useState<Record<string, number | ''>>({});
   const [discrepancyReasons, setDiscrepancyReasons] = useState<Record<string, string>>({});
   const [grnBatch, setGrnBatch] = useState<Record<string, string>>({});
   const [grnExpiry, setGrnExpiry] = useState<Record<string, string>>({});
@@ -36,26 +55,57 @@ export function PharmacyOrderDetail() {
   const [grnSuccess, setGrnSuccess] = useState<{ shortProductIds: string[] } | null>(null);
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
   const [returnReasons, setReturnReasons] = useState<Record<string, string>>({});
+  const [returnFieldErrors, setReturnFieldErrors] = useState<
+    Record<string, { qty?: string; reason?: string }>
+  >({});
+  const [returnFormError, setReturnFormError] = useState<string | undefined>();
   const [evidenceFileId, setEvidenceFileId] = useState<string | undefined>();
   const [editingLines, setEditingLines] = useState(false);
   const [editQtys, setEditQtys] = useState<Record<string, number>>({});
+  const [cancelOpen, setCancelOpen] = useState(false);
 
-  const alreadyReturned = (productId: string) =>
-    priorReturns
-      .filter((r) => !['Rejected', 'Cancelled'].includes(r.status))
-      .flatMap((r) => r.lines)
-      .filter((l) => l.productId === productId)
-      .reduce((s, l) => s + (l.approvedQty ?? l.qty), 0);
+  const alreadyReturned = (productId: string) => alreadyReturnedQty(priorReturns, productId);
 
   if (!order) return <EmptyState title="Order not found" description="Check the order number." />;
   const linesEditable = order.status === 'Pending';
   const addr = order.deliveryAddress;
+  const activeDelivery =
+    deliveries.find((d) =>
+      ['Delivered', 'PartiallyDelivered'].includes(d.status) &&
+      d.lines.some((l) => deliveryPendingGrnQty(l) > 0),
+    ) ?? delivery;
+  const canRecordGrn =
+    !!activeDelivery &&
+    ['Delivered', 'PartiallyDelivered'].includes(activeDelivery.status) &&
+    activeDelivery.lines.some((l) => deliveryPendingGrnQty(l) > 0);
 
   const openGrn = () => {
-    setReceived(Object.fromEntries(order.lines.map((l) => [l.id, l.deliveredQty ?? l.qty])));
+    if (!activeDelivery) return;
+    setGrnDeliveryId(activeDelivery.id);
+    const defaults: Record<string, number | ''> = {};
+    for (const l of order.lines) {
+      const dl = activeDelivery.lines.find((x) => x.productId === l.productId);
+      const pending = dl ? deliveryPendingGrnQty(dl) : 0;
+      if (pending > 0) defaults[l.id] = pending;
+    }
+    setReceived(defaults);
     setDiscrepancyReasons({});
-    setGrnBatch(Object.fromEntries(order.lines.map((l) => [l.id, l.batchAllocations?.[0]?.batchNumber ?? ''])));
-    setGrnExpiry(Object.fromEntries(order.lines.map((l) => [l.id, l.batchAllocations?.[0]?.expiryDate ?? ''])));
+    setGrnBatch(
+      Object.fromEntries(
+        order.lines.map((l) => {
+          const dl = activeDelivery.lines.find((x) => x.productId === l.productId);
+          return [l.id, dl?.batchNumber ?? l.batchAllocations?.[0]?.batchNumber ?? ''];
+        }),
+      ),
+    );
+    setGrnExpiry(
+      Object.fromEntries(
+        order.lines.map((l) => {
+          const dl = activeDelivery.lines.find((x) => x.productId === l.productId);
+          return [l.id, dl?.expiryDate ?? l.batchAllocations?.[0]?.expiryDate ?? ''];
+        }),
+      ),
+    );
     setGrnError(null);
     setGrnSuccess(null);
     setGrnOpen(true);
@@ -66,7 +116,8 @@ export function PharmacyOrderDetail() {
     for (const l of order.lines) {
       if (!shortProductIds.includes(l.productId)) continue;
       const delivered = l.deliveredQty ?? l.qty;
-      const got = l.receivedQty ?? received[l.id] ?? delivered;
+      const rawGot = l.receivedQty ?? received[l.id];
+      const got = typeof rawGot === 'number' ? rawGot : delivered;
       next[l.productId] = Math.max(0, delivered - got);
     }
     setReturnQty(next);
@@ -79,18 +130,17 @@ export function PharmacyOrderDetail() {
     <div className="stack">
       <PageHeader
         title={order.orderNo}
-        subtitle={`${stockist?.name ?? 'Stockist'} · ${order.status}${order.grnRecordedAt ? ' · GRN recorded' : ''}`}
+        subtitle={`${stockist?.name ?? 'Stockist'} · ${order.status}${canRecordGrn ? ' · GRN pending' : order.grnRecordedAt ? ' · GRN recorded' : ''}`}
         actions={
           <>
             <Button
               size="sm"
               variant="ghost"
               onClick={async () => {
-                const res = await sendMessage({
+                const res = await ensureMessageThread({
                   actor: user,
                   business,
                   counterpartBusinessId: order.stockistId,
-                  body: `Regarding order ${order.orderNo}`,
                   relatedEntityType: 'Order',
                   relatedEntityId: order.orderNo,
                 });
@@ -98,12 +148,18 @@ export function PharmacyOrderDetail() {
                   pushToast({ tone: 'error', title: res.message, message: res.businessImpact });
                   return;
                 }
-                pushToast({ tone: 'success', title: 'Message started' });
-                navigate(`/pharmacy/messages?thread=${res.data.thread.id}`);
+                const draft = encodeURIComponent(`Regarding order ${order.orderNo}`);
+                navigate(`/pharmacy/messages?thread=${res.data.id}&draft=${draft}`);
               }}
             >
               Message about this order
             </Button>
+            <Link
+              className="btn btn-secondary btn-sm"
+              to={`/pharmacy/support?new=1&entityType=Order&entityId=${encodeURIComponent(order.id)}&entityNo=${encodeURIComponent(order.orderNo)}`}
+            >
+              Get help with this order
+            </Link>
             <Button
               size="sm"
               variant="secondary"
@@ -113,13 +169,21 @@ export function PharmacyOrderDetail() {
                   pushToast({ tone: 'error', title: res.message, message: res.businessImpact });
                   return;
                 }
+                const changeMsg = res.data.changes
+                  .slice(0, 3)
+                  .map((c) =>
+                    c.previousQty > 0
+                      ? `${c.productName}: ${c.previousQty}→${c.newQty}`
+                      : `${c.productName}: ${c.newQty}`,
+                  )
+                  .join('; ');
                 const skipMsg = res.data.skipped.length
-                  ? ` Skipped: ${res.data.skipped.map((s) => `${s.productName} (${s.reason})`).join('; ')}`
+                  ? `Skipped: ${res.data.skipped.map((s) => `${s.productName} (${s.reason})`).join('; ')}`
                   : '';
                 pushToast({
                   tone: res.data.skipped.length ? 'info' : 'success',
-                  title: `Added ${res.data.added} line(s) to cart`,
-                  message: skipMsg || 'Review cart to place order.',
+                  title: `Cart updated — ${res.data.added} new, ${res.data.incremented} increased`,
+                  message: [changeMsg, skipMsg].filter(Boolean).join(' · ') || 'Review cart to place order.',
                 });
                 navigate('/pharmacy/cart');
               }}
@@ -127,25 +191,13 @@ export function PharmacyOrderDetail() {
               Reorder
             </Button>
             {['Pending', 'Accepted'].includes(order.status) ? (
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={async () => {
-                  const res = await cancelOrder({
-                    actor: user,
-                    business,
-                    orderId: order.id,
-                    reason: 'Cancelled by pharmacy',
-                  });
-                  pushToast(res.ok ? { tone: 'success', title: 'Order cancelled' } : { tone: 'error', title: res.message });
-                }}
-              >
+              <Button variant="danger" size="sm" onClick={() => setCancelOpen(true)}>
                 Cancel
               </Button>
             ) : null}
             {['Delivered', 'PartiallyDelivered'].includes(order.status) ? (
               <>
-                {!order.grnRecordedAt ? (
+                {canRecordGrn ? (
                   <Button size="sm" variant="secondary" onClick={openGrn}>
                     Record GRN
                   </Button>
@@ -157,6 +209,37 @@ export function PharmacyOrderDetail() {
             ) : null}
           </>
         }
+      />
+      {placedBanner ? (
+        <div className="banner-strip success">
+          Order placed — {order.orderNo} is Pending with the stockist.{' '}
+          <Link to="/pharmacy/buy">Continue shopping</Link>
+          {' · '}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPlacedBanner(false)}>
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+      <ConfirmDialog
+        open={cancelOpen}
+        title="Cancel order"
+        body={`Cancel ${order.orderNo}? This voids a live trade document. Reservations will be released.`}
+        requireReason
+        reasonLabel="Cancellation reason"
+        reasonPlaceholder="Why are you cancelling this order?"
+        tone="danger"
+        confirmLabel="Cancel order"
+        onClose={() => setCancelOpen(false)}
+        onConfirm={async (reason) => {
+          const res = await cancelOrder({
+            actor: user,
+            business,
+            orderId: order.id,
+            reason: reason!,
+          });
+          pushToast(res.ok ? { tone: 'success', title: 'Order cancelled' } : { tone: 'error', title: res.message });
+          if (res.ok) setCancelOpen(false);
+        }}
       />
 
       {order.source === 'Manual' ? (
@@ -203,27 +286,19 @@ export function PharmacyOrderDetail() {
             <strong>{order.preferredDeliveryDate ?? order.preferredDate ?? 'Not specified'}</strong>
           </div>
           {delivery ? (
-            <>
-              <div style={{ fontSize: 13 }}>
-                Delivery <StatusBadge status={delivery.status} /> · {delivery.deliveryNo}
-              </div>
-              {delivery.scheduledDate ? (
-                <div className="muted" style={{ fontSize: 13 }}>
-                  Scheduled {delivery.scheduledDate}
-                </div>
-              ) : null}
-              {delivery.deliveredAt ? (
-                <div className="muted" style={{ fontSize: 13 }}>
-                  Delivered {new Date(delivery.deliveredAt).toLocaleString()}
-                </div>
-              ) : null}
-            </>
+            <div style={{ fontSize: 13 }}>
+              Latest <StatusBadge status={delivery.status} /> · {delivery.deliveryNo}
+            </div>
           ) : (
             <div className="muted" style={{ fontSize: 13 }}>
               No delivery assigned yet
             </div>
           )}
         </div>
+      </div>
+
+      <div className="card card-pad">
+        <OrderDeliveriesPanel orderId={order.id} supportBase="/pharmacy/support" />
       </div>
 
       <div className="grid-2">
@@ -334,7 +409,7 @@ export function PharmacyOrderDetail() {
           </div>
           {invoice ? (
             <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
-              Invoice <Link to="/pharmacy/payments">{invoice.invoiceNo}</Link> · Outstanding{' '}
+              Invoice <Link to={`/pharmacy/invoices/${invoice.invoiceNo}`}>{invoice.invoiceNo}</Link> · Outstanding{' '}
               <Money value={invoice.outstanding} />
             </div>
           ) : null}
@@ -395,34 +470,47 @@ export function PharmacyOrderDetail() {
             </div>
           ) : (
             <Button
-              disabled={grnBusy}
+              disabled={grnBusy || !grnDeliveryId}
               onClick={async () => {
                 setGrnError(null);
-                const payload = order.lines.map((l) => {
-                  const delivered = l.deliveredQty ?? l.qty;
-                  const qty = Number(received[l.id] ?? delivered);
-                  return {
+                const del = deliveries.find((d) => d.id === grnDeliveryId) ?? activeDelivery;
+                if (!del) {
+                  setGrnError('No delivery available for GRN.');
+                  return;
+                }
+                const payload = [];
+                for (const l of order.lines) {
+                  const dl = del.lines.find((x) => x.productId === l.productId);
+                  const pending = dl ? deliveryPendingGrnQty(dl) : 0;
+                  if (pending <= 0) continue;
+                  const raw = received[l.id];
+                  if (raw === '') {
+                    setGrnError(`Enter received qty for ${l.productName}.`);
+                    return;
+                  }
+                  const qty = typeof raw === 'number' ? raw : pending;
+                  payload.push({
                     lineId: l.id,
                     productId: l.productId,
                     productName: l.productName,
-                    delivered,
+                    pending,
                     receivedQty: qty,
-                    discrepancyReason: qty < delivered ? discrepancyReasons[l.id] : undefined,
+                    discrepancyReason: qty < pending ? discrepancyReasons[l.id] : undefined,
                     batchNumber: grnBatch[l.id]?.trim() || undefined,
                     expiryDate: grnExpiry[l.id]?.trim() || undefined,
-                  };
-                });
+                  });
+                }
                 const total = payload.reduce((s, r) => s + r.receivedQty, 0);
                 if (total < 1) {
                   setGrnError('Receive at least 1 unit to record a GRN.');
                   return;
                 }
                 for (const r of payload) {
-                  if (!Number.isFinite(r.receivedQty) || r.receivedQty < 0 || r.receivedQty > r.delivered) {
-                    setGrnError(`Received qty for ${r.productName} must be between 0 and ${r.delivered}.`);
+                  if (!Number.isFinite(r.receivedQty) || r.receivedQty < 0 || r.receivedQty > r.pending) {
+                    setGrnError(`Received qty for ${r.productName} must be between 0 and ${r.pending}.`);
                     return;
                   }
-                  if (r.receivedQty < r.delivered && !r.discrepancyReason) {
+                  if (r.receivedQty < r.pending && !r.discrepancyReason) {
                     setGrnError(`Select a discrepancy reason for ${r.productName}.`);
                     return;
                   }
@@ -432,6 +520,7 @@ export function PharmacyOrderDetail() {
                   actor: user,
                   pharmacy: business,
                   orderId: order.id,
+                  deliveryId: del.id,
                   received: payload.map(({ lineId, receivedQty, discrepancyReason, batchNumber, expiryDate }) => ({
                     lineId,
                     receivedQty,
@@ -447,10 +536,9 @@ export function PharmacyOrderDetail() {
                   return;
                 }
                 setGrnSuccess({
-                  shortProductIds: payload.filter((r) => r.receivedQty < r.delivered).map((r) => r.productId),
+                  shortProductIds: payload.filter((r) => r.receivedQty < r.pending).map((r) => r.productId),
                 });
                 pushToast({ tone: 'success', title: 'GRN recorded', message: order.orderNo });
-                // In-modal success panel (Done / Raise return) is the CF-32 summary for GRN.
               }}
             >
               {grnBusy ? 'Saving…' : 'Save GRN'}
@@ -465,7 +553,7 @@ export function PharmacyOrderDetail() {
             </div>
             {grnSuccess.shortProductIds.length ? (
               <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                {grnSuccess.shortProductIds.length} line(s) were short. You can raise a return with qty prefilled, or finish
+                {pluralize(grnSuccess.shortProductIds.length, 'line')} were short. You can raise a return with qty prefilled, or finish
                 without a return.
               </p>
             ) : (
@@ -480,27 +568,64 @@ export function PharmacyOrderDetail() {
         ) : (
           <div className="stack">
             {grnError ? <div className="banner-strip danger">{grnError}</div> : null}
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              Receipt applies to delivery {(deliveries.find((d) => d.id === grnDeliveryId) ?? activeDelivery)?.deliveryNo ?? '—'}.
+              Later delivery top-ups can be receipted again.
+            </p>
+            <BarcodeScanField
+              label="Scan batch into GRN line"
+              placeholder="Scan batch number, then Enter"
+              onScan={(code) => {
+                const del = deliveries.find((d) => d.id === grnDeliveryId) ?? activeDelivery;
+                const pendingLine = order.lines.find((l) => {
+                  const dl = del?.lines.find((x) => x.productId === l.productId);
+                  return dl ? deliveryPendingGrnQty(dl) > 0 : false;
+                });
+                if (!pendingLine) {
+                  pushToast({ tone: 'warning', title: 'No pending GRN lines' });
+                  return;
+                }
+                const matchByBatch = order.lines.find((l) => {
+                  const dl = del?.lines.find((x) => x.productId === l.productId);
+                  return dl?.batchNumber?.toLowerCase() === code.toLowerCase();
+                });
+                const target = matchByBatch ?? pendingLine;
+                setGrnBatch((b) => ({ ...b, [target.id]: code }));
+                pushToast({
+                  tone: 'info',
+                  title: 'Batch applied',
+                  message: target.productName,
+                });
+              }}
+            />
             {order.lines.map((l) => {
-              const delivered = l.deliveredQty ?? l.qty;
-              const qty = received[l.id] ?? delivered;
-              const mismatch = qty < delivered;
+              const del = deliveries.find((d) => d.id === grnDeliveryId) ?? activeDelivery;
+              const dl = del?.lines.find((x) => x.productId === l.productId);
+              const pending = dl ? deliveryPendingGrnQty(dl) : 0;
+              if (pending <= 0) return null;
+              const qty = received[l.id] ?? pending;
+              const mismatch = qty !== '' && qty < pending;
               return (
                 <div key={l.id} className="card card-pad stack">
                   <strong>{l.productName}</strong>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    Delivered {delivered}
-                    {l.batchAllocations?.[0]?.batchNumber
-                      ? ` · Allocated batch ${l.batchAllocations[0].batchNumber}`
-                      : ''}
+                    Pending this delivery {pending}
+                    {dl?.batchNumber ? ` · Batch ${dl.batchNumber}` : ''}
+                    {(l.receivedQty ?? 0) > 0 ? ` · Already receipted on order ${l.receivedQty}` : ''}
                   </div>
                   <div className="grid-2">
                     <Field label="Received qty">
                       <Input
                         type="number"
                         min={0}
-                        max={delivered}
+                        max={pending}
                         value={qty}
-                        onChange={(e) => setReceived((r) => ({ ...r, [l.id]: Number(e.target.value) }))}
+                        onChange={(e) =>
+                          setReceived((r) => ({
+                            ...r,
+                            [l.id]: nextNumberFieldValue(e.target.value, r[l.id] ?? pending),
+                          }))
+                        }
                       />
                     </Field>
                     <Field label="Batch number">
@@ -547,39 +672,19 @@ export function PharmacyOrderDetail() {
         footer={
           <Button
             onClick={async () => {
-              const lines = order.lines
-                .map((l) => {
-                  const delivered = l.deliveredQty ?? l.qty;
-                  const eligible = Math.max(0, delivered - alreadyReturned(l.productId));
-                  const qty = returnQty[l.productId] ?? 0;
-                  return {
-                    productId: l.productId,
-                    productName: l.productName,
-                    qty,
-                    eligible,
-                    reason: returnReasons[l.productId] ?? '',
-                  };
-                })
-                .filter((l) => l.qty > 0);
-              if (!lines.length) {
-                pushToast({ tone: 'error', title: 'Add at least one return qty' });
+              const check = validateReturnLines(order, priorReturns, returnQty, returnReasons);
+              if (!check.ok) {
+                setReturnFieldErrors(check.fieldErrors);
+                setReturnFormError(Object.keys(check.fieldErrors).length ? undefined : check.message);
                 return;
               }
-              for (const l of lines) {
-                if (l.qty > l.eligible) {
-                  pushToast({ tone: 'error', title: `${l.productName}: max eligible is ${l.eligible}` });
-                  return;
-                }
-                if (!l.reason.trim()) {
-                  pushToast({ tone: 'error', title: `Select a reason for ${l.productName}` });
-                  return;
-                }
-              }
+              setReturnFieldErrors({});
+              setReturnFormError(undefined);
               const res = await submitReturn({
                 actor: user,
                 pharmacy: business,
                 orderId: order.id,
-                lines: lines.map(({ productId, qty, reason }) => ({ productId, qty, reason })),
+                lines: check.lines,
                 evidenceFileIds: evidenceFileId ? [evidenceFileId] : [],
               });
               pushToast(
@@ -594,50 +699,39 @@ export function PharmacyOrderDetail() {
           </Button>
         }
       >
-        <div className="stack">
-          {order.lines.every((l) => Math.max(0, (l.deliveredQty ?? l.qty) - alreadyReturned(l.productId)) <= 0) ? (
-            <EmptyState title="Nothing eligible to return" description="All delivered qty is already covered by prior returns." />
-          ) : (
-            order.lines.map((l) => {
-              const delivered = l.deliveredQty ?? l.qty;
-              const eligible = Math.max(0, delivered - alreadyReturned(l.productId));
-              if (eligible <= 0) return null;
-              return (
-                <div key={l.id} className="card card-pad stack">
-                  <strong>{l.productName}</strong>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    Eligible {eligible} (delivered {delivered} − already returned {alreadyReturned(l.productId)})
-                  </div>
-                  <div className="grid-2">
-                    <Field label="Qty">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={eligible}
-                        value={returnQty[l.productId] ?? 0}
-                        onChange={(e) => setReturnQty((q) => ({ ...q, [l.productId]: Number(e.target.value) }))}
-                      />
-                    </Field>
-                    <Field label="Reason">
-                      <Select
-                        value={returnReasons[l.productId] ?? ''}
-                        onChange={(e) => setReturnReasons((r) => ({ ...r, [l.productId]: e.target.value }))}
-                      >
-                        <option value="">Select…</option>
-                        {['Short', 'Damaged', 'Expired', 'Wrong item', 'Short dated', 'Other'].map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                  </div>
-                </div>
-              );
-            })
-          )}
-          <FileUpload label="Attach evidence (optional)" value={evidenceFileId} onChange={setEvidenceFileId} />
-        </div>
+        <ReturnLinesForm
+          order={order}
+          priorReturns={priorReturns}
+          returnQty={returnQty}
+          returnReasons={returnReasons}
+          evidenceFileId={evidenceFileId}
+          fieldErrors={returnFieldErrors}
+          formError={returnFormError}
+          onQty={(productId, qty) => {
+            setReturnFieldErrors((e) => {
+              if (!e[productId]?.qty) return e;
+              const next = { ...e };
+              const row = { ...next[productId], qty: undefined };
+              if (!row.reason) delete next[productId];
+              else next[productId] = row;
+              return next;
+            });
+            setReturnFormError(undefined);
+            setReturnQty((q) => ({ ...q, [productId]: qty }));
+          }}
+          onReason={(productId, reason) => {
+            setReturnFieldErrors((e) => {
+              if (!e[productId]?.reason) return e;
+              const next = { ...e };
+              const row = { ...next[productId], reason: undefined };
+              if (!row.qty) delete next[productId];
+              else next[productId] = row;
+              return next;
+            });
+            setReturnReasons((r) => ({ ...r, [productId]: reason }));
+          }}
+          onEvidence={setEvidenceFileId}
+        />
       </Modal>
     </div>
   );

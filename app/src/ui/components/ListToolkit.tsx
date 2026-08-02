@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Download, Search } from 'lucide-react';
-import { Button, EmptyState, Input, Select } from './primitives';
+import { Button, EmptyState, Input, LoadingState, Select } from './primitives';
 
 export type SortDir = 'asc' | 'desc';
 
@@ -12,10 +12,12 @@ export interface ListColumn<T> {
   render?: (row: T) => ReactNode;
 }
 
-export interface FilterDef {
+export interface FilterDef<T = unknown> {
   key: string;
   label: string;
   options: { value: string; label: string }[];
+  /** When set, used instead of column getValue equality for this filter */
+  match?: (row: T, selected: string) => boolean;
 }
 
 function toCsvCell(v: unknown): string {
@@ -40,7 +42,7 @@ export function useListControls<T>(
   opts: {
     columns: ListColumn<T>[];
     searchKeys: (keyof T | ((row: T) => string))[];
-    filters?: FilterDef[];
+    filters?: FilterDef<T>[];
     defaultSortKey?: string;
     defaultSortDir?: SortDir;
     pageSize?: number;
@@ -70,6 +72,10 @@ export function useListControls<T>(
       for (const f of opts.filters ?? []) {
         const selected = filterValues[f.key];
         if (!selected || selected === 'All') continue;
+        if (f.match) {
+          if (!f.match(row, selected)) return false;
+          continue;
+        }
         const col = opts.columns.find((c) => c.key === f.key);
         const val = col ? String(col.getValue(row) ?? '') : '';
         if (val !== selected) return false;
@@ -165,6 +171,7 @@ export function ListToolbar({
   filters,
   filterValues,
   onFilter,
+  dateRange,
   onExport,
   exportLabel = 'Export CSV',
   right,
@@ -175,6 +182,14 @@ export function ListToolbar({
   filters?: FilterDef[];
   filterValues?: Record<string, string>;
   onFilter?: (key: string, value: string) => void;
+  dateRange?: {
+    from: string;
+    to: string;
+    onFrom: (v: string) => void;
+    onTo: (v: string) => void;
+    fromLabel?: string;
+    toLabel?: string;
+  };
   onExport?: () => void;
   exportLabel?: string;
   right?: ReactNode;
@@ -206,6 +221,32 @@ export function ListToolbar({
           </Select>
         </div>
       ))}
+      {dateRange ? (
+        <>
+          <div style={{ minWidth: 150 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+              {dateRange.fromLabel ?? 'From'}
+            </label>
+            <Input
+              type="date"
+              value={dateRange.from}
+              onChange={(e) => dateRange.onFrom(e.target.value)}
+              aria-label={dateRange.fromLabel ?? 'From date'}
+            />
+          </div>
+          <div style={{ minWidth: 150 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+              {dateRange.toLabel ?? 'To'}
+            </label>
+            <Input
+              type="date"
+              value={dateRange.to}
+              onChange={(e) => dateRange.onTo(e.target.value)}
+              aria-label={dateRange.toLabel ?? 'To date'}
+            />
+          </div>
+        </>
+      ) : null}
       {onExport ? (
         <Button type="button" variant="secondary" size="sm" onClick={onExport}>
           <Download size={14} /> {exportLabel}
@@ -225,6 +266,8 @@ export function DataListTable<T extends { id: string }>({
   emptyTitle = 'No results',
   emptyDescription = 'Try adjusting search or filters.',
   onRowClick,
+  loading = false,
+  activeRowId,
 }: {
   columns: ListColumn<T>[];
   rows: T[];
@@ -234,17 +277,28 @@ export function DataListTable<T extends { id: string }>({
   emptyTitle?: string;
   emptyDescription?: string;
   onRowClick?: (row: T) => void;
+  loading?: boolean;
+  /** Visually mark the active/selected row (detail sheet, highlight deep-link). */
+  activeRowId?: string | null;
 }) {
+  if (loading) {
+    return <LoadingState />;
+  }
   if (!rows.length) {
     return <EmptyState title={emptyTitle} description={emptyDescription} />;
   }
   return (
-    <div className="table-wrap">
+    <div className={`table-wrap${onRowClick ? ' queue-responsive' : ''}`}>
       <table className="data">
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c.key}>
+              <th
+                key={c.key}
+                aria-sort={
+                  sortKey === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined
+                }
+              >
                 {c.sortable !== false && onSort ? (
                   <button
                     type="button"
@@ -263,17 +317,43 @@ export function DataListTable<T extends { id: string }>({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.id}
-              onClick={onRowClick ? () => onRowClick(row) : undefined}
-              style={onRowClick ? { cursor: 'pointer' } : undefined}
-            >
-              {columns.map((c) => (
-                <td key={c.key}>{c.render ? c.render(row) : String(c.getValue(row) ?? '—')}</td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const active = activeRowId != null && row.id === activeRowId;
+            return (
+              <tr
+                key={row.id}
+                data-row-id={row.id}
+                aria-selected={active || undefined}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+                tabIndex={onRowClick ? 0 : undefined}
+                role={onRowClick ? 'button' : undefined}
+                style={{
+                  cursor: onRowClick ? 'pointer' : undefined,
+                  background: active
+                    ? 'color-mix(in srgb, var(--accent) 12%, var(--surface))'
+                    : undefined,
+                  outline: active ? '1px solid var(--accent)' : undefined,
+                  outlineOffset: active ? -1 : undefined,
+                }}
+              >
+                {columns.map((c) => (
+                  <td key={c.key} data-label={c.label}>
+                    {c.render ? c.render(row) : String(c.getValue(row) ?? '—')}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequirePermission } from '../../app/guards';
+import { AnnouncementsArchivePage } from '../../ui/components/AnnouncementsArchivePage';
+import { NotFoundPage } from '../../ui/components/NotFoundPage';
 import { AppShell } from '../../ui/layout/AppShell';
 import { ProfileSecurityPage } from '../../ui/components/ProfileSecurityPage';
 import {
@@ -29,6 +31,7 @@ import {
   AdminReports,
   AdminHelp,
   AdminReturns,
+  AdminReturnDetail,
   AdminSettings,
   AdminStaff,
   AdminSupport,
@@ -37,23 +40,23 @@ import {
 } from './AdminPages';
 
 const nav = [
-  { to: '/admin', label: 'Home', icon: Home, end: true },
-  { to: '/admin/verifications', label: 'Verifications', icon: ClipboardCheck, requires: 'verification.review' as const },
-  { to: '/admin/network', label: 'Network', icon: Building2, requires: 'read.platform' as const },
-  { to: '/admin/orders', label: 'Orders', icon: FileText, requires: 'read.platform' as const },
-  { to: '/admin/payments', label: 'Payments', icon: Activity, requires: 'read.platform' as const },
-  { to: '/admin/returns', label: 'Returns', icon: PackageMinus, requires: 'read.platform' as const },
-  { to: '/admin/counterfeit', label: 'Counterfeit', icon: AlertTriangle, requires: 'counterfeit.review' as const },
-  { to: '/admin/support', label: 'Support', icon: LifeBuoy, requires: 'support.manage' as const },
-  { to: '/admin/settings', label: 'More', icon: Settings, requires: 'settings.manage' as const },
+  { to: '/admin', label: 'Home', icon: Home, end: true, section: 'Queues' },
+  { to: '/admin/verifications', label: 'Verifications', icon: ClipboardCheck, section: 'Queues', requires: 'verification.review' as const },
+  { to: '/admin/orders', label: 'Orders', icon: FileText, section: 'Queues', requires: 'read.platform' as const },
+  { to: '/admin/payments', label: 'Payments', icon: Activity, section: 'Queues', requires: 'read.platform' as const },
+  { to: '/admin/returns', label: 'Returns', icon: PackageMinus, section: 'Queues', requires: 'read.platform' as const },
+  { to: '/admin/support', label: 'Support', icon: LifeBuoy, section: 'Queues', requires: 'support.manage' as const },
+  { to: '/admin/network', label: 'Network', icon: Building2, section: 'Governance', requires: 'read.platform' as const },
+  { to: '/admin/counterfeit', label: 'Counterfeit', icon: AlertTriangle, section: 'Governance', requires: 'counterfeit.review' as const },
+  { to: '/admin/settings', label: 'Settings', icon: Settings, section: 'Content', requires: 'settings.manage' as const },
 ];
 
 const mobileNav = [
   { to: '/admin', label: 'Home', icon: Home, end: true },
   { to: '/admin/verifications', label: 'Verify', icon: ClipboardCheck, requires: 'verification.review' as const },
   { to: '/admin/support', label: 'Support', icon: LifeBuoy, requires: 'support.manage' as const },
-  { to: '/admin/network', label: 'Network', icon: Building2 },
-  { to: '/admin/settings', label: 'More', icon: Settings },
+  { to: '/admin/network', label: 'Network', icon: Building2, requires: 'read.platform' as const },
+  { to: '/admin/settings', label: 'Settings', icon: Settings, requires: 'settings.manage' as const },
 ];
 
 export function AdminApp() {
@@ -75,6 +78,7 @@ export function AdminApp() {
           <Route path="payments/:paymentNo" element={<AdminPayments />} />
           <Route path="plans" element={<AdminPlans />} />
           <Route path="returns" element={<AdminReturns />} />
+          <Route path="returns/:returnNo" element={<AdminReturnDetail />} />
         </Route>
         <Route element={<RequirePermission action="support.manage" />}>
           <Route path="support" element={<AdminSupport />} />
@@ -82,6 +86,7 @@ export function AdminApp() {
         </Route>
         <Route element={<RequirePermission action="announcement.manage" />}>
           <Route path="announcements" element={<AdminAnnouncements />} />
+          <Route path="announcements-archive" element={<AnnouncementsArchivePage audience="Admin" />} />
           <Route path="banners" element={<AdminBanners />} />
         </Route>
         <Route element={<RequirePermission action="counterfeit.review" />}>
@@ -103,7 +108,7 @@ export function AdminApp() {
         <Route path="profile" element={<ProfileSecurityPage />} />
         <Route path="help" element={<AdminHelp />} />
         <Route path="notifications" element={<AdminNotifications />} />
-        <Route path="*" element={<Navigate to="/admin" replace />} />
+        <Route path="*" element={<NotFoundPage homeTo="/admin" />} />
       </Route>
     </Routes>
   );

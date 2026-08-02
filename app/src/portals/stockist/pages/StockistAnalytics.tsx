@@ -6,6 +6,7 @@ import { formatINR } from '../../../domain/utils/money';
 import { stockistAnalytics, type AnalyticsBundle } from '../../../services/analyticsService';
 import { useUi } from '../../../store/ui';
 import { Button, EmptyState, Field, Kpi, Money, PageHeader, Select } from '../../../ui/components/primitives';
+import { chartColors } from '../../../ui/chartTheme';
 import { db } from '../../../data/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useBiz } from './useBiz';
@@ -32,6 +33,7 @@ function downloadCsv(filename: string, rows: string[][]) {
 export function StockistAnalytics() {
   const { business } = useBiz();
   const { pushToast } = useUi();
+  const charts = chartColors();
   const [period, setPeriod] = useState<PeriodKey>('14');
   const days = Number(period);
   const [bundle, setBundle] = useState<AnalyticsBundle | null>(null);
@@ -208,11 +210,11 @@ export function StockistAnalytics() {
           <div style={{ width: '100%', height: 240 }}>
             <ResponsiveContainer>
               <BarChart data={bundle.series[0].points}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={charts.grid} />
                 <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v) => formatINR(Number(v))} />
-                <Bar dataKey="value" fill="#4A7399" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="value" fill={charts.primary} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

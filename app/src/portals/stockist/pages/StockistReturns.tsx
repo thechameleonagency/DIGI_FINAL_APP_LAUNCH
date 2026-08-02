@@ -70,7 +70,14 @@ export function StockistReturns() {
             >
               Approve
             </Button>
-            <Button variant="danger" onClick={() => setRejectId(review!.id)}>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const id = review!.id;
+                setReviewId(null);
+                setRejectId(id);
+              }}
+            >
               Reject
             </Button>
           </div>
@@ -116,7 +123,9 @@ export function StockistReturns() {
           return (
             <div key={r.id} className="card card-pad stack">
               <div className="row" style={{ justifyContent: 'space-between' }}>
-                <strong>{r.returnNo}</strong>
+                <strong>
+                  <Link to={`/stockist/returns/${encodeURIComponent(r.returnNo)}`}>{r.returnNo}</Link>
+                </strong>
                 <StatusBadge status={r.status} />
               </div>
               {order ? (

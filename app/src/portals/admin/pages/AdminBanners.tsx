@@ -9,6 +9,7 @@ import {
   upsertBanner,
 } from '../../../services/bannerService';
 import { useUi } from '../../../store/ui';
+import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -35,6 +36,7 @@ export function AdminBanners() {
   const banners = useLiveQuery(() => db.banners.reverse().sortBy('createdAt')) ?? [];
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const togglePlace = (value: string) => {
     setForm((f) => {
@@ -130,31 +132,45 @@ export function AdminBanners() {
                 size="sm"
                 variant="secondary"
                 onClick={async () => {
+                  const wasActive = b.active;
                   const res = await setBannerActive({ actor: user, business, id: b.id, active: !b.active });
                   pushToast(
                     res.ok
-                      ? { tone: 'info', title: b.active ? 'Paused' : 'Go live' }
+                      ? {
+                          tone: 'info',
+                          title: wasActive ? 'Paused' : 'Go live',
+                          actionLabel: 'Undo',
+                          onAction: async () => {
+                            await setBannerActive({ actor: user, business, id: b.id, active: wasActive });
+                          },
+                        }
                       : { tone: 'error', title: res.message },
                   );
                 }}
               >
                 {b.active ? 'Pause' : 'Go live'}
               </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={async () => {
-                  if (!window.confirm('Delete this banner?')) return;
-                  const res = await deleteBanner({ actor: user, business, id: b.id });
-                  pushToast(res.ok ? { tone: 'info', title: 'Deleted' } : { tone: 'error', title: res.message });
-                }}
-              >
+              <Button size="sm" variant="danger" onClick={() => setDeleteId(b.id)}>
                 Delete
               </Button>
             </div>
           </div>
         ))
       )}
+
+      <ConfirmDialog
+        open={!!deleteId}
+        title="Delete banner?"
+        body="This banner will be removed from all placements immediately."
+        confirmLabel="Delete banner"
+        tone="danger"
+        onClose={() => setDeleteId(null)}
+        onConfirm={async () => {
+          const res = await deleteBanner({ actor: user, business, id: deleteId! });
+          pushToast(res.ok ? { tone: 'info', title: 'Deleted' } : { tone: 'error', title: res.message });
+          if (res.ok) setDeleteId(null);
+        }}
+      />
 
       <Modal
         open={open}

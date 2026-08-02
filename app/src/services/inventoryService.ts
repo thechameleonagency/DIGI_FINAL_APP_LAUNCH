@@ -14,6 +14,7 @@ export async function stockIn(params: {
   expiryDate: string;
   qty: number;
   cost?: number;
+  location?: string;
 }): Promise<Result<Batch>> {
   const perm = assertCan(params.actor, params.stockist, 'inventory.adjust');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Stock was not added.');
@@ -30,6 +31,7 @@ export async function stockIn(params: {
     return fail('Duplicate', 'BATCH_DUP', 'This batch number already exists for the product.', 'Stock was not added.');
   }
   const ts = new Date().toISOString();
+  const location = params.location?.trim() || undefined;
   const batch: Batch = {
     id: newId(),
     productId: params.productId,
@@ -39,6 +41,7 @@ export async function stockIn(params: {
     onHand: params.qty,
     reserved: 0,
     cost: params.cost,
+    location,
     status: 'Available',
     createdAt: ts,
     updatedAt: ts,
@@ -262,21 +265,27 @@ export async function stockAdd(params: {
   qty: number;
   batchNumber?: string;
   expiryDate?: string;
+  mrp?: number;
   reason: string;
 }): Promise<Result<true>> {
   const perm = assertCan(params.actor, params.pharmacy, 'inventory.adjust');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Stock was not added.');
   if (params.qty <= 0) return fail('Validation', 'STOCK_QTY', 'Quantity must be greater than zero.', 'Stock was not added.');
   if (!params.reason.trim()) return fail('Validation', 'STOCK_REASON', 'Reason is required.', 'Stock was not added.');
+  if (params.mrp != null && !(params.mrp >= 0)) {
+    return fail('Validation', 'STOCK_MRP', 'MRP cannot be negative.', 'Stock was not added.');
+  }
   const ts = new Date().toISOString();
   const existing = await db.pharmacyInventory.where({ pharmacyId: params.pharmacy.id, productId: params.productId }).first();
   const prev = existing?.onHand ?? 0;
+  const mrp = params.mrp != null && Number.isFinite(params.mrp) ? params.mrp : undefined;
   await db.transaction('rw', db.pharmacyInventory, db.inventoryMovements, async () => {
     if (existing) {
       await db.pharmacyInventory.update(existing.id, {
         onHand: prev + params.qty,
         batchNumber: params.batchNumber ?? existing.batchNumber,
         expiryDate: params.expiryDate ?? existing.expiryDate,
+        ...(mrp != null ? { mrp } : {}),
         updatedAt: ts,
       });
     } else {
@@ -287,6 +296,7 @@ export async function stockAdd(params: {
         productName: params.productName,
         batchNumber: params.batchNumber,
         expiryDate: params.expiryDate,
+        mrp,
         onHand: params.qty,
         updatedAt: ts,
       });

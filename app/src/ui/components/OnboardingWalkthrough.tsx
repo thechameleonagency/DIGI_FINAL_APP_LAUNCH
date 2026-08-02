@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { REPLAY_WALKTHROUGH_EVENT } from '../../content/help';
 import type { Business, User } from '../../domain/entities/types';
 import { db } from '../../data/db';
+import { markOnboardingSeen } from '../../services/preferencesService';
 import { Button, Modal } from './primitives';
 
 type Slide = { title: string; body: string };
@@ -49,6 +50,7 @@ function slidesFor(role: User['role'], bizType: Business['type']): Slide[] {
   ];
 }
 
+/** Listens for replay events (Help / Preferences). No permanent topbar chrome. */
 export function OnboardingWalkthrough({ user, business }: { user: User; business: Business }) {
   const live = useLiveQuery(() => db.users.get(user.id), [user.id]);
   const [force, setForce] = useState(false);
@@ -68,39 +70,39 @@ export function OnboardingWalkthrough({ user, business }: { user: User; business
 
   const close = async (seen: boolean) => {
     if (seen) {
-      await db.users.update(user.id, { onboardingSeenAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await markOnboardingSeen(user.id);
     }
     setForce(false);
     setIdx(0);
   };
 
   return (
-    <>
-      <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setForce(true); setIdx(0); }}>
-        Replay tour
-      </button>
-      <Modal
-        open={open}
-        title={slides[idx]?.title ?? 'Welcome'}
-        onClose={() => void close(true)}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => void close(true)}>
-              Skip
+    <Modal
+      open={open}
+      title={slides[idx]?.title ?? 'Welcome'}
+      onClose={() => void close(true)}
+      footer={
+        <>
+          <Button variant="secondary" onClick={() => void close(true)}>
+            Skip
+          </Button>
+          {idx > 0 ? (
+            <Button variant="secondary" onClick={() => setIdx((i) => Math.max(0, i - 1))}>
+              Back
             </Button>
-            {idx < slides.length - 1 ? (
-              <Button onClick={() => setIdx((i) => i + 1)}>Next</Button>
-            ) : (
-              <Button onClick={() => void close(true)}>Got it</Button>
-            )}
-          </>
-        }
-      >
-        <p style={{ margin: 0, fontSize: 14 }}>{slides[idx]?.body}</p>
-        <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
-          Step {idx + 1} of {slides.length}
-        </p>
-      </Modal>
-    </>
+          ) : null}
+          {idx < slides.length - 1 ? (
+            <Button onClick={() => setIdx((i) => i + 1)}>Next</Button>
+          ) : (
+            <Button onClick={() => void close(true)}>Got it</Button>
+          )}
+        </>
+      }
+    >
+      <p style={{ margin: 0, fontSize: 14 }}>{slides[idx]?.body}</p>
+      <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
+        Step {idx + 1} of {slides.length}
+      </p>
+    </Modal>
   );
 }

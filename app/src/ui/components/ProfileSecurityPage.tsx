@@ -13,6 +13,9 @@ export function ProfileSecurityPage() {
   const [phone, setPhone] = useState(user?.phone ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | undefined>();
 
   if (!user || !business) return null;
   const portal = portalFor(business.type);
@@ -50,16 +53,43 @@ export function ProfileSecurityPage() {
         <Field label="Current password">
           <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
         </Field>
-        <Field label="New password" hint="Min 6 characters">
-          <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        <Field label="New password" hint="Min 6 characters" error={passwordError}>
+          <Input
+            type={showPassword ? 'text' : 'password'}
+            value={newPassword}
+            onChange={(e) => {
+              setNewPassword(e.target.value);
+              setPasswordError(undefined);
+            }}
+          />
         </Field>
+        <Field label="Confirm new password">
+          <Input
+            type={showPassword ? 'text' : 'password'}
+            value={confirmPassword}
+            onChange={(e) => {
+              setConfirmPassword(e.target.value);
+              setPasswordError(undefined);
+            }}
+          />
+        </Field>
+        <label style={{ fontSize: 13 }}>
+          <input type="checkbox" checked={showPassword} onChange={(e) => setShowPassword(e.target.checked)} /> Show
+          passwords
+        </label>
         <Button
           onClick={async () => {
+            if (newPassword !== confirmPassword) {
+              setPasswordError('New password and confirmation do not match');
+              return;
+            }
             const res = await changePassword({ actor: user, currentPassword, newPassword });
             if (res.ok) {
               pushToast({ tone: 'success', title: 'Password updated' });
               setCurrentPassword('');
               setNewPassword('');
+              setConfirmPassword('');
+              setPasswordError(undefined);
             } else pushToast({ tone: 'error', title: res.message });
           }}
         >

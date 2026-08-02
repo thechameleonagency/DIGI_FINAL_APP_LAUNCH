@@ -1,13 +1,20 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
-import { EmptyState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
+import { parseNumberInput } from '../../../domain/utils/validation';
+import { updateConnectionCreditTerms } from '../../../services/connectionService';
+import { useUi } from '../../../store/ui';
+import { useBusyAction } from '../../../ui/hooks/useBusyAction';
+import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, StatusBadge, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function StockistPharmacyDetail() {
   const { pharmacyId } = useParams();
-  const { business } = useBiz();
+  const { business, user } = useBiz();
+  const { pushToast } = useUi();
+  const { busy, run } = useBusyAction();
   const pharmacy = useLiveQuery(() => (pharmacyId ? db.businesses.get(pharmacyId) : undefined), [pharmacyId]);
   const connection = useLiveQuery(
     () =>
@@ -27,10 +34,26 @@ export function StockistPharmacyDetail() {
       [pharmacyId, business.id],
     ) ?? [];
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [creditDays, setCreditDays] = useState('30');
+  const [creditLimit, setCreditLimit] = useState('100000');
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<{ days?: string; limit?: string; reason?: string }>({});
+
   if (!pharmacy) return <EmptyState title="Pharmacy not found" description="" />;
 
   const outstanding = pairOutstanding(invoices, pharmacy.id, business.id);
   const lastTrade = orders[0];
+  const canEditTerms = connection?.status === 'Active';
+
+  function openEditTerms() {
+    if (!connection) return;
+    setCreditDays(String(connection.creditDays ?? 30));
+    setCreditLimit(String(connection.creditLimit ?? 100000));
+    setReason('');
+    setErrors({});
+    setEditOpen(true);
+  }
 
   return (
     <div className="stack">
@@ -38,9 +61,16 @@ export function StockistPharmacyDetail() {
         title={pharmacy.name}
         subtitle={`${pharmacy.city} · ${connection?.status ?? 'No connection'}`}
         actions={
-          <Link className="btn btn-secondary btn-sm" to="/stockist/messages">
-            Message
-          </Link>
+          <div className="row">
+            {canEditTerms ? (
+              <Button size="sm" variant="secondary" onClick={openEditTerms}>
+                Edit terms
+              </Button>
+            ) : null}
+            <Link className="btn btn-secondary btn-sm" to={`/stockist/messages?with=${pharmacy.id}`}>
+              Message
+            </Link>
+          </div>
         }
       />
       <div className="kpi-grid">
@@ -72,7 +102,14 @@ export function StockistPharmacyDetail() {
         </div>
       </div>
       <div className="card card-pad stack">
-        <strong>Profile</strong>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <strong>Profile</strong>
+          {canEditTerms ? (
+            <Button size="sm" variant="ghost" onClick={openEditTerms}>
+              Edit terms
+            </Button>
+          ) : null}
+        </div>
         <div style={{ fontSize: 13 }}>
           <div>GST {pharmacy.gstNumber ?? '—'} · DL {pharmacy.drugLicenseNumber ?? '—'}</div>
           <div className="muted">
@@ -163,6 +200,76 @@ export function StockistPharmacyDetail() {
       <Link className="btn btn-secondary" to="/stockist/pharmacies">
         Back to pharmacies
       </Link>
+
+      <Modal
+        open={editOpen}
+        title="Edit credit terms"
+        onClose={() => {
+          setEditOpen(false);
+          setErrors({});
+        }}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  if (!connection) return;
+                  const daysParsed = parseNumberInput(creditDays);
+                  const limitParsed = parseNumberInput(creditLimit);
+                  const next: typeof errors = {};
+                  if (daysParsed.status === 'empty') next.days = 'Credit days are required';
+                  else if (
+                    daysParsed.status === 'invalid' ||
+                    !Number.isInteger(daysParsed.value) ||
+                    daysParsed.value < 0
+                  ) {
+                    next.days = 'Enter whole days (0 or more)';
+                  }
+                  if (limitParsed.status === 'empty') next.limit = 'Credit limit is required';
+                  else if (limitParsed.status === 'invalid' || limitParsed.value <= 0) {
+                    next.limit = 'Enter a limit greater than zero';
+                  }
+                  if (!reason.trim()) next.reason = 'A reason is required';
+                  setErrors(next);
+                  if (Object.keys(next).length || daysParsed.status !== 'ok' || limitParsed.status !== 'ok') return;
+                  const res = await updateConnectionCreditTerms({
+                    actor: user,
+                    stockist: business,
+                    connectionId: connection.id,
+                    creditDays: daysParsed.value,
+                    creditLimit: limitParsed.value,
+                    reason: reason.trim(),
+                  });
+                  if (!res.ok) {
+                    pushToast({ tone: 'error', title: res.message });
+                    return;
+                  }
+                  pushToast({ tone: 'success', title: 'Credit terms updated' });
+                  setEditOpen(false);
+                })
+              }
+            >
+              Save terms
+            </Button>
+          </>
+        }
+      >
+        <div className="stack">
+          <Field label="Credit days" error={errors.days}>
+            <Input value={creditDays} onChange={(e) => setCreditDays(e.target.value)} inputMode="numeric" />
+          </Field>
+          <Field label="Credit limit (₹)" error={errors.limit}>
+            <Input value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} inputMode="decimal" />
+          </Field>
+          <Field label="Reason" error={errors.reason}>
+            <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} placeholder="Why are terms changing?" />
+          </Field>
+        </div>
+      </Modal>
     </div>
   );
 }

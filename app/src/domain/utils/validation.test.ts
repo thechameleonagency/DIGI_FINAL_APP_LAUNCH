@@ -8,7 +8,9 @@ import {
   isPan,
   isPhone,
   isPin,
+  nextNumberFieldValue,
   normalizePhone,
+  parseNumberInput,
 } from './validation';
 
 describe('validation helpers', () => {
@@ -30,5 +32,16 @@ describe('validation helpers', () => {
     expect(isEmail('a@b.co')).toBe(true);
     expect(isLicenseNo('MH-20-12345')).toBe(true);
     expect(bankNameFromIfsc('HDFC0001234')).toBe('HDFC Bank');
+  });
+
+  it('parseNumberInput distinguishes empty from zero', () => {
+    expect(parseNumberInput('')).toEqual({ status: 'empty' });
+    expect(parseNumberInput('   ')).toEqual({ status: 'empty' });
+    expect(parseNumberInput('0')).toEqual({ status: 'ok', value: 0 });
+    expect(parseNumberInput('12.5')).toEqual({ status: 'ok', value: 12.5 });
+    expect(parseNumberInput('abc')).toEqual({ status: 'invalid' });
+    expect(nextNumberFieldValue('', 5)).toBe('');
+    expect(nextNumberFieldValue('0', 5)).toBe(0);
+    expect(nextNumberFieldValue('x', 5)).toBe(5);
   });
 });

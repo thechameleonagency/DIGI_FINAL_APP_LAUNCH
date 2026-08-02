@@ -1,17 +1,21 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
+import { EmptyState, Field, Input, LoadingState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function PharmacyInvoices() {
   const { business } = useBiz();
   const navigate = useNavigate();
   const { pushToast } = useUi();
-  const invoices = useLiveQuery(() => db.invoices.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
+  const { items: invoices, loading: invoicesLoading } = useLiveArray(
+    () => db.invoices.where('pharmacyId').equals(business.id).toArray(),
+    [business.id],
+  );
   const stockists = useLiveQuery(() => db.businesses.where('type').equals('Stockist').toArray()) ?? [];
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -104,7 +108,9 @@ export function PharmacyInvoices() {
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
         </Field>
       </div>
-      {!invoices.length ? (
+      {invoicesLoading ? (
+        <LoadingState label="Loading invoices…" />
+      ) : !invoices.length ? (
         <EmptyState title="No invoices yet" description="Invoices appear after stockist billing." />
       ) : (
         <>
@@ -127,6 +133,7 @@ export function PharmacyInvoices() {
             }}
           />
           <DataListTable
+            loading={invoicesLoading}
             columns={columns}
             rows={list.pageRows}
             sortKey={list.sortKey}

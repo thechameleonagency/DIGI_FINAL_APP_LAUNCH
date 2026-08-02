@@ -9,7 +9,6 @@ import { requestConnection } from '../../../services/connectionService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
-import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { Button, EmptyState, Field, Input, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -19,10 +18,9 @@ function availBand(n: number): 'In stock' | 'Low' | 'Out of stock' {
   return 'In stock';
 }
 
-export function PharmacyMarketplace() {
+export function PharmacyMarketplace({ embedded = false }: { embedded?: boolean }) {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
-  const { busy, run } = useBusyAction();
   const canOrder = useCan('order.place');
   const canConnect = useCan('connection.request');
   const [q, setQ] = useState('');
@@ -30,6 +28,7 @@ export function PharmacyMarketplace() {
   const [brand, setBrand] = useState('All');
   const [city, setCity] = useState('All');
   const [qtys, setQtys] = useState<Record<string, number>>({});
+  const [pendingIds, setPendingIds] = useState<Record<string, boolean>>({});
 
   const stockists =
     useLiveQuery(() =>
@@ -45,7 +44,15 @@ export function PharmacyMarketplace() {
   const favIds = new Set(favourites.map((f) => f.stockistId));
   const catalogues = useLiveQuery(() => db.catalogues.toArray()) ?? [];
   const products = useLiveQuery(() => db.products.filter((p) => p.status === 'Active').toArray()) ?? [];
-  const batches = useLiveQuery(() => db.batches.toArray()) ?? [];
+  const stockistIdsKey = useMemo(
+    () => [...new Set(products.map((p) => p.stockistId))].sort().join(','),
+    [products],
+  );
+  const batches =
+    useLiveQuery(() => {
+      const ids = stockistIdsKey ? stockistIdsKey.split(',') : [];
+      return ids.length ? db.batches.where('stockistId').anyOf(ids).toArray() : [];
+    }, [stockistIdsKey]) ?? [];
   const settings = useLiveQuery(() => db.platformSettings.get('platform'));
 
   const stockistById = useMemo(() => new Map(stockists.map((s) => [s.id, s])), [stockists]);
@@ -86,15 +93,17 @@ export function PharmacyMarketplace() {
 
   return (
     <div className="stack">
-      <PageHeader
-        title="Marketplace"
-        subtitle="Product discovery across approved stockists — prices and ordering require an Active connection"
-        actions={
-          <Link className="btn btn-secondary btn-sm" to="/pharmacy/buy">
-            My stockists
-          </Link>
-        }
-      />
+      {!embedded ? (
+        <PageHeader
+          title="Marketplace"
+          subtitle="Redirects into Buy — all-sellers discovery"
+          actions={
+            <Link className="btn btn-secondary btn-sm" to="/pharmacy/buy?mode=all">
+              Open in Buy
+            </Link>
+          }
+        />
+      ) : null}
 
       <div className="card card-pad row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <Field label="Search">
@@ -188,9 +197,10 @@ export function PharmacyMarketplace() {
                           />
                           <Button
                             size="sm"
-                            disabled={busy}
-                            onClick={() =>
-                              void run(async () => {
+                            disabled={!!pendingIds[p.id]}
+                            onClick={() => {
+                              setPendingIds((prev) => ({ ...prev, [p.id]: true }));
+                              void (async () => {
                                 const res = await setCartLine({
                                   actor: user,
                                   pharmacy: business,
@@ -203,10 +213,15 @@ export function PharmacyMarketplace() {
                                     ? { tone: 'success', title: 'Added to cart' }
                                     : { tone: 'error', title: res.message },
                                 );
-                              })
-                            }
+                                setPendingIds((prev) => {
+                                  const next = { ...prev };
+                                  delete next[p.id];
+                                  return next;
+                                });
+                              })();
+                            }}
                           >
-                            Add
+                            {pendingIds[p.id] ? '…' : 'Add'}
                           </Button>
                         </div>
                       ) : (
@@ -222,9 +237,11 @@ export function PharmacyMarketplace() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        disabled={busy}
-                        onClick={() =>
-                          void run(async () => {
+                        disabled={!!pendingIds[`conn-${s.id}`]}
+                        onClick={() => {
+                          const key = `conn-${s.id}`;
+                          setPendingIds((prev) => ({ ...prev, [key]: true }));
+                          void (async () => {
                             const res = await requestConnection({
                               actor: user,
                               pharmacy: business,
@@ -235,8 +252,13 @@ export function PharmacyMarketplace() {
                                 ? { tone: 'success', title: 'Connection requested' }
                                 : { tone: 'error', title: res.message },
                             );
-                          })
-                        }
+                            setPendingIds((prev) => {
+                              const next = { ...prev };
+                              delete next[key];
+                              return next;
+                            });
+                          })();
+                        }}
                       >
                         Request connection to see price and order
                       </Button>

@@ -39,6 +39,9 @@ export function HelpCenterPage({ audience, supportPath }: { audience: HelpAudien
           <Link className="btn btn-primary btn-sm" to={supportPath}>
             Support tickets
           </Link>
+          <Link className="btn btn-secondary btn-sm" to="/verify-bill">
+            Verify a bill
+          </Link>
         </div>
       </div>
 

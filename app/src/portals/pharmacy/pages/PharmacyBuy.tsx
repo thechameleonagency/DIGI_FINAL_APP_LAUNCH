@@ -1,23 +1,26 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { cartTotals, productAvailableSellable } from '../../../domain/calc';
 import { formatINR } from '../../../domain/utils/money';
+import { pluralize } from '../../../domain/utils/pluralize';
 import { getCart, setCartLine, toggleWishlist } from '../../../services/catalogueService';
 import { requestConnection } from '../../../services/connectionService';
 import { setFavourite, sortStockistsFavouritesFirst } from '../../../services/favouriteService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useUi } from '../../../store/ui';
 import { AnnouncementStrip } from '../../../ui/components/AnnouncementStrip';
-import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
-import { PharmacyCompare } from './PharmacyCompare';
-import { PharmacyQuickOrder } from './PharmacyQuickOrder';
+import { Button, EmptyState, Field, Input, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { PharmacyMarketplace } from './PharmacyMarketplace';
 import { useBiz } from './useBiz';
 
 export function PharmacyBuy() {
   const { business, user } = useBiz();
   const { stockistId } = useParams();
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const mode = params.get('mode') === 'all' ? 'all' : 'stockist';
   const { pushToast } = useUi();
   const stockists = useLiveQuery(() => db.businesses.where('type').equals('Stockist').toArray()) ?? [];
   const connections = useLiveQuery(() => db.connections.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
@@ -28,8 +31,14 @@ export function PharmacyBuy() {
   const [productQ, setProductQ] = useState('');
   const [category, setCategory] = useState('All');
   const [qtys, setQtys] = useState<Record<string, number>>({});
-  const [sheet, setSheet] = useState<'quick' | 'compare' | null>(null);
   const settings = useLiveQuery(() => db.platformSettings.get('platform'));
+
+  const setMode = (next: 'stockist' | 'all') => {
+    const p = new URLSearchParams(params);
+    if (next === 'all') p.set('mode', 'all');
+    else p.delete('mode');
+    setParams(p, { replace: true });
+  };
 
   const selected = stockistId ?? connections.find((c) => c.status === 'Active')?.stockistId;
   const catalogue = useLiveQuery(
@@ -41,7 +50,11 @@ export function PharmacyBuy() {
       if (!selected) return [];
       return db.products.where('stockistId').equals(selected).toArray();
     }, [selected]) ?? [];
-  const batches = useLiveQuery(() => db.batches.toArray()) ?? [];
+  const batches =
+    useLiveQuery(
+      () => (selected ? db.batches.where('stockistId').equals(selected).toArray() : []),
+      [selected],
+    ) ?? [];
   const catalogueBlocked = catalogue && catalogue.status !== 'Active';
   const [cart, setCart] = useState<Awaited<ReturnType<typeof getCart>> | null>(null);
 
@@ -59,6 +72,16 @@ export function PharmacyBuy() {
 
   const connFor = (sid: string) => connections.find((c) => c.stockistId === sid);
   const active = selected ? connFor(selected)?.status === 'Active' : false;
+  const approvedStockists = useMemo(
+    () =>
+      sortStockistsFavouritesFirst(
+        stockists
+          .filter((s) => s.verificationStatus === 'Approved')
+          .filter((s) => !stockistQ || `${s.name} ${s.city}`.toLowerCase().includes(stockistQ.toLowerCase())),
+        new Set(favourites.map((f) => f.stockistId)),
+      ),
+    [stockists, stockistQ, favourites],
+  );
   const cartLines = cart?.lines ?? [];
   const miniTotals = cartTotals(
     cartLines
@@ -72,46 +95,64 @@ export function PharmacyBuy() {
   );
 
   return (
-    <div className="stack" style={{ paddingBottom: cartLines.length ? 72 : 0 }}>
+    <div className="stack" style={{ paddingBottom: cartLines.length ? 96 : 0 }}>
       <PageHeader
         title="Buy"
-        subtitle="Discover stockists and browse catalogues (prices require Active connection)"
+        subtitle="One catalogue surface — by stockist or all sellers (prices require Active connection)"
         actions={
           <div className="row">
             <Link className="btn btn-primary btn-sm" to="/pharmacy/smart-order">
               Smart Order
             </Link>
-            <Button size="sm" variant="secondary" type="button" onClick={() => setSheet('quick')}>
+            <Link className="btn btn-secondary btn-sm" to="/pharmacy/quick-order">
               Quick Order
-            </Button>
-            <Button size="sm" variant="secondary" type="button" onClick={() => setSheet('compare')}>
-              Compare
-            </Button>
-            <Link className="btn btn-secondary btn-sm" to="/pharmacy/marketplace">
-              Marketplace
             </Link>
           </div>
         }
       />
-      <Modal open={sheet === 'quick'} title="Quick Order" onClose={() => setSheet(null)}>
-        <PharmacyQuickOrder />
-      </Modal>
-      <Modal open={sheet === 'compare'} title="Compare" onClose={() => setSheet(null)}>
-        <PharmacyCompare />
-      </Modal>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <Button size="sm" variant={mode === 'stockist' ? 'primary' : 'secondary'} type="button" onClick={() => setMode('stockist')}>
+          By stockist
+        </Button>
+        <Button size="sm" variant={mode === 'all' ? 'primary' : 'secondary'} type="button" onClick={() => setMode('all')}>
+          All sellers
+        </Button>
+      </div>
       <AnnouncementStrip audience="Pharmacy" placement="Pharmacy Buy" />
+      {mode === 'all' ? <PharmacyMarketplace embedded /> : null}
+      {mode === 'stockist' ? (
       <div className="grid-2">
-        <div className="card card-pad stack">
+        <div className="card card-pad stack buy-stockist-select">
+          <Field label="Stockist">
+            <Select
+              value={selected ?? ''}
+              onChange={(e) => {
+                const id = e.target.value;
+                if (id) navigate(`/pharmacy/buy/${id}`);
+                else navigate('/pharmacy/buy');
+              }}
+            >
+              <option value="">Select stockist…</option>
+              {approvedStockists.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {favIds.has(s.id) ? '★ ' : ''}
+                  {s.name} · {s.city}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {selected ? (
+            <Link className="btn btn-secondary btn-sm" to={`/pharmacy/stockists/${selected}`}>
+              Stockist details
+            </Link>
+          ) : null}
+        </div>
+        <div className="card card-pad stack buy-stockist-pane">
           <strong>Stockists</strong>
           <Field label="Search">
             <Input value={stockistQ} onChange={(e) => setStockistQ(e.target.value)} placeholder="City, name…" />
           </Field>
-          {sortStockistsFavouritesFirst(
-            stockists
-              .filter((s) => s.verificationStatus === 'Approved')
-              .filter((s) => !stockistQ || `${s.name} ${s.city}`.toLowerCase().includes(stockistQ.toLowerCase())),
-            favIds,
-          ).map((s) => {
+          {approvedStockists.map((s) => {
               const c = connFor(s.id);
               const isFav = favIds.has(s.id);
               return (
@@ -316,25 +357,12 @@ export function PharmacyBuy() {
           )}
         </div>
       </div>
+      ) : null}
 
-      {cartLines.length && selected ? (
-        <div
-          className="card card-pad row"
-          style={{
-            position: 'fixed',
-            left: 16,
-            right: 16,
-            bottom: 16,
-            zIndex: 40,
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
-            maxWidth: 720,
-            margin: '0 auto',
-          }}
-        >
+      {mode === 'stockist' && cartLines.length && selected ? (
+        <div className="card card-pad row mini-cart-bar">
           <div>
-            <strong>{cartLines.length} item(s)</strong>
+            <strong>{pluralize(cartLines.length, 'item')}</strong>
             <div className="muted" style={{ fontSize: 12 }}>
               Mini-cart · <Money value={miniTotals.grandTotal} />
             </div>

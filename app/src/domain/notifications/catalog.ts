@@ -78,6 +78,7 @@ export const NOTIFICATION_CATALOG: Record<string, NotificationTemplate> = {
   'N-303': t('N-303', 'Order recorded on your behalf', 'Stockist recorded order {orderNo} for your pharmacy.'),
   'N-304': t('N-304', 'Invited pharmacy registered', '{pharmacy} registered from your partner invite.'),
   'N-305': t('N-305', 'Payment recorded on your account', 'Payment {paymentNo} was recorded against your account.'),
+  'N-306': t('N-306', 'Payment withdrawn', 'Payment {paymentNo} was withdrawn by the pharmacy.'),
   'N-307': t('N-307', 'Payment reminder', 'Reminder: invoice {invoiceNo} is outstanding ({amount}).'),
   'N-308': t('N-308', 'Purchase order received', 'PO {poNo} is fully received.'),
   'N-309': t('N-309', 'Upgrade requested', '{businessName} requested a plan upgrade.'),

@@ -696,10 +696,17 @@ export async function updateDeliveryStatus(params: {
   return ok((await db.deliveries.get(delivery.id))!);
 }
 
+/** Pending GRN qty for a delivery line (delivered this leg minus already receipted). */
+export function deliveryPendingGrnQty(line: { deliveredQty: number; receivedQty?: number }): number {
+  return Math.max(0, (line.deliveredQty ?? 0) - (line.receivedQty ?? 0));
+}
+
 export async function recordGrn(params: {
   actor: User;
   pharmacy: Business;
   orderId: string;
+  /** When set, GRN applies to this delivery leg (required for partial / multi-leg receipt). */
+  deliveryId?: string;
   received: {
     lineId: string;
     receivedQty: number;
@@ -718,8 +725,17 @@ export async function recordGrn(params: {
   if (!['Delivered', 'PartiallyDelivered'].includes(order.status)) {
     return fail('StateConflict', 'GRN_STATE', 'GRN is only allowed after delivery.', 'GRN was not recorded.');
   }
-  if (order.grnRecordedAt) {
-    return fail('StateConflict', 'GRN_ONCE', 'GRN already recorded for this order.', 'Stock was not counted again.');
+
+  let delivery = params.deliveryId
+    ? await db.deliveries.get(params.deliveryId)
+    : order.deliveryId
+      ? await db.deliveries.get(order.deliveryId)
+      : undefined;
+  if (!delivery || delivery.orderId !== order.id || delivery.pharmacyId !== params.pharmacy.id) {
+    return fail('NotFound', 'GRN_DELIVERY', 'Delivery not found for this order.', 'GRN was not recorded.');
+  }
+  if (!['Delivered', 'PartiallyDelivered'].includes(delivery.status)) {
+    return fail('StateConflict', 'GRN_DEL_STATE', 'GRN is only allowed after this delivery is marked delivered.', 'GRN was not recorded.');
   }
 
   let totalReceived = 0;
@@ -728,16 +744,28 @@ export async function recordGrn(params: {
     if (!line) {
       return fail('Validation', 'GRN_LINE', 'Unknown order line in GRN.', 'GRN was not recorded.');
     }
-    const maxQty = line.deliveredQty ?? line.qty;
+    const dLine = delivery.lines.find((l) => l.productId === line.productId);
+    if (!dLine) {
+      return fail('Validation', 'GRN_DEL_LINE', `${line.productName} is not on this delivery.`, 'GRN was not recorded.');
+    }
+    const maxQty = deliveryPendingGrnQty(dLine);
+    if (maxQty <= 0 && r.receivedQty > 0) {
+      return fail(
+        'StateConflict',
+        'GRN_CAUGHT_UP',
+        `${line.productName} is already fully receipted for this delivery.`,
+        'Stock was not counted again.',
+      );
+    }
     if (!Number.isFinite(r.receivedQty) || r.receivedQty < 0 || r.receivedQty > maxQty) {
       return fail(
         'Validation',
         'GRN_QTY',
-        `Received qty for ${line.productName} must be between 0 and ${maxQty}.`,
+        `Received qty for ${line.productName} must be between 0 and ${maxQty} (pending this delivery).`,
         'GRN was not recorded.',
       );
     }
-    if (r.receivedQty < maxQty && !r.discrepancyReason?.trim()) {
+    if (maxQty > 0 && r.receivedQty < maxQty && !r.discrepancyReason?.trim()) {
       return fail(
         'Validation',
         'GRN_REASON',
@@ -752,14 +780,28 @@ export async function recordGrn(params: {
   }
 
   const ts = new Date().toISOString();
+  const nextDeliveryLines = delivery.lines.map((dl) => {
+    const orderLine = order.lines.find((l) => l.productId === dl.productId);
+    const r = orderLine ? params.received.find((x) => x.lineId === orderLine.id) : undefined;
+    if (!r) return dl;
+    return {
+      ...dl,
+      receivedQty: (dl.receivedQty ?? 0) + r.receivedQty,
+      discrepancyReason: r.discrepancyReason?.trim() || dl.discrepancyReason,
+      batchNumber: r.batchNumber?.trim() || dl.batchNumber,
+      expiryDate: r.expiryDate?.trim() || dl.expiryDate,
+    };
+  });
+
   const lines = order.lines.map((l) => {
     const r = params.received.find((x) => x.lineId === l.id);
     if (!r) return l;
     const batchNumber = r.batchNumber?.trim() || l.batchAllocations?.[0]?.batchNumber;
     const expiryDate = r.expiryDate?.trim() || l.batchAllocations?.[0]?.expiryDate;
+    const nextReceived = (l.receivedQty ?? 0) + r.receivedQty;
     return {
       ...l,
-      receivedQty: r.receivedQty,
+      receivedQty: nextReceived,
       discrepancyReason: r.discrepancyReason?.trim() || l.discrepancyReason,
       batchAllocations:
         batchNumber || expiryDate
@@ -767,7 +809,7 @@ export async function recordGrn(params: {
               {
                 batchId: l.batchAllocations?.[0]?.batchId ?? `grn-${l.id}`,
                 batchNumber: batchNumber ?? '',
-                qty: r.receivedQty,
+                qty: nextReceived,
                 expiryDate: expiryDate ?? '',
               },
             ]
@@ -775,15 +817,22 @@ export async function recordGrn(params: {
     };
   });
 
-  await db.transaction('rw', db.orders, db.pharmacyInventory, db.inventoryMovements, async () => {
+  const deliveryFullyReceipted = nextDeliveryLines.every((dl) => (dl.receivedQty ?? 0) >= (dl.deliveredQty ?? 0));
+
+  await db.transaction('rw', db.orders, db.deliveries, db.pharmacyInventory, db.inventoryMovements, async () => {
+    await db.deliveries.update(delivery!.id, {
+      lines: nextDeliveryLines,
+      grnRecordedAt: deliveryFullyReceipted ? ts : delivery!.grnRecordedAt,
+      updatedAt: ts,
+    });
     await db.orders.update(order.id, { lines, updatedAt: ts, grnRecordedAt: ts, version: order.version + 1 });
 
-    for (const l of lines) {
-      const qty = l.receivedQty ?? 0;
-      if (qty <= 0) continue;
+    for (const l of order.lines) {
       const r = params.received.find((x) => x.lineId === l.id);
-      const batchNumber = r?.batchNumber?.trim() || l.batchAllocations?.[0]?.batchNumber;
-      const expiryDate = r?.expiryDate?.trim() || l.batchAllocations?.[0]?.expiryDate;
+      if (!r || r.receivedQty <= 0) continue;
+      const qty = r.receivedQty;
+      const batchNumber = r.batchNumber?.trim() || l.batchAllocations?.[0]?.batchNumber;
+      const expiryDate = r.expiryDate?.trim() || l.batchAllocations?.[0]?.expiryDate;
       const existing = await db.pharmacyInventory.where({ pharmacyId: params.pharmacy.id, productId: l.productId }).first();
       const prevQty = existing?.onHand ?? 0;
       const newQty = prevQty + qty;
@@ -812,9 +861,9 @@ export async function recordGrn(params: {
         productId: l.productId,
         type: 'GRNIn',
         qty,
-        reason: l.discrepancyReason || 'Goods receipt',
-        sourceDocType: 'Order',
-        sourceDocId: order.id,
+        reason: r.discrepancyReason?.trim() || 'Goods receipt',
+        sourceDocType: 'Delivery',
+        sourceDocId: delivery!.id,
         actorId: params.actor.id,
         prevQty,
         newQty,
@@ -827,15 +876,17 @@ export async function recordGrn(params: {
     actorId: params.actor.id,
     actorName: params.actor.name,
     businessId: params.pharmacy.id,
-    entityType: 'Order',
-    entityId: order.id,
-    action: 'order.grn',
-    after: { grnRecordedAt: ts, received: params.received },
+    entityType: 'Delivery',
+    entityId: delivery.id,
+    action: 'delivery.grn',
+    after: { deliveryNo: delivery.deliveryNo, orderNo: order.orderNo, received: params.received },
   });
 
   const shortage = params.received.some((r) => {
     const line = order.lines.find((l) => l.id === r.lineId);
-    return line && r.receivedQty < (line.deliveredQty ?? line.qty);
+    const dLine = line ? delivery!.lines.find((x) => x.productId === line.productId) : undefined;
+    if (!dLine) return false;
+    return r.receivedQty < deliveryPendingGrnQty(dLine);
   });
   if (shortage) {
     await notifyBusinessUsers(order.stockistId, 'N-026', { orderNo: order.orderNo }, { type: 'Order', id: order.id });

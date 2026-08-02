@@ -2,16 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
-import { cartTotals } from '../../../domain/calc';
+import { cartTotals, pairOutstanding } from '../../../domain/calc';
 import type { Address } from '../../../domain/entities/types';
+import { localTodayKey } from '../../../domain/utils/dateKeys';
 import { makeIdempotencyKey } from '../../../domain/utils/idempotency';
+import { formatINR } from '../../../domain/utils/money';
 import { removeDeliveryAddress, upsertDeliveryAddress } from '../../../services/authService';
+import { parseNumberInput } from '../../../domain/utils/validation';
 import { clearCart, getCart, setCartLine } from '../../../services/catalogueService';
 import { placeOrder } from '../../../services/orderService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { Button, EmptyState, Field, Input, Money, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 import { StockistNameSelect } from './StockistNameSelect';
 
@@ -41,14 +44,37 @@ export function PharmacyCart() {
   const [addressId, setAddressId] = useState('');
   const [busy, setBusy] = useState(false);
   const [priceConfirm, setPriceConfirm] = useState<string | null>(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
   const [addrForm, setAddrForm] = useState({ label: '', line1: '', city: '', state: '', pincode: '' });
+  const [addrOpen, setAddrOpen] = useState(false);
+  const [addrErrors, setAddrErrors] = useState<{
+    label?: string;
+    line1?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+  }>({});
+  const [draftQty, setDraftQty] = useState<Record<string, string>>({});
+  const [qtyErrors, setQtyErrors] = useState<Record<string, string>>({});
   const sid = stockistId || activeConnections[0]?.stockistId || '';
   const [cart, setCart] = useState<Awaited<ReturnType<typeof getCart>> | null>(null);
-  const products = useLiveQuery(() => db.products.toArray()) ?? [];
+  const products =
+    useLiveQuery(
+      () => (sid ? db.products.where('stockistId').equals(sid).toArray() : []),
+      [sid],
+    ) ?? [];
   const settings = useLiveQuery(() => db.platformSettings.get('platform'));
   const stockistBiz = useLiveQuery(() => (sid ? db.businesses.get(sid) : undefined), [sid]);
+  const pairInvoices =
+    useLiveQuery(
+      () => (sid ? db.invoices.where({ pharmacyId: business.id, stockistId: sid }).toArray() : []),
+      [business.id, sid],
+    ) ?? [];
   const conn = connections.find((c) => c.stockistId === sid);
   const connected = conn?.status === 'Active';
+  const outstanding = sid ? pairOutstanding(pairInvoices, business.id, sid) : 0;
+  const creditLimit = conn?.creditLimit;
+  const creditDays = conn?.creditDays;
   const holidayHit = useMemo(() => {
     if (!preferredDate || !stockistBiz?.holidays?.length) return null;
     for (const h of stockistBiz.holidays) {
@@ -66,7 +92,64 @@ export function PharmacyCart() {
 
   useEffect(() => {
     if (sid) getCart(business.id, sid).then(setCart);
+    setDraftQty({});
+    setQtyErrors({});
   }, [business.id, sid]);
+
+  const commitQty = async (productId: string, product: { moq: number; maxQty?: number } | undefined, raw: string) => {
+    if (!product) return;
+    const parsed = parseNumberInput(raw);
+    if (parsed.status === 'empty') {
+      // Empty field — revert; do not treat as remove
+      setDraftQty((d) => {
+        const next = { ...d };
+        delete next[productId];
+        return next;
+      });
+      setQtyErrors((e) => {
+        const next = { ...e };
+        delete next[productId];
+        return next;
+      });
+      return;
+    }
+    if (parsed.status === 'invalid' || parsed.value < 0 || !Number.isInteger(parsed.value)) {
+      setQtyErrors((e) => ({ ...e, [productId]: 'Enter a whole number' }));
+      return;
+    }
+    const qty = parsed.value;
+    if (qty === 0) {
+      setQtyErrors((e) => ({ ...e, [productId]: 'Use Remove to delete this line' }));
+      setDraftQty((d) => {
+        const next = { ...d };
+        delete next[productId];
+        return next;
+      });
+      return;
+    }
+    const res = await setCartLine({
+      actor: user,
+      pharmacy: business,
+      stockistId: sid,
+      productId,
+      qty,
+    });
+    if (!res.ok) {
+      setQtyErrors((e) => ({ ...e, [productId]: res.message }));
+      return;
+    }
+    setQtyErrors((e) => {
+      const next = { ...e };
+      delete next[productId];
+      return next;
+    });
+    setDraftQty((d) => {
+      const next = { ...d };
+      delete next[productId];
+      return next;
+    });
+    setCart(await getCart(business.id, sid));
+  };
 
   useEffect(() => {
     if (!addressId && addresses.length) {
@@ -134,21 +217,8 @@ export function PharmacyCart() {
       if (res.existingId) navigate(`/pharmacy/orders`);
       return;
     }
-    pushToast({
-      tone: 'success',
-      title: 'Order placed',
-      message: `${res.data.orderNo} is Pending with stockist.`,
-    });
-    useUi.getState().showSuccessSummary({
-      title: 'Order placed',
-      documentNo: res.data.orderNo,
-      body: 'Your order is Pending with the stockist.',
-      next: [
-        { label: 'View order', to: `/pharmacy/orders/${res.data.orderNo}` },
-        { label: 'Continue shopping', to: '/pharmacy/buy' },
-      ],
-    });
-    navigate(`/pharmacy/orders/${res.data.orderNo}`);
+    // Single feedback: destination banner (no toast + modal stack)
+    navigate(`/pharmacy/orders/${res.data.orderNo}?placed=1`);
   };
 
   return (
@@ -158,17 +228,7 @@ export function PharmacyCart() {
         subtitle="Choose delivery address and review totals before placing"
         actions={
           lines.length ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={async () => {
-                const res = await clearCart({ actor: user, pharmacy: business, stockistId: sid });
-                if (res.ok) {
-                  setCart(await getCart(business.id, sid));
-                  pushToast({ tone: 'success', title: 'Cart cleared' });
-                } else pushToast({ tone: 'error', title: res.message });
-              }}
-            >
+            <Button size="sm" variant="ghost" onClick={() => setClearConfirm(true)}>
               Clear cart
             </Button>
           ) : null
@@ -178,6 +238,22 @@ export function PharmacyCart() {
       {!connected && sid ? (
         <div className="banner-strip warning">Connection is not Active — cart lines are blocked until reconnect.</div>
       ) : null}
+      <ConfirmDialog
+        open={clearConfirm}
+        title="Clear cart?"
+        tone="danger"
+        confirmLabel="Clear cart"
+        body={`Remove all ${lines.length} line${lines.length === 1 ? '' : 's'} for this stockist? Smart Order and quick-order work will be lost.`}
+        onClose={() => setClearConfirm(false)}
+        onConfirm={async () => {
+          const res = await clearCart({ actor: user, pharmacy: business, stockistId: sid });
+          if (res.ok) {
+            setCart(await getCart(business.id, sid));
+            pushToast({ tone: 'success', title: 'Cart cleared' });
+            setClearConfirm(false);
+          } else pushToast({ tone: 'error', title: res.message });
+        }}
+      />
       <ConfirmDialog
         open={!!priceConfirm}
         title="Prices changed"
@@ -215,23 +291,43 @@ export function PharmacyCart() {
                   <tr key={l.productId}>
                     <td>{l.product?.name ?? 'Deleted product'}</td>
                     <td>
-                      <Input
-                        type="number"
-                        style={{ width: 80 }}
-                        value={l.qty}
-                        disabled={!l.product || !connected}
-                        onChange={async (e) => {
-                          if (!l.product) return;
-                          await setCartLine({
-                            actor: user,
-                            pharmacy: business,
-                            stockistId: sid,
-                            productId: l.productId,
-                            qty: Number(e.target.value),
-                          });
-                          setCart(await getCart(business.id, sid));
-                        }}
-                      />
+                      <div className="stack" style={{ gap: 2 }}>
+                        <Input
+                          type="number"
+                          style={{ width: 80 }}
+                          value={draftQty[l.productId] ?? String(l.qty)}
+                          disabled={!l.product || !connected}
+                          aria-invalid={!!qtyErrors[l.productId]}
+                          onChange={(e) => {
+                            setDraftQty((d) => ({ ...d, [l.productId]: e.target.value }));
+                            if (qtyErrors[l.productId]) {
+                              setQtyErrors((err) => {
+                                const next = { ...err };
+                                delete next[l.productId];
+                                return next;
+                              });
+                            }
+                          }}
+                          onBlur={() => {
+                            if (!l.product) return;
+                            const raw = draftQty[l.productId];
+                            if (raw === undefined) return;
+                            void commitQty(l.productId, l.product, raw);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter' || !l.product) return;
+                            e.preventDefault();
+                            const raw = draftQty[l.productId] ?? String(l.qty);
+                            void commitQty(l.productId, l.product, raw);
+                            (e.target as HTMLInputElement).blur();
+                          }}
+                        />
+                        {qtyErrors[l.productId] ? (
+                          <span className="error" style={{ fontSize: 11 }}>
+                            {qtyErrors[l.productId]}
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td>
                       {l.product ? (
@@ -330,52 +426,129 @@ export function PharmacyCart() {
                 Remove selected address
               </Button>
             ) : null}
-            <div className="grid-2">
-              <Field label="New label">
-                <Input value={addrForm.label} onChange={(e) => setAddrForm((f) => ({ ...f, label: e.target.value }))} />
-              </Field>
-              <Field label="Line 1">
-                <Input value={addrForm.line1} onChange={(e) => setAddrForm((f) => ({ ...f, line1: e.target.value }))} />
-              </Field>
-              <Field label="City">
-                <Input value={addrForm.city} onChange={(e) => setAddrForm((f) => ({ ...f, city: e.target.value }))} />
-              </Field>
-              <Field label="State">
-                <Input value={addrForm.state} onChange={(e) => setAddrForm((f) => ({ ...f, state: e.target.value }))} />
-              </Field>
-              <Field label="Pincode">
-                <Input
-                  value={addrForm.pincode}
-                  onChange={(e) => setAddrForm((f) => ({ ...f, pincode: e.target.value }))}
-                />
-              </Field>
-            </div>
             <Button
               size="sm"
               variant="secondary"
-              onClick={async () => {
-                const res = await upsertDeliveryAddress({
-                  actor: user,
-                  business,
-                  address: { ...addrForm, isDefault: !(liveBiz?.deliveryAddresses ?? []).length },
-                });
-                if (!res.ok) {
-                  pushToast({ tone: 'error', title: res.message });
-                  return;
-                }
-                setAddressId(res.data.id);
+              onClick={() => {
                 setAddrForm({ label: '', line1: '', city: '', state: '', pincode: '' });
-                pushToast({ tone: 'success', title: 'Address saved' });
+                setAddrErrors({});
+                setAddrOpen(true);
               }}
             >
-              Save address
+              Add delivery address
             </Button>
           </div>
+
+          <Modal
+            open={addrOpen}
+            title="Add delivery address"
+            onClose={() => setAddrOpen(false)}
+            footer={
+              <>
+                <Button variant="secondary" onClick={() => setAddrOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={async () => {
+                    const next: typeof addrErrors = {};
+                    if (!addrForm.label.trim()) next.label = 'Label is required';
+                    if (!addrForm.line1.trim()) next.line1 = 'Line 1 is required';
+                    if (!addrForm.city.trim()) next.city = 'City is required';
+                    if (!addrForm.state.trim()) next.state = 'State is required';
+                    if (!addrForm.pincode.trim()) next.pincode = 'Pincode is required';
+                    if (Object.keys(next).length) {
+                      setAddrErrors(next);
+                      return;
+                    }
+                    const res = await upsertDeliveryAddress({
+                      actor: user,
+                      business,
+                      address: { ...addrForm, isDefault: !(liveBiz?.deliveryAddresses ?? []).length },
+                    });
+                    if (!res.ok) {
+                      if (res.code === 'ADDR_FIELDS') {
+                        setAddrErrors({
+                          label: !addrForm.label.trim() ? 'Label is required' : undefined,
+                          line1: !addrForm.line1.trim() ? 'Line 1 is required' : undefined,
+                          city: !addrForm.city.trim() ? 'City is required' : undefined,
+                          state: !addrForm.state.trim() ? 'State is required' : undefined,
+                          pincode: !addrForm.pincode.trim() ? 'Pincode is required' : undefined,
+                        });
+                      } else {
+                        pushToast({ tone: 'error', title: res.message });
+                      }
+                      return;
+                    }
+                    setAddressId(res.data.id);
+                    setAddrForm({ label: '', line1: '', city: '', state: '', pincode: '' });
+                    setAddrErrors({});
+                    setAddrOpen(false);
+                    pushToast({ tone: 'success', title: 'Address saved' });
+                  }}
+                >
+                  Save address
+                </Button>
+              </>
+            }
+          >
+            <div className="grid-2">
+              <Field label="New label" error={addrErrors.label}>
+                <Input
+                  value={addrForm.label}
+                  onChange={(e) => {
+                    setAddrForm((f) => ({ ...f, label: e.target.value }));
+                    setAddrErrors((err) => ({ ...err, label: undefined }));
+                  }}
+                />
+              </Field>
+              <Field label="Line 1" error={addrErrors.line1}>
+                <Input
+                  value={addrForm.line1}
+                  onChange={(e) => {
+                    setAddrForm((f) => ({ ...f, line1: e.target.value }));
+                    setAddrErrors((err) => ({ ...err, line1: undefined }));
+                  }}
+                />
+              </Field>
+              <Field label="City" error={addrErrors.city}>
+                <Input
+                  value={addrForm.city}
+                  onChange={(e) => {
+                    setAddrForm((f) => ({ ...f, city: e.target.value }));
+                    setAddrErrors((err) => ({ ...err, city: undefined }));
+                  }}
+                />
+              </Field>
+              <Field label="State" error={addrErrors.state}>
+                <Input
+                  value={addrForm.state}
+                  onChange={(e) => {
+                    setAddrForm((f) => ({ ...f, state: e.target.value }));
+                    setAddrErrors((err) => ({ ...err, state: undefined }));
+                  }}
+                />
+              </Field>
+              <Field label="Pincode" error={addrErrors.pincode}>
+                <Input
+                  value={addrForm.pincode}
+                  onChange={(e) => {
+                    setAddrForm((f) => ({ ...f, pincode: e.target.value }));
+                    setAddrErrors((err) => ({ ...err, pincode: undefined }));
+                  }}
+                />
+              </Field>
+            </div>
+          </Modal>
 
           <div className="card card-pad stack">
             <strong>Checkout review</strong>
             <Field label="Preferred delivery date">
-              <Input type="date" value={preferredDate} onChange={(e) => setPreferredDate(e.target.value)} />
+              <Input
+                type="date"
+                min={localTodayKey()}
+                value={preferredDate}
+                onChange={(e) => setPreferredDate(e.target.value)}
+              />
             </Field>
             {holidayHit ? (
               <div className="banner-strip warning" style={{ fontSize: 13 }}>
@@ -386,6 +559,27 @@ export function PharmacyCart() {
             <Field label="Notes">
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
             </Field>
+            {creditLimit != null ? (
+              <div
+                className={
+                  outstanding + totals.grandTotal > creditLimit ? 'banner-strip warning' : 'banner-strip info'
+                }
+                style={{ fontSize: 13 }}
+              >
+                Credit with {stockistBiz?.name ?? 'stockist'}
+                {creditDays != null ? ` · ${creditDays} days` : ''}: outstanding {formatINR(outstanding)} + this order{' '}
+                {formatINR(totals.grandTotal)} = {formatINR(outstanding + totals.grandTotal)} / limit{' '}
+                {formatINR(creditLimit)}
+                {outstanding + totals.grandTotal > creditLimit
+                  ? ` · ${formatINR(outstanding + totals.grandTotal - creditLimit)} over limit`
+                  : ''}
+              </div>
+            ) : (
+              <div className="muted" style={{ fontSize: 13 }}>
+                No credit limit set on this connection
+                {creditDays != null ? ` · terms ${creditDays} days` : ''}.
+              </div>
+            )}
             <div className="stack" style={{ gap: 6 }}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <span>Subtotal</span>

@@ -1,14 +1,21 @@
-import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { Business, SupportTicket, User } from '../../domain/entities/types';
 import { db } from '../../data/db';
 import { createTicket, updateTicket } from '../../services/supportService';
 import { useUi } from '../../store/ui';
-import { Button, EmptyState, Field, Input, PageHeader, Select, StatusBadge, Textarea } from './primitives';
+import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge, Textarea } from './primitives';
 
 const CATEGORIES = ['General', 'Orders', 'Payments', 'Verification', 'Technical', 'Operations'] as const;
 const PRIORITIES: SupportTicket['priority'][] = ['Low', 'Medium', 'High'];
+const RELATED_TYPES = ['', 'Order', 'Invoice', 'Payment', 'Delivery', 'Return'] as const;
+
+function categoryForEntity(type: string): string {
+  if (type === 'Invoice' || type === 'Payment') return 'Payments';
+  if (type === 'Order' || type === 'Delivery' || type === 'Return') return 'Orders';
+  return 'General';
+}
 
 export function TicketPanel({
   actor,
@@ -24,6 +31,7 @@ export function TicketPanel({
 }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
   const { pushToast } = useUi();
   const tickets =
     useLiveQuery(() => db.supportTickets.where('businessId').equals(business.id).reverse().sortBy('updatedAt'), [
@@ -37,7 +45,31 @@ export function TicketPanel({
   const [relatedType, setRelatedType] = useState('');
   const [relatedId, setRelatedId] = useState('');
   const [reply, setReply] = useState('');
+  const [ticketErrors, setTicketErrors] = useState<{ subject?: string; body?: string }>({});
+  const [replyError, setReplyError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+
+  useEffect(() => {
+    if (id) return;
+    const et = params.get('entityType') ?? '';
+    const eid = params.get('entityNo') ?? params.get('entityId') ?? '';
+    const wantNew = params.get('new') === '1' || !!et || !!eid;
+    if (!wantNew) return;
+    if (et) {
+      setRelatedType(RELATED_TYPES.includes(et as (typeof RELATED_TYPES)[number]) ? et : et);
+      setCategory(categoryForEntity(et));
+      setSubject(`Help with ${et}${eid ? ` ${eid}` : ''}`);
+    }
+    if (eid) setRelatedId(eid);
+    setCreateOpen(true);
+    const next = new URLSearchParams(params);
+    next.delete('new');
+    next.delete('entityType');
+    next.delete('entityId');
+    next.delete('entityNo');
+    setParams(next, { replace: true });
+  }, [id, params, setParams]);
 
   const detail = id ? tickets.find((t) => t.id === id) : undefined;
 
@@ -102,8 +134,15 @@ export function TicketPanel({
           })}
         </div>
         <div className="card card-pad stack">
-          <Field label="Add update">
-            <Textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3} />
+          <Field label="Add update" error={replyError}>
+            <Textarea
+              value={reply}
+              onChange={(e) => {
+                setReply(e.target.value);
+                setReplyError(undefined);
+              }}
+              rows={3}
+            />
           </Field>
           <div className="row">
             <Button
@@ -111,14 +150,17 @@ export function TicketPanel({
               disabled={busy}
               onClick={async () => {
                 if (!reply.trim()) {
-                  pushToast({ tone: 'error', title: 'Update body is required' });
+                  setReplyError('Update body is required');
                   return;
                 }
                 setBusy(true);
                 const res = await updateTicket({ actor, business, ticketId: detail.id, body: reply });
                 setBusy(false);
                 pushToast(res.ok ? { tone: 'success', title: 'Update added' } : { tone: 'error', title: res.message });
-                if (res.ok) setReply('');
+                if (res.ok) {
+                  setReply('');
+                  setReplyError(undefined);
+                }
               }}
             >
               Send update
@@ -153,81 +195,161 @@ export function TicketPanel({
 
   return (
     <div className="stack">
-      <PageHeader title="Support" subtitle="Raise tickets with category, priority, and optional related entity" />
-      <div className="card card-pad stack">
-        <Field label="Subject">
-          <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
-        </Field>
-        <div className="row" style={{ alignItems: 'flex-end' }}>
-          <Field label="Category">
-            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Priority">
-            <Select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as SupportTicket['priority'])}
+      <PageHeader
+        title="Support"
+        subtitle="Raise tickets with category, priority, and optional related entity"
+        actions={
+          <Button
+            size="sm"
+            onClick={() => {
+              setTicketErrors({});
+              setCreateOpen(true);
+            }}
+          >
+            New ticket
+          </Button>
+        }
+      />
+      <Modal
+        open={createOpen}
+        title="New ticket"
+        onClose={() => {
+          setCreateOpen(false);
+          setTicketErrors({});
+        }}
+        footer={
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setCreateOpen(false);
+                setTicketErrors({});
+              }}
             >
-              {PRIORITIES.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </Select>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={async () => {
+                const next: typeof ticketErrors = {};
+                if (!subject.trim()) next.subject = 'Subject is required';
+                if (!body.trim()) next.body = 'Description is required';
+                if (Object.keys(next).length) {
+                  setTicketErrors(next);
+                  return;
+                }
+                setBusy(true);
+                const res = await createTicket({
+                  actor,
+                  business,
+                  subject,
+                  category,
+                  body,
+                  priority,
+                  relatedEntityType: relatedType || undefined,
+                  relatedEntityId: relatedId || undefined,
+                });
+                setBusy(false);
+                if (res.ok) {
+                  pushToast({ tone: 'success', title: res.data.ticketNo });
+                  setSubject('');
+                  setBody('');
+                  setRelatedType('');
+                  setRelatedId('');
+                  setTicketErrors({});
+                  setCreateOpen(false);
+                  navigate(`${basePath}/${res.data.id}`);
+                } else {
+                  pushToast({ tone: 'error', title: res.message });
+                }
+              }}
+            >
+              {busy ? 'Creating…' : 'Create ticket'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="stack">
+          <Field label="Subject" error={ticketErrors.subject}>
+            <Input
+              value={subject}
+              onChange={(e) => {
+                setSubject(e.target.value);
+                setTicketErrors((err) => ({ ...err, subject: undefined }));
+              }}
+            />
           </Field>
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <Field label="Category">
+              <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Priority">
+              <Select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as SupportTicket['priority'])}
+              >
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Field label="Description" error={ticketErrors.body}>
+            <Textarea
+              value={body}
+              onChange={(e) => {
+                setBody(e.target.value);
+                setTicketErrors((err) => ({ ...err, body: undefined }));
+              }}
+              rows={3}
+            />
+          </Field>
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <Field label="Related entity type (optional)">
+              <Select
+                value={relatedType}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setRelatedType(v);
+                  if (v) setCategory(categoryForEntity(v));
+                }}
+              >
+                {RELATED_TYPES.map((t) => (
+                  <option key={t || 'none'} value={t}>
+                    {t || 'None'}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Related entity id / number">
+              <Input
+                value={relatedId}
+                onChange={(e) => setRelatedId(e.target.value)}
+                placeholder="ORD-… / INV-…"
+              />
+            </Field>
+          </div>
         </div>
-        <Field label="Description">
-          <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} />
-        </Field>
-        <div className="row" style={{ alignItems: 'flex-end' }}>
-          <Field label="Related entity type (optional)">
-            <Input value={relatedType} onChange={(e) => setRelatedType(e.target.value)} placeholder="Order / Invoice / Payment" />
-          </Field>
-          <Field label="Related entity id / number">
-            <Input value={relatedId} onChange={(e) => setRelatedId(e.target.value)} placeholder="ORD-… / INV-…" />
-          </Field>
-        </div>
-        <Button
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            const res = await createTicket({
-              actor,
-              business,
-              subject,
-              category,
-              body,
-              priority,
-              relatedEntityType: relatedType || undefined,
-              relatedEntityId: relatedId || undefined,
-            });
-            setBusy(false);
-            pushToast(res.ok ? { tone: 'success', title: res.data.ticketNo } : { tone: 'error', title: res.message });
-            if (res.ok) {
-              setSubject('');
-              setBody('');
-              setRelatedType('');
-              setRelatedId('');
-              navigate(`${basePath}/${res.data.id}`);
-            }
-          }}
-        >
-          Create ticket
-        </Button>
-      </div>
+      </Modal>
       {!tickets.length ? (
         <EmptyState
           title="No tickets yet"
-          description="Create a ticket above when you need help from platform support."
+          description="Create a ticket when you need help from platform support."
           action={
-            <Link className="btn btn-primary" to={homePath}>
-              Go to home
-            </Link>
+            <div className="row">
+              <Button onClick={() => setCreateOpen(true)}>New ticket</Button>
+              <Link className="btn btn-secondary" to={homePath}>
+                Go to home
+              </Link>
+            </div>
           }
         />
       ) : (

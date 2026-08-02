@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
+import { formatINR } from '../../../domain/utils/money';
 import { applyCreditNote, issueGoodwillCreditNote } from '../../../services/paymentService';
 import { useUi } from '../../../store/ui';
+import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -26,6 +28,8 @@ export function StockistCreditNotes() {
   const [invoiceId, setInvoiceId] = useState('');
   const [amount, setAmount] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [gwOpen, setGwOpen] = useState(false);
+  const [gwConfirm, setGwConfirm] = useState(false);
   const [gwPharmacy, setGwPharmacy] = useState('');
   const [gwAmount, setGwAmount] = useState('');
   const [gwReason, setGwReason] = useState('');
@@ -38,44 +42,100 @@ export function StockistCreditNotes() {
 
   return (
     <div className="stack">
-      <PageHeader title="Credit notes" subtitle="Return, Goodwill, and Advance sources" />
-      <div className="card card-pad stack">
-        <strong>Issue goodwill credit note</strong>
-        <Field label="Pharmacy">
-          <Select value={gwPharmacy} onChange={(e) => setGwPharmacy(e.target.value)}>
-            <option value="">Select connected…</option>
-            {connectedPharmacies.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Amount">
-          <Input type="number" value={gwAmount} onChange={(e) => setGwAmount(e.target.value)} />
-        </Field>
-        <Field label="Reason (required)">
-          <Input value={gwReason} onChange={(e) => setGwReason(e.target.value)} placeholder="Authorised adjustment" />
-        </Field>
-        <Button
-          onClick={async () => {
-            const res = await issueGoodwillCreditNote({
-              actor: user,
-              stockist: business,
-              pharmacyId: gwPharmacy,
-              amount: Number(gwAmount),
-              reason: gwReason,
-            });
-            pushToast(res.ok ? { tone: 'success', title: res.data.creditNoteNo } : { tone: 'error', title: res.message });
-            if (res.ok) {
-              setGwAmount('');
-              setGwReason('');
-            }
-          }}
-        >
-          Issue goodwill CN
-        </Button>
-      </div>
+      <PageHeader
+        title="Credit notes"
+        subtitle="Return, Goodwill, and Advance sources"
+        actions={
+          <Button size="sm" onClick={() => setGwOpen(true)}>
+            Issue goodwill CN
+          </Button>
+        }
+      />
+      <Modal
+        open={gwOpen}
+        title="Issue goodwill credit note"
+        onClose={() => setGwOpen(false)}
+        footer={
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setGwOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!gwPharmacy) {
+                  pushToast({ tone: 'error', title: 'Select a pharmacy' });
+                  return;
+                }
+                if (!(Number(gwAmount) > 0)) {
+                  pushToast({ tone: 'error', title: 'Enter an amount greater than zero' });
+                  return;
+                }
+                if (!gwReason.trim()) {
+                  pushToast({ tone: 'error', title: 'Reason is required' });
+                  return;
+                }
+                setGwConfirm(true);
+              }}
+            >
+              Review & issue
+            </Button>
+          </div>
+        }
+      >
+        <div className="stack">
+          <Field label="Pharmacy">
+            <Select value={gwPharmacy} onChange={(e) => setGwPharmacy(e.target.value)}>
+              <option value="">Select connected…</option>
+              {connectedPharmacies.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Amount">
+            <Input type="number" value={gwAmount} onChange={(e) => setGwAmount(e.target.value)} />
+          </Field>
+          <Field label="Reason (required)">
+            <Input value={gwReason} onChange={(e) => setGwReason(e.target.value)} placeholder="Authorised adjustment" />
+          </Field>
+        </div>
+      </Modal>
+      <ConfirmDialog
+        open={gwConfirm}
+        title="Issue goodwill credit?"
+        tone="danger"
+        confirmLabel="Issue credit note"
+        body={
+          <p>
+            Create spendable goodwill credit of <strong>{formatINR(Number(gwAmount) || 0)}</strong> for{' '}
+            <strong>{pharmacyName(gwPharmacy)}</strong>? This can be applied to open invoices immediately.
+            {gwReason.trim() ? (
+              <>
+                {' '}
+                Reason: <em>{gwReason.trim()}</em>
+              </>
+            ) : null}
+          </p>
+        }
+        onClose={() => setGwConfirm(false)}
+        onConfirm={async () => {
+          const res = await issueGoodwillCreditNote({
+            actor: user,
+            stockist: business,
+            pharmacyId: gwPharmacy,
+            amount: Number(gwAmount),
+            reason: gwReason,
+          });
+          pushToast(res.ok ? { tone: 'success', title: res.data.creditNoteNo } : { tone: 'error', title: res.message });
+          if (res.ok) {
+            setGwAmount('');
+            setGwReason('');
+            setGwOpen(false);
+            setGwConfirm(false);
+          }
+        }}
+      />
       <Modal
         open={!!applyNote}
         title={applyNote ? `Apply ${applyNote.creditNoteNo}` : 'Apply credit'}
@@ -142,6 +202,7 @@ export function StockistCreditNotes() {
               Source: {detail.source ?? 'Return'}
               {detail.reason ? ` · ${detail.reason}` : ''}
               {detail.paymentId ? ` · payment ${detail.paymentId.slice(0, 8)}` : ''}
+              {detail.expiresAt ? ` · expires ${new Date(detail.expiresAt).toLocaleDateString()}` : ''}
             </div>
             <strong>Application history</strong>
             {!detail.applications.length ? (
@@ -176,6 +237,7 @@ export function StockistCreditNotes() {
               <div className="muted" style={{ fontSize: 12 }}>
                 {pharmacyName(c.pharmacyId)} · {c.source ?? 'Return'} · Remaining <Money value={c.remaining} /> ·{' '}
                 <StatusBadge status={c.status} />
+                {c.expiresAt ? ` · expires ${new Date(c.expiresAt).toLocaleDateString()}` : ''}
               </div>
             </div>
             <div className="row">

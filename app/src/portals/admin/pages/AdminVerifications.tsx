@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import type { VerificationDocument } from '../../../domain/entities/types';
 import { db } from '../../../data/db';
 import { adminReviewVerification } from '../../../services/verificationService';
@@ -22,7 +23,7 @@ export function AdminVerifications() {
   const { pushToast } = useUi();
   const navigate = useNavigate();
   const statusFromUrl = searchParams.get('status') ?? undefined;
-  const verifications = useLiveQuery(() => db.verifications.toArray()) ?? [];
+  const { items: verifications, loading: verificationsLoading } = useLiveArray(() => db.verifications.toArray());
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
   /** Per-verification business-visible reason (BUG-7: never share one note across cards). */
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -162,6 +163,14 @@ export function AdminVerifications() {
         />
         <div className="card card-pad stack">
           <strong>Profile</strong>
+          {detail.submittedAt ? (
+            <div className="muted" style={{ fontSize: 13 }}>
+              Last submitted {new Date(detail.submittedAt).toLocaleString()}
+              {detail.decisionHistory.some((h) => h.to === 'Submitted' && (h.from === 'Submitted' || h.from === 'UnderReview'))
+                ? ' · business amended while queued'
+                : ''}
+            </div>
+          ) : null}
           <div style={{ fontSize: 13 }}>
             GST {detailBiz.gstNumber} · DL {detailBiz.drugLicenseNumber}
           </div>
@@ -266,6 +275,7 @@ export function AdminVerifications() {
           />
           <DataListTable
             columns={columns}
+            loading={verificationsLoading}
             rows={list.pageRows}
             sortKey={list.sortKey}
             sortDir={list.sortDir}

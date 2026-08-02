@@ -1,27 +1,40 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
 import { expiryRiskBand, lowStock } from '../../../domain/calc';
 import { newId } from '../../../domain/utils/ids';
+import { nextNumberFieldValue, parseNumberInput } from '../../../domain/utils/validation';
 import { stockAdd, stockAdjust } from '../../../services/inventoryService';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, Kpi, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, Kpi, LoadingState, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function PharmacyInventory() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const [params] = useSearchParams();
-  const items = useLiveQuery(() => db.pharmacyInventory.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
+  const { items, loading: itemsLoading } = useLiveArray(
+    () => db.pharmacyInventory.where('pharmacyId').equals(business.id).toArray(),
+    [business.id],
+  );
   const products = useLiveQuery(() => db.products.toArray()) ?? [];
   const movements =
     useLiveQuery(() => db.inventoryMovements.where('businessId').equals(business.id).reverse().sortBy('at'), [business.id]) ?? [];
   const [addOpen, setAddOpen] = useState(false);
   const [adjustId, setAdjustId] = useState<string | null>(null);
   const [showMovements, setShowMovements] = useState(false);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    productId: string;
+    productName: string;
+    qty: number | '';
+    batchNumber: string;
+    expiryDate: string;
+    mrp: string;
+    reason: string;
+  }>({
     productId: '',
     productName: '',
     qty: 10,
@@ -32,6 +45,15 @@ export function PharmacyInventory() {
   });
   const [adjDelta, setAdjDelta] = useState('-1');
   const [adjReason, setAdjReason] = useState('');
+  const [addErrors, setAddErrors] = useState<{
+    productName?: string;
+    batchNumber?: string;
+    expiryDate?: string;
+    mrp?: string;
+    qty?: string;
+    reason?: string;
+  }>({});
+  const [adjErrors, setAdjErrors] = useState<{ delta?: string; reason?: string }>({});
 
   const rows = useMemo(
     () =>
@@ -59,6 +81,12 @@ export function PharmacyInventory() {
       { key: 'batchNumber', label: 'Batch', getValue: (r: (typeof rows)[0]) => r.batchNumber ?? '—' },
       { key: 'expiryDate', label: 'Expiry', getValue: (r: (typeof rows)[0]) => r.expiryDate ?? '—' },
       { key: 'onHand', label: 'On hand', getValue: (r: (typeof rows)[0]) => r.onHand },
+      {
+        key: 'mrp',
+        label: 'MRP',
+        getValue: (r: (typeof rows)[0]) => r.mrp ?? '',
+        render: (r: (typeof rows)[0]) => (r.mrp != null ? String(r.mrp) : '—'),
+      },
       {
         key: 'band',
         label: 'Band',
@@ -157,35 +185,48 @@ export function PharmacyInventory() {
 
       <Modal
         open={addOpen}
-        onClose={() => setAddOpen(false)}
+        onClose={() => {
+          setAddOpen(false);
+          setAddErrors({});
+        }}
         title="Add medicine"
         footer={
           <Button
             onClick={async () => {
               const name = form.productName.trim() || products.find((p) => p.id === form.productId)?.name;
               const productId = form.productId || `manual-${newId()}`;
-              if (!name) {
-                pushToast({ tone: 'error', title: 'Product name required' });
-                return;
+              const next: typeof addErrors = {};
+              if (!name) next.productName = 'Product name required';
+              if (!form.batchNumber.trim()) next.batchNumber = 'Batch is required';
+              if (!form.expiryDate) next.expiryDate = 'Expiry is required';
+              if (form.qty === '' || !(form.qty > 0)) next.qty = 'Quantity must be greater than zero';
+              if (!form.reason.trim()) next.reason = 'Reason is required';
+              const mrpParsed = parseNumberInput(form.mrp);
+              if (mrpParsed.status === 'invalid' || (mrpParsed.status === 'ok' && mrpParsed.value < 0)) {
+                next.mrp = 'MRP must be a non-negative number';
               }
-              if (!form.expiryDate || !form.batchNumber.trim()) {
-                pushToast({ tone: 'error', title: 'Batch and expiry are required' });
+              if (Object.keys(next).length) {
+                setAddErrors(next);
                 return;
               }
               const res = await stockAdd({
                 actor: user,
                 pharmacy: business,
                 productId,
-                productName: name,
-                qty: form.qty,
+                productName: name!,
+                qty: form.qty as number,
                 batchNumber: form.batchNumber.trim(),
                 expiryDate: form.expiryDate,
-                reason: form.mrp ? `${form.reason} (MRP ${form.mrp})` : form.reason,
+                mrp: mrpParsed.status === 'ok' ? mrpParsed.value : undefined,
+                reason: form.reason,
               });
-              pushToast(res.ok ? { tone: 'success', title: 'Stock added' } : { tone: 'error', title: res.message });
               if (res.ok) {
+                pushToast({ tone: 'success', title: 'Stock added' });
                 setAddOpen(false);
+                setAddErrors({});
                 setForm({ productId: '', productName: '', qty: 10, batchNumber: '', expiryDate: '', mrp: '', reason: 'Manual stock-in' });
+              } else {
+                pushToast({ tone: 'error', title: res.message });
               }
             }}
           >
@@ -205,6 +246,7 @@ export function PharmacyInventory() {
                   productName: p?.name ?? f.productName,
                   mrp: p ? String(p.mrp) : f.mrp,
                 }));
+                setAddErrors((err) => ({ ...err, productName: undefined }));
               }}
             >
               <option value="">Manual entry…</option>
@@ -215,46 +257,107 @@ export function PharmacyInventory() {
               ))}
             </Select>
           </Field>
-          <Field label="Product name">
-            <Input value={form.productName} onChange={(e) => setForm((f) => ({ ...f, productName: e.target.value }))} />
+          <Field label="Product name" error={addErrors.productName}>
+            <Input
+              value={form.productName}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, productName: e.target.value }));
+                setAddErrors((err) => ({ ...err, productName: undefined }));
+              }}
+            />
           </Field>
           <div className="grid-2">
-            <Field label="Qty">
-              <Input type="number" value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: Number(e.target.value) }))} />
+            <Field label="Qty" error={addErrors.qty}>
+              <Input
+                type="number"
+                value={form.qty}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, qty: nextNumberFieldValue(e.target.value, f.qty) }));
+                  setAddErrors((err) => ({ ...err, qty: undefined }));
+                }}
+              />
             </Field>
-            <Field label="MRP">
-              <Input value={form.mrp} onChange={(e) => setForm((f) => ({ ...f, mrp: e.target.value }))} />
+            <Field label="MRP" error={addErrors.mrp}>
+              <Input
+                value={form.mrp}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, mrp: e.target.value }));
+                  setAddErrors((err) => ({ ...err, mrp: undefined }));
+                }}
+              />
             </Field>
-            <Field label="Batch">
-              <Input value={form.batchNumber} onChange={(e) => setForm((f) => ({ ...f, batchNumber: e.target.value }))} />
+            <Field label="Batch" error={addErrors.batchNumber}>
+              <Input
+                value={form.batchNumber}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, batchNumber: e.target.value }));
+                  setAddErrors((err) => ({ ...err, batchNumber: undefined }));
+                }}
+              />
             </Field>
-            <Field label="Expiry">
-              <Input type="date" value={form.expiryDate} onChange={(e) => setForm((f) => ({ ...f, expiryDate: e.target.value }))} />
+            <Field label="Expiry" error={addErrors.expiryDate}>
+              <Input
+                type="date"
+                value={form.expiryDate}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, expiryDate: e.target.value }));
+                  setAddErrors((err) => ({ ...err, expiryDate: undefined }));
+                }}
+              />
             </Field>
           </div>
-          <Field label="Reason">
-            <Input value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} />
+          <Field label="Reason" error={addErrors.reason}>
+            <Input
+              value={form.reason}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, reason: e.target.value }));
+                setAddErrors((err) => ({ ...err, reason: undefined }));
+              }}
+            />
           </Field>
         </div>
       </Modal>
 
       <Modal
         open={!!adjustItem}
-        onClose={() => setAdjustId(null)}
+        onClose={() => {
+          setAdjustId(null);
+          setAdjErrors({});
+        }}
         title={adjustItem ? `Adjust ${adjustItem.productName}` : 'Adjust'}
         footer={
           <Button
             onClick={async () => {
               if (!adjustItem) return;
+              const deltaParsed = parseNumberInput(adjDelta);
+              const next: typeof adjErrors = {};
+              if (deltaParsed.status === 'empty') next.delta = 'Delta is required';
+              else if (deltaParsed.status === 'invalid' || deltaParsed.value === 0) {
+                next.delta = 'Enter a non-zero adjustment';
+              }
+              if (!adjReason.trim()) next.reason = 'Reason is required';
+              if (Object.keys(next).length || deltaParsed.status !== 'ok') {
+                setAdjErrors(next);
+                return;
+              }
               const res = await stockAdjust({
                 actor: user,
                 pharmacy: business,
                 inventoryId: adjustItem.id,
-                delta: Number(adjDelta),
+                delta: deltaParsed.value,
                 reason: adjReason,
               });
-              pushToast(res.ok ? { tone: 'success', title: 'Stock updated' } : { tone: 'error', title: res.message });
-              if (res.ok) setAdjustId(null);
+              if (res.ok) {
+                pushToast({ tone: 'success', title: 'Stock updated' });
+                setAdjustId(null);
+                setAdjErrors({});
+              } else if (res.code === 'STOCK_REASON') {
+                setAdjErrors({ reason: res.message });
+              } else if (res.code === 'STOCK_NEG') {
+                setAdjErrors({ delta: res.message });
+              } else {
+                pushToast({ tone: 'error', title: res.message });
+              }
             }}
           >
             Save adjustment
@@ -265,16 +368,32 @@ export function PharmacyInventory() {
           <div className="muted" style={{ fontSize: 13 }}>
             On hand {adjustItem?.onHand}. Use negative delta to remove / write off.
           </div>
-          <Field label="Delta (+/−)">
-            <Input type="number" value={adjDelta} onChange={(e) => setAdjDelta(e.target.value)} />
+          <Field label="Delta (+/−)" error={adjErrors.delta}>
+            <Input
+              type="number"
+              value={adjDelta}
+              onChange={(e) => {
+                setAdjDelta(e.target.value);
+                setAdjErrors((err) => ({ ...err, delta: undefined }));
+              }}
+            />
           </Field>
-          <Field label="Reason">
-            <Input value={adjReason} onChange={(e) => setAdjReason(e.target.value)} placeholder="Required" />
+          <Field label="Reason *" error={adjErrors.reason}>
+            <Input
+              value={adjReason}
+              onChange={(e) => {
+                setAdjReason(e.target.value);
+                setAdjErrors((err) => ({ ...err, reason: undefined }));
+              }}
+              placeholder="e.g. Damaged, expired, count correction"
+            />
           </Field>
         </div>
       </Modal>
 
-      {!items.length ? (
+      {itemsLoading ? (
+        <LoadingState label="Loading inventory…" />
+      ) : !items.length ? (
         <EmptyState
           title="Inventory empty"
           description="Receive an order (GRN) or add stock to start tracking."
@@ -312,7 +431,7 @@ export function PharmacyInventory() {
               pushToast(ok ? { tone: 'success', title: 'Exported inventory' } : { tone: 'error', title: 'Export denied' });
             }}
           />
-          <DataListTable columns={columns.filter((c) => c.key !== 'flag')} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
+          <DataListTable loading={itemsLoading} columns={columns.filter((c) => c.key !== 'flag')} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
           <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
         </>
       )}

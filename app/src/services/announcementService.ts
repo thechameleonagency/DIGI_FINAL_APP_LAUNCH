@@ -102,6 +102,28 @@ export async function unpublishAnnouncement(params: {
   return ok(next);
 }
 
+export async function deleteAnnouncement(params: {
+  actor: User;
+  business: Business;
+  id: string;
+}): Promise<Result<{ id: string }>> {
+  const perm = assertCan(params.actor, params.business, 'announcement.manage');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Announcement was not deleted.');
+  const existing = await db.announcements.get(params.id);
+  if (!existing) return fail('NotFound', 'ANN_MISSING', 'Announcement not found.', 'No change made.');
+  await db.announcements.delete(params.id);
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.business.id,
+    entityType: 'Announcement',
+    entityId: params.id,
+    action: 'announcement.delete',
+    before: existing,
+  });
+  return ok({ id: params.id });
+}
+
 async function fanOutAnnouncement(a: Announcement): Promise<void> {
   const users = await db.users.filter((u) => u.status === 'Active').toArray();
   const businesses = await db.businesses.toArray();

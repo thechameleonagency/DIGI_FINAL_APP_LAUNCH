@@ -100,6 +100,13 @@ export async function updateManagedPharmacy(params: {
     stockistId: row.stockistId,
     updatedAt: new Date().toISOString(),
   };
+  // Explicit clears: empty/undefined note or limit means remove the field.
+  if ('note' in params.patch && !params.patch.note?.trim()) {
+    delete next.note;
+  }
+  if ('creditLimit' in params.patch && (params.patch.creditLimit == null || Number.isNaN(params.patch.creditLimit))) {
+    delete next.creditLimit;
+  }
   await db.managedPharmacies.put(next);
   return ok(next);
 }

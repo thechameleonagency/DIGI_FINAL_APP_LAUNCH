@@ -2,12 +2,20 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { PlatformSettings } from '../../../domain/entities/types';
 import { db } from '../../../data/db';
-import { writeAudit } from '../../../services/audit';
-import { exportWorkspace, importWorkspace, runPolicyClock } from '../../../services/supportService';
+import { updatePlatformSettings } from '../../../services/platformSettingsService';
+import {
+  downloadWorkspaceJson,
+  exportWorkspace,
+  importWorkspace,
+  previewWorkspaceImport,
+  runPolicyClock,
+  type WorkspaceImportPreview,
+} from '../../../services/supportService';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
+import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { MoreHub } from '../../../ui/components/MoreHub';
-import { Button, Field, Input, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
+import { Button, Field, Input, Modal, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type Draft = Omit<PlatformSettings, 'id' | 'lastPolicyRunAt' | 'premiumPlan'>;
@@ -41,6 +49,8 @@ export function AdminSettings() {
   const settings = useLiveQuery(() => db.platformSettings.get('platform'));
   const [draft, setDraft] = useState<Draft | null>(null);
   const [importText, setImportText] = useState('');
+  const [importPreview, setImportPreview] = useState<WorkspaceImportPreview | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const { busy: saving, run } = useBusyAction();
 
   useEffect(() => {
@@ -54,7 +64,7 @@ export function AdminSettings() {
   if (!settings || !draft) {
     return (
       <div className="stack">
-        <PageHeader title="More" />
+        <PageHeader title="Settings" />
         <div className="card card-pad muted">Loading settings…</div>
       </div>
     );
@@ -62,27 +72,20 @@ export function AdminSettings() {
 
   const save = () =>
     void run(async () => {
-      const before = { ...settings };
-      await db.platformSettings.update('platform', {
-        ...draft,
-        creditNoteExpiryDays: draft.creditNoteExpiryDays,
+      const res = await updatePlatformSettings({
+        actor: user,
+        adminBusiness: business,
+        patch: {
+          ...draft,
+          creditNoteExpiryDays: draft.creditNoteExpiryDays,
+        },
       });
-      await writeAudit({
-        actorId: user.id,
-        actorName: user.name,
-        businessId: business.id,
-        entityType: 'PlatformSettings',
-        entityId: 'platform',
-        action: 'settings.save',
-        before,
-        after: draft,
-      });
-      pushToast({ tone: 'success', title: 'Settings saved' });
+      pushToast(res.ok ? { tone: 'success', title: 'Settings saved' } : { tone: 'error', title: res.message });
     });
 
   return (
     <div className="stack">
-      <PageHeader title="More" subtitle="Platform hub and policy settings" />
+      <PageHeader title="Settings" subtitle="Platform hub and policy settings" />
       <MoreHub
         sections={[
           {
@@ -123,10 +126,13 @@ export function AdminSettings() {
         ]}
       />
 
-      <PageHeader
-        title="Platform settings"
-        subtitle={`Last policy run: ${settings.lastPolicyRunAt ? new Date(settings.lastPolicyRunAt).toLocaleString() : '—'}`}
-      />
+      <div style={{ marginTop: 8 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Platform settings</h2>
+        <p className="muted" style={{ margin: '4px 0 0', fontSize: 13.5 }}>
+          Last policy run:{' '}
+          {settings.lastPolicyRunAt ? new Date(settings.lastPolicyRunAt).toLocaleString() : '—'}
+        </p>
+      </div>
       <div className="card card-pad stack">
         <div className="grid-2">
           <Field label="Return window (days)">
@@ -204,6 +210,18 @@ export function AdminSettings() {
               onChange={(e) => setNum('creditNoteExpiryDays', e.target.value)}
             />
           </Field>
+          <Field
+            label="Large payment flag (× avg invoice)"
+            hint="Admin payments monitor highlights payments at or above this multiple of the pair’s average invoice."
+          >
+            <Input
+              type="number"
+              min={1}
+              step="0.5"
+              value={draft.largePaymentMultiple ?? 3}
+              onChange={(e) => setNum('largePaymentMultiple', e.target.value)}
+            />
+          </Field>
           <Field label="Default GST %">
             <Input
               type="number"
@@ -263,36 +281,134 @@ export function AdminSettings() {
             variant="secondary"
             onClick={async () => {
               const json = await exportWorkspace();
-              const blob = new Blob([json], { type: 'application/json' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = 'digiswasthya-workspace.json';
-              a.click();
-              URL.revokeObjectURL(url);
+              downloadWorkspaceJson(json);
             }}
           >
             Export workspace
           </Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setImportText('');
+              setImportOpen(true);
+            }}
+          >
+            Import workspace
+          </Button>
         </div>
+      </div>
+
+      <Modal
+        open={importOpen}
+        title="Import workspace"
+        onClose={() => setImportOpen(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setImportOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                const preview = await previewWorkspaceImport(importText);
+                if (!preview.ok) {
+                  pushToast({ tone: 'error', title: preview.message });
+                  return;
+                }
+                setImportPreview(preview.data);
+              }}
+            >
+              Import
+            </Button>
+          </>
+        }
+      >
         <Field label="Import workspace JSON">
           <Textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="Paste exported JSON" />
         </Field>
-        <Button
-          variant="secondary"
-          onClick={async () => {
+      </Modal>
+      <ConfirmDialog
+          open={!!importPreview}
+          title="Replace entire workspace?"
+          tone="danger"
+          confirmLabel="Export backup & import"
+          confirmPhrase="REPLACE"
+          confirmPhraseLabel='Type “REPLACE” to confirm'
+          body={
+            importPreview ? (
+              <div className="stack" style={{ gap: 8 }}>
+                <p>
+                  This will <strong>erase all current data</strong> (
+                  {importPreview.currentTotal.toLocaleString()} records across{' '}
+                  {Object.keys(importPreview.currentCounts).length} tables) and replace it with the
+                  pasted payload ({importPreview.incomingTotal.toLocaleString()} records).
+                </p>
+                <p>
+                  A backup of the current workspace will download automatically before import.
+                </p>
+                {importPreview.exportedAt ? (
+                  <p className="muted" style={{ fontSize: 12 }}>
+                    Payload exported at: {new Date(importPreview.exportedAt).toLocaleString()}
+                  </p>
+                ) : null}
+                <div style={{ fontSize: 12 }}>
+                  <strong>Incoming preview (key tables)</strong>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                    {(
+                      [
+                        'businesses',
+                        'users',
+                        'orders',
+                        'invoices',
+                        'payments',
+                        'products',
+                        'batches',
+                      ] as const
+                    ).map((t) => (
+                      <li key={t}>
+                        {t}: {importPreview.currentCounts[t] ?? 0} → {importPreview.incomingCounts[t] ?? 0}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                {importPreview.unknownTables.length ? (
+                  <p className="muted" style={{ fontSize: 12 }}>
+                    Unknown tables in payload (ignored): {importPreview.unknownTables.join(', ')}
+                  </p>
+                ) : null}
+                {importPreview.missingTables.length ? (
+                  <p className="muted" style={{ fontSize: 12 }}>
+                    Tables missing from payload (will be cleared):{' '}
+                    {importPreview.missingTables.slice(0, 8).join(', ')}
+                    {importPreview.missingTables.length > 8
+                      ? ` +${importPreview.missingTables.length - 8} more`
+                      : ''}
+                  </p>
+                ) : null}
+              </div>
+            ) : null
+          }
+          onClose={() => setImportPreview(null)}
+          onConfirm={async () => {
+            const backup = await exportWorkspace();
+            downloadWorkspaceJson(
+              backup,
+              `digiswasthya-backup-before-import-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`,
+            );
             const res = await importWorkspace(importText);
             pushToast(
               res.ok
-                ? { tone: 'success', title: 'Imported — reloading' }
+                ? { tone: 'success', title: 'Imported — reloading', message: 'Backup downloaded first.' }
                 : { tone: 'error', title: res.message },
             );
-            if (res.ok) window.setTimeout(() => window.location.reload(), 600);
+            setImportPreview(null);
+            if (res.ok) {
+              setImportOpen(false);
+              setImportText('');
+              window.setTimeout(() => window.location.reload(), 600);
+            }
           }}
-        >
-          Import
-        </Button>
-      </div>
+        />
     </div>
   );
 }

@@ -4,31 +4,17 @@ import { Link } from 'react-router-dom';
 import { db } from '../../data/db';
 import { requestWalkthroughReplay } from '../../content/help';
 import {
-  CRITICAL_NOTIFICATION_CATEGORIES,
   readStoredLocalFirstHint,
   readStoredTheme,
   saveUiPreferences,
   type ThemeMode,
 } from '../../services/preferencesService';
-import { setMutedCategories } from '../../services/notificationService';
 import { readPersistedSession, useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
+import { signOutToLogin } from '../signOut';
+import { ConfirmDialog } from './ConfirmDialog';
+import { NotificationMutePreferences } from './NotificationMutePreferences';
 import { Button, Field, PageHeader, Select } from './primitives';
-
-const MUTE_CATEGORIES = [
-  'Order',
-  'Payment',
-  'Invoice',
-  'Return',
-  'Connection',
-  'Delivery',
-  'SupportTicket',
-  'Announcement',
-  'System',
-  'UpgradeRequest',
-  'CounterfeitReport',
-  'Batch',
-] as const;
 
 export function PreferencesPanel({
   profilePath,
@@ -43,6 +29,7 @@ export function PreferencesPanel({
   const [theme, setTheme] = useState<ThemeMode>(readStoredTheme());
   const [language, setLanguage] = useState<'en'>('en');
   const [localHint, setLocalHint] = useState(readStoredLocalFirstHint());
+  const [signOutOpen, setSignOutOpen] = useState(false);
   const muted = liveUser?.notificationPreferences?.mutedCategories ?? [];
   const session = readPersistedSession();
   const sessionStarted = session ? new Date(session.issuedAt).toLocaleString() : '—';
@@ -63,16 +50,9 @@ export function PreferencesPanel({
     pushToast({ tone: 'success', title: 'Preferences saved' });
   };
 
-  const toggleMute = async (cat: string) => {
-    if ((CRITICAL_NOTIFICATION_CATEGORIES as readonly string[]).includes(cat)) return;
-    const next = muted.includes(cat) ? muted.filter((c) => c !== cat) : [...muted, cat];
-    await setMutedCategories(user.id, next);
-    pushToast({ tone: 'info', title: muted.includes(cat) ? `Unmuted ${cat}` : `Muted ${cat}` });
-  };
-
   return (
     <div className="stack">
-      <PageHeader title="Preferences" subtitle="Appearance, notifications, and session (CF-30)" />
+      <PageHeader title="Preferences" subtitle="Appearance, notifications, and session" />
 
       <div className="card card-pad stack">
         <strong>Appearance</strong>
@@ -118,22 +98,7 @@ export function PreferencesPanel({
         </label>
       </div>
 
-      <div className="card card-pad stack">
-        <strong>Notification mutes</strong>
-        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-          Verification and Business alerts cannot be muted.
-        </p>
-        <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-          {MUTE_CATEGORIES.map((c) => (
-            <label key={c} style={{ fontSize: 13 }}>
-              <input type="checkbox" checked={muted.includes(c)} onChange={() => void toggleMute(c)} /> Mute {c}
-            </label>
-          ))}
-        </div>
-        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-          Also editable under Notifications.
-        </p>
-      </div>
+      <NotificationMutePreferences userId={user.id} muted={muted} />
 
       <div className="card card-pad stack">
         <strong>Session</strong>
@@ -153,21 +118,23 @@ export function PreferencesPanel({
           <Button type="button" variant="secondary" size="sm" onClick={() => requestWalkthroughReplay()}>
             Replay walkthrough
           </Button>
-          <Button
-            type="button"
-            variant="danger"
-            size="sm"
-            onClick={() => {
-              if (window.confirm('Sign out of DigiSwasthya?')) {
-                clearSession();
-                window.location.href = '/auth/login';
-              }
-            }}
-          >
+          <Button type="button" variant="danger" size="sm" onClick={() => setSignOutOpen(true)}>
             Sign out
           </Button>
         </div>
       </div>
+      <ConfirmDialog
+        open={signOutOpen}
+        title="Sign out?"
+        body={`Sign out ${user.name} from ${business.name}?`}
+        confirmLabel="Sign out"
+        tone="danger"
+        onClose={() => setSignOutOpen(false)}
+        onConfirm={() => {
+          setSignOutOpen(false);
+          signOutToLogin(clearSession);
+        }}
+      />
     </div>
   );
 }

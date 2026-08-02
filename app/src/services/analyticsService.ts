@@ -1,5 +1,6 @@
 import type { Invoice, Order, Payment, ReturnRequest } from '../domain/entities/types';
 import { invoiceOutstanding, pharmacyOutstanding, stockistReceivables } from '../domain/calc';
+import { localDayKey, localLastNDays } from '../domain/utils/dateKeys';
 import { roundMoney } from '../domain/utils/money';
 import { db } from '../data/db';
 
@@ -19,32 +20,17 @@ export interface AnalyticsBundle {
   outstandingCheck: { dashboard: number; invoiceSum: number; matches: boolean };
 }
 
-function dayKey(iso: string): string {
-  return iso.slice(0, 10);
-}
-
-function lastNDays(n: number): string[] {
-  const out: string[] = [];
-  const d = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    const x = new Date(d);
-    x.setDate(d.getDate() - i);
-    out.push(x.toISOString().slice(0, 10));
-  }
-  return out;
-}
-
 function seriesFromOrders(orders: Order[], days = 14): { period: string; value: number }[] {
-  const keys = lastNDays(days);
+  const keys = localLastNDays(days);
   const map = new Map(keys.map((k) => [k, 0]));
   for (const o of orders) {
-    const k = dayKey(o.placedAt);
+    const k = localDayKey(o.placedAt);
     if (map.has(k)) map.set(k, (map.get(k) ?? 0) + o.grandTotal);
   }
   return keys.map((period) => ({ period: period.slice(5), value: roundMoney(map.get(period) ?? 0) }));
 }
 
-export async function pharmacyAnalytics(pharmacyId: string): Promise<AnalyticsBundle> {
+export async function pharmacyAnalytics(pharmacyId: string, periodDays = 14): Promise<AnalyticsBundle> {
   const [orders, invoices, payments, returns, connections] = await Promise.all([
     db.orders.where('pharmacyId').equals(pharmacyId).toArray(),
     db.invoices.where('pharmacyId').equals(pharmacyId).toArray(),
@@ -60,13 +46,19 @@ export async function pharmacyAnalytics(pharmacyId: string): Promise<AnalyticsBu
   const paid = payments.filter((p) => p.status === 'Approved').reduce((s, p) => s + p.amount, 0);
   const delivered = orders.filter((o) => o.status === 'Delivered' || o.status === 'Closed');
   const fillRate = orders.length ? Math.round((delivered.length / orders.length) * 100) : 0;
+  const cutoff = Date.now() - periodDays * 86400000;
+  const periodOrders = orders.filter((o) => new Date(o.placedAt).getTime() >= cutoff);
 
   return {
     calculatedAt: new Date().toISOString(),
     stale: false,
     outstandingCheck: { dashboard: outstanding, invoiceSum, matches: Math.abs(outstanding - invoiceSum) < 0.01 },
     series: [
-      { key: 'purchasing', label: 'Purchasing (14d)', points: seriesFromOrders(orders) },
+      {
+        key: 'purchasing',
+        label: `Purchasing (${periodDays}d)`,
+        points: seriesFromOrders(periodOrders, periodDays),
+      },
     ],
     kpis: [
       {

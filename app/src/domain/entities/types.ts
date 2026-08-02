@@ -118,6 +118,8 @@ export interface Business {
   panNumber?: string;
   pharmacyType?: string;
   phone: string;
+  /** Optional alternate / WhatsApp contact collected at registration */
+  alternatePhone?: string;
   email: string;
   city: string;
   state: string;
@@ -150,7 +152,10 @@ export interface Business {
   createdAt: string;
   updatedAt: string;
   suspendedAt?: string;
+  /** Business-visible reason shown on Suspended page / notifications */
   suspendReason?: string;
+  /** Admin-only note — never shown to the business */
+  internalNotes?: string;
 }
 
 export interface User {
@@ -378,6 +383,9 @@ export interface DeliveryLine {
   deliveredQty: number;
   batchNumber?: string;
   expiryDate?: string;
+  /** Pharmacy GRN for this delivery leg. */
+  receivedQty?: number;
+  discrepancyReason?: string;
 }
 
 export interface Delivery {
@@ -396,6 +404,8 @@ export interface Delivery {
   receivedBy?: string;
   failReason?: string;
   returnedToStockistAt?: string;
+  /** When pharmacy recorded GRN for this delivery leg. */
+  grnRecordedAt?: string;
   statusHistory: StatusHistoryEntry[];
   createdAt: string;
   updatedAt: string;
@@ -523,6 +533,8 @@ export interface CreditNote {
   reason?: string;
   paymentId?: string;
   issuedAt: string;
+  /** When set and auto-expire is on, remaining credit voids after this timestamp. */
+  expiresAt?: string;
   issuedBy: string;
   createdAt: string;
   updatedAt: string;
@@ -538,6 +550,8 @@ export interface Notification {
   status: NotificationStatus;
   entityType?: string;
   entityId?: string;
+  /** Human-facing number for deep links (orderNo / invoiceNo / paymentNo / …). */
+  entityNo?: string;
   createdAt: string;
   readAt?: string;
 }
@@ -692,6 +706,8 @@ export interface PharmacyInventoryItem {
   productName: string;
   batchNumber?: string;
   expiryDate?: string;
+  /** Retail MRP when set via manual stock-in (not stored in movement reason). */
+  mrp?: number;
   onHand: number;
   updatedAt: string;
 }
@@ -769,6 +785,14 @@ export interface CustomerSaleReturnLine {
 
 export type CustomerSaleDeliveryStatus = 'Unassigned' | 'Assigned' | 'Delivered' | 'Failed';
 
+export interface CustomerSaleCollection {
+  id: string;
+  amount: number;
+  at: string;
+  actorId: string;
+  note?: string;
+}
+
 export interface CustomerSale {
   id: string;
   saleNo: string;
@@ -777,6 +801,9 @@ export interface CustomerSale {
   phone?: string;
   lines: CustomerSaleLine[];
   paymentMode: CustomerSalePaymentMode;
+  /** Cash/UPI: full sale total at create. Credit: rises as collections are recorded. */
+  amountCollected: number;
+  collections?: CustomerSaleCollection[];
   homeDelivery?: boolean;
   address?: string;
   /** B2C home-delivery logistics state (CF-06); independent of financial sale status */

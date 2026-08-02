@@ -68,7 +68,7 @@ export function AdminHome() {
     <div className="stack">
       <PageHeader title="Platform home" subtitle="Verification, governance, support — click a KPI to drill down" />
       <BannerStrip placement="Admin Home" />
-      <AnnouncementStrip audience="Admin" placement="Admin Home" />
+      <AnnouncementStrip audience="Admin" placement="Admin Home" archivePath="/admin/announcements-archive" />
       <div className="card card-pad stack">
         <strong>Today&apos;s work</strong>
         <div className="row gap" style={{ flexWrap: 'wrap' }}>
