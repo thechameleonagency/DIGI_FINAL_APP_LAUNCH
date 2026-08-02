@@ -1,6 +1,6 @@
 import type { Business, User, VerificationDocument } from '../domain/entities/types';
 import { fail, ok, type Result } from '../domain/errors/types';
-import { isIfsc, isLicenseNo, isPan, isPhone, isPin, isUpi, normalizePan } from '../domain/utils/validation';
+import { isGstin, isIfsc, isLicenseNo, isPan, isPhone, isPin, isUpi, normalizeGstin, normalizePan } from '../domain/utils/validation';
 import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
@@ -36,6 +36,9 @@ export async function updateBusiness(params: {
   business: Business;
   patch: BusinessProfilePatch;
 }): Promise<Result<Business>> {
+  if (params.actor.businessId !== params.business.id) {
+    return fail('Permission', 'PERM_DENIED', 'You can only update your own business profile.', 'Business was not updated.');
+  }
   const perm = assertCan(params.actor, params.business, 'staff.manage');
   if (!perm.allow) {
     // Owners/managers typically have staff.manage; fall back to verification.submit for owners without staff
@@ -64,8 +67,32 @@ export async function updateBusiness(params: {
   if (patch.panNumber !== undefined && patch.panNumber && !isPan(patch.panNumber)) {
     return fail('Validation', 'BIZ_PAN_BAD', 'Invalid PAN.', 'Business was not updated.');
   }
-  if (patch.drugLicenseNumber !== undefined && !lockedIds && !isLicenseNo(patch.drugLicenseNumber)) {
-    return fail('Validation', 'BIZ_DL_BAD', 'Invalid drug license.', 'Business was not updated.');
+  if (patch.gstNumber !== undefined) {
+    if (!isGstin(patch.gstNumber)) {
+      return fail('Validation', 'BIZ_GST_BAD', 'Invalid GSTIN.', 'Business was not updated.');
+    }
+    const gst = normalizeGstin(patch.gstNumber);
+    const gstDup = await db.businesses
+      .filter((b) => b.id !== params.business.id && normalizeGstin(b.gstNumber ?? '') === gst)
+      .count();
+    if (gstDup) {
+      return fail('Duplicate', 'BIZ_GST_DUP', 'GSTIN is already registered.', 'Business was not updated.');
+    }
+  }
+  if (patch.drugLicenseNumber !== undefined && !lockedIds) {
+    if (!isLicenseNo(patch.drugLicenseNumber)) {
+      return fail('Validation', 'BIZ_DL_BAD', 'Invalid drug license.', 'Business was not updated.');
+    }
+    const dlKey = patch.drugLicenseNumber.trim().toLowerCase();
+    const dlDup = await db.businesses
+      .filter(
+        (b) =>
+          b.id !== params.business.id && (b.drugLicenseNumber ?? '').trim().toLowerCase() === dlKey,
+      )
+      .count();
+    if (dlDup) {
+      return fail('Duplicate', 'BIZ_DL_DUP', 'Drug license number is already registered.', 'Business was not updated.');
+    }
   }
   if (patch.upiId !== undefined && patch.upiId && !isUpi(patch.upiId)) {
     return fail('Validation', 'BIZ_UPI_BAD', 'Invalid UPI.', 'Business was not updated.');
@@ -89,7 +116,7 @@ export async function updateBusiness(params: {
   if (patch.state !== undefined) next.state = patch.state.trim();
   if (patch.pincode !== undefined) next.pincode = patch.pincode.trim();
   if (patch.address !== undefined) next.address = patch.address.trim();
-  if (patch.gstNumber !== undefined) next.gstNumber = patch.gstNumber.trim().toUpperCase();
+  if (patch.gstNumber !== undefined) next.gstNumber = normalizeGstin(patch.gstNumber);
   if (patch.drugLicenseNumber !== undefined) next.drugLicenseNumber = patch.drugLicenseNumber.trim();
   if (patch.upiId !== undefined) next.upiId = patch.upiId.trim() || undefined;
   if (patch.bankAccountNumber !== undefined) next.bankAccountNumber = patch.bankAccountNumber.trim() || undefined;
@@ -122,6 +149,9 @@ export async function addBusinessDocument(params: {
   licenseNumber?: string;
   file: File;
 }): Promise<Result<VerificationDocument>> {
+  if (params.actor.businessId !== params.business.id) {
+    return fail('Permission', 'PERM_DENIED', 'You can only upload documents for your own business.', 'Document was not uploaded.');
+  }
   const perm = assertCan(params.actor, params.business, 'verification.submit');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Document was not uploaded.');
   const stored = await storeFile({ actor: params.actor, file: params.file });

@@ -24,7 +24,7 @@ export function PharmacyDeliveryPreferences() {
     setDefaultReceiver(business.preferences?.defaultReceiver ?? '');
   }, [business.id, business.preferences]);
 
-  const canEdit = user.role === 'Owner' || user.role === 'Manager';
+  const canEdit = user.role === 'Pharmacist';
 
   const toggleSlot = (s: string) => {
     setSlots((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
@@ -103,7 +103,7 @@ export function PharmacyDeliveryPreferences() {
           </Button>
         ) : (
           <div className="muted" style={{ fontSize: 13 }}>
-            Only Owner or Manager can edit delivery preferences.
+            Only the Pharmacist can edit delivery preferences.
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 import type { Business, User } from '../domain/entities/types';
 import { fail, ok, type Result } from '../domain/errors/types';
+import { normalizeRoleForBusiness } from '../domain/permissions';
 import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
@@ -47,11 +48,12 @@ export async function enterImpersonation(params: {
   if (!target || target.type === 'Platform') {
     return fail('NotFound', 'IMP_BIZ', 'Target business not found.', 'View-as was not started.');
   }
+  const primaryRole = target.type === 'Stockist' ? 'Stockist' : 'Pharmacist';
   const owner =
     (await db.users
       .where('businessId')
       .equals(target.id)
-      .filter((u) => u.role === 'Owner' && u.status === 'Active')
+      .filter((u) => normalizeRoleForBusiness(u.role, target.type) === primaryRole && u.status === 'Active')
       .first()) ??
     (await db.users.where('businessId').equals(target.id).filter((u) => u.status === 'Active').first());
   if (!owner) {
@@ -92,7 +94,7 @@ export async function enterImpersonation(params: {
       'N-315',
       { reason },
       { type: 'Business', id: target.id },
-      ['Owner'],
+      [primaryRole],
     );
   }
 

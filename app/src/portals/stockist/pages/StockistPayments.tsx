@@ -79,6 +79,8 @@ export function StockistPayments() {
   };
   const canRecord = can('payment.recordOffline', permCtx).allow;
   const canRemind = can('reminder.send', permCtx).allow;
+  const canApprove = can('payment.approve', permCtx).allow;
+  const canReject = can('payment.reject', permCtx).allow;
 
   const connectedPharmacyIds = useMemo(() => new Set(connections.map((c) => c.pharmacyId)), [connections]);
   const recordPharmacies = pharmacies.filter((p) => connectedPharmacyIds.has(p.id));
@@ -543,12 +545,12 @@ export function StockistPayments() {
         title={review ? `Review ${review.paymentNo}` : 'Review payment'}
         onClose={() => setReviewId(null)}
         footer={
-          review && ['Submitted', 'UnderReview', 'OnHold'].includes(review.status) ? (
+          review && ['Submitted', 'UnderReview', 'OnHold'].includes(review.status) && (canApprove || canReject) ? (
             <div className="row" style={{ justifyContent: 'flex-end' }}>
               <Button variant="secondary" onClick={() => setReviewId(null)}>
                 Close
               </Button>
-              {review.status === 'OnHold' ? (
+              {canReject && review.status === 'OnHold' ? (
                 <Button
                   variant="secondary"
                   onClick={async () => {
@@ -564,7 +566,7 @@ export function StockistPayments() {
                 >
                   Resume
                 </Button>
-              ) : (
+              ) : canReject ? (
                 <Button
                   size="sm"
                   variant="secondary"
@@ -575,47 +577,51 @@ export function StockistPayments() {
                 >
                   Hold
                 </Button>
-              )}
-              <Button
-                onClick={async () => {
-                  const allocated = review.allocations.reduce((s, a) => s + a.amount, 0);
-                  const surplus = review.amount - allocated;
-                  if (review.recordedBy === 'Stockist' && surplus > 0.005) {
-                    setAdvancePrompt({
+              ) : null}
+              {canApprove ? (
+                <Button
+                  onClick={async () => {
+                    const allocated = review.allocations.reduce((s, a) => s + a.amount, 0);
+                    const surplus = review.amount - allocated;
+                    if (review.recordedBy === 'Stockist' && surplus > 0.005) {
+                      setAdvancePrompt({
+                        paymentId: review.id,
+                        paymentNo: review.paymentNo,
+                        amount: review.amount,
+                        allocated,
+                        surplus,
+                      });
+                      setReviewId(null);
+                      return;
+                    }
+                    const res = await reviewPayment({
+                      actor: user,
+                      stockist: business,
                       paymentId: review.id,
-                      paymentNo: review.paymentNo,
-                      amount: review.amount,
-                      allocated,
-                      surplus,
+                      decision: 'Approved',
                     });
+                    pushToast(
+                      res.ok
+                        ? { tone: 'success', title: 'Payment approved' }
+                        : { tone: 'error', title: res.message },
+                    );
                     setReviewId(null);
-                    return;
-                  }
-                  const res = await reviewPayment({
-                    actor: user,
-                    stockist: business,
-                    paymentId: review.id,
-                    decision: 'Approved',
-                  });
-                  pushToast(
-                    res.ok
-                      ? { tone: 'success', title: 'Payment approved' }
-                      : { tone: 'error', title: res.message },
-                  );
-                  setReviewId(null);
-                }}
-              >
-                Approve
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => {
-                  setRejectId(review.id);
-                  setReviewId(null);
-                }}
-              >
-                Reject
-              </Button>
+                  }}
+                >
+                  Approve
+                </Button>
+              ) : null}
+              {canReject ? (
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setRejectId(review.id);
+                    setReviewId(null);
+                  }}
+                >
+                  Reject
+                </Button>
+              ) : null}
             </div>
           ) : (
             <Button variant="secondary" onClick={() => setReviewId(null)}>

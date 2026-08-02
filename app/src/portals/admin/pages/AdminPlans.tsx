@@ -31,7 +31,7 @@ export function AdminPlans() {
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
   const nameOf = (id: string) => businesses.find((b) => b.id === id)?.name ?? id.slice(0, 8);
 
-  const canEditCopy = sessionCan('plan.manage');
+  const canManagePlan = sessionCan('plan.manage');
   const [priceText, setPriceText] = useState(DEFAULT_PLAN_CONFIG.priceText);
   const [upiId, setUpiId] = useState(DEFAULT_PLAN_CONFIG.upiId);
   const [benefitsText, setBenefitsText] = useState(DEFAULT_PLAN_CONFIG.benefits.join('\n'));
@@ -123,6 +123,9 @@ export function AdminPlans() {
 
       {tab === 'Queue' && (
         <div className="stack">
+          {!canManagePlan ? (
+            <p className="muted">View-only. SuperAdmin with plan.manage can approve or reject requests.</p>
+          ) : null}
           {!openQueue.length ? (
             <EmptyState title="No open upgrade requests" description="Submitted requests appear here for review." />
           ) : (
@@ -144,25 +147,29 @@ export function AdminPlans() {
                     {dup ? <span className="badge badge-warning" style={{ marginLeft: 8 }}>Duplicate UTR</span> : null}
                   </div>
                   {r.proofFileId ? <FileLink fileId={r.proofFileId} /> : <span className="muted">No proof attached</span>}
-                  <Field label="Reject reason (required to reject)">
-                    <Input
-                      value={rejectReason[r.id] ?? ''}
-                      onChange={(e) => setRejectReason((m) => ({ ...m, [r.id]: e.target.value }))}
-                    />
-                  </Field>
-                  <div className="row gap">
-                    <Button type="button" disabled={busy} onClick={() => void decide(r.id, 'Approved')}>
-                      Approve
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="danger"
-                      disabled={busy}
-                      onClick={() => void decide(r.id, 'Rejected')}
-                    >
-                      Reject
-                    </Button>
-                  </div>
+                  {canManagePlan ? (
+                    <>
+                      <Field label="Reject reason (required to reject)">
+                        <Input
+                          value={rejectReason[r.id] ?? ''}
+                          onChange={(e) => setRejectReason((m) => ({ ...m, [r.id]: e.target.value }))}
+                        />
+                      </Field>
+                      <div className="row gap">
+                        <Button type="button" disabled={busy} onClick={() => void decide(r.id, 'Approved')}>
+                          Approve
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="danger"
+                          disabled={busy}
+                          onClick={() => void decide(r.id, 'Rejected')}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               );
             })
@@ -172,22 +179,22 @@ export function AdminPlans() {
 
       {tab === 'Plan copy' && (
         <div className="card card-pad stack">
-          {!canEditCopy ? <p className="muted">View-only. SuperAdmin with plan.manage can edit.</p> : null}
+          {!canManagePlan ? <p className="muted">View-only. SuperAdmin with plan.manage can edit.</p> : null}
           <Field label="Price text">
-            <Input value={priceText} disabled={!canEditCopy} onChange={(e) => setPriceText(e.target.value)} />
+            <Input value={priceText} disabled={!canManagePlan} onChange={(e) => setPriceText(e.target.value)} />
           </Field>
           <Field label="UPI ID (shown to businesses)">
-            <Input value={upiId} disabled={!canEditCopy} onChange={(e) => setUpiId(e.target.value)} />
+            <Input value={upiId} disabled={!canManagePlan} onChange={(e) => setUpiId(e.target.value)} />
           </Field>
           <Field label="Benefits (one per line)">
             <Textarea
               rows={6}
               value={benefitsText}
-              disabled={!canEditCopy}
+              disabled={!canManagePlan}
               onChange={(e) => setBenefitsText(e.target.value)}
             />
           </Field>
-          {canEditCopy ? (
+          {canManagePlan ? (
             <Button type="button" disabled={busy} onClick={() => void saveCopy()}>
               Save plan copy
             </Button>
@@ -197,6 +204,9 @@ export function AdminPlans() {
 
       {tab === 'Premium list' && (
         <div className="stack">
+          {!canManagePlan ? (
+            <p className="muted">View-only. SuperAdmin with plan.manage can revoke Premium.</p>
+          ) : null}
           {!premiumBiz.length ? (
             <EmptyState title="No Premium businesses" description="Approved upgrades appear here." />
           ) : (
@@ -208,15 +218,19 @@ export function AdminPlans() {
                   </Link>
                   <StatusBadge status="Premium" />
                 </div>
-                <Field label="Revoke reason">
-                  <Input
-                    value={revokeReason[b.id] ?? ''}
-                    onChange={(e) => setRevokeReason((m) => ({ ...m, [b.id]: e.target.value }))}
-                  />
-                </Field>
-                <Button type="button" variant="danger" disabled={busy} onClick={() => void revoke(b.id)}>
-                  Revoke Premium
-                </Button>
+                {canManagePlan ? (
+                  <>
+                    <Field label="Revoke reason">
+                      <Input
+                        value={revokeReason[b.id] ?? ''}
+                        onChange={(e) => setRevokeReason((m) => ({ ...m, [b.id]: e.target.value }))}
+                      />
+                    </Field>
+                    <Button type="button" variant="danger" disabled={busy} onClick={() => void revoke(b.id)}>
+                      Revoke Premium
+                    </Button>
+                  </>
+                ) : null}
               </div>
             ))
           )}

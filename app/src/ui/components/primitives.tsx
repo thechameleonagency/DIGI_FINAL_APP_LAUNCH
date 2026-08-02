@@ -99,6 +99,8 @@ const STATUS_TONE: Record<string, string> = {
   Overdue: 'danger',
   Rejected: 'danger',
   Suspended: 'danger',
+  PendingActivation: 'warning',
+  Deactivated: 'neutral',
   Cancelled: 'neutral',
   Void: 'neutral',
   Voided: 'neutral',

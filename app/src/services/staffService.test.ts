@@ -7,36 +7,36 @@ describe('staffService (T-1)', () => {
     await clearDb();
   });
 
-  it('owner can change staff role', async () => {
-    const owner = await makeActor({ id: 'owner', businessId: 'biz-p', role: 'Owner' });
+  it('primary can change staff role to DeliveryStaff', async () => {
+    const owner = await makeActor({ id: 'owner', businessId: 'biz-p', role: 'Pharmacist' });
     const biz = await makeBusiness({ id: 'biz-p', type: 'Pharmacy', ownerUserId: owner.id });
-    const staff = await makeActor({ id: 'staff', businessId: biz.id, role: 'Staff' });
-    const res = await changeRole({ actor: owner, business: biz, userId: staff.id, role: 'Manager' });
+    const staff = await makeActor({ id: 'staff', businessId: biz.id, role: 'DeliveryStaff' });
+    const res = await changeRole({ actor: owner, business: biz, userId: staff.id, role: 'DeliveryStaff' });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.data.role).toBe('Manager');
+    if (res.ok) expect(res.data.role).toBe('DeliveryStaff');
   });
 
-  it('cannot demote Owner via changeRole', async () => {
-    const owner = await makeActor({ id: 'owner2', businessId: 'biz-p2', role: 'Owner' });
+  it('cannot demote primary via changeRole', async () => {
+    const owner = await makeActor({ id: 'owner2', businessId: 'biz-p2', role: 'Pharmacist' });
     const biz = await makeBusiness({ id: 'biz-p2', type: 'Pharmacy', ownerUserId: owner.id });
-    const res = await changeRole({ actor: owner, business: biz, userId: owner.id, role: 'Manager' });
+    const res = await changeRole({ actor: owner, business: biz, userId: owner.id, role: 'DeliveryStaff' });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.code).toBe('OWNER_ROLE');
+    if (!res.ok) expect(res.code).toBe('PRIMARY_ROLE');
   });
 
   it('suspend staff sets Suspended', async () => {
-    const owner = await makeActor({ id: 'owner3', businessId: 'biz-p3', role: 'Owner' });
+    const owner = await makeActor({ id: 'owner3', businessId: 'biz-p3', role: 'Pharmacist' });
     const biz = await makeBusiness({ id: 'biz-p3', type: 'Pharmacy', ownerUserId: owner.id });
-    const staff = await makeActor({ id: 'staff3', businessId: biz.id, role: 'Staff' });
+    const staff = await makeActor({ id: 'staff3', businessId: biz.id, role: 'DeliveryStaff' });
     const res = await suspendStaff({ actor: owner, business: biz, userId: staff.id, reason: 'test' });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.data.status).toBe('Suspended');
   });
 
   it('permission overrides persist', async () => {
-    const owner = await makeActor({ id: 'owner4', businessId: 'biz-p4', role: 'Owner' });
+    const owner = await makeActor({ id: 'owner4', businessId: 'biz-p4', role: 'Pharmacist' });
     const biz = await makeBusiness({ id: 'biz-p4', type: 'Pharmacy', ownerUserId: owner.id });
-    const staff = await makeActor({ id: 'staff4', businessId: biz.id, role: 'Staff' });
+    const staff = await makeActor({ id: 'staff4', businessId: biz.id, role: 'DeliveryStaff' });
     const res = await setPermissionOverrides({
       actor: owner,
       business: biz,

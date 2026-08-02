@@ -11,13 +11,10 @@ export type VerificationStatus =
   | 'Rejected';
 
 export type OperationalRole =
-  | 'Owner'
-  | 'Manager'
-  | 'Staff'
-  | 'Accountant'
-  | 'DeliveryBoy'
-  | 'SupportAgent'
-  | 'Admin'
+  | 'Pharmacist'
+  | 'Stockist'
+  | 'DeliveryStaff'
+  | 'SupportManager'
   | 'SuperAdmin';
 
 export type UserStatus = 'Active' | 'Invited' | 'Suspended' | 'Removed';
@@ -291,6 +288,7 @@ export type MovementType =
   | 'ReturnIn'
   | 'Adjustment'
   | 'Expiry'
+  | 'Destroy'
   | 'Quarantine'
   | 'GRNIn'
   | 'Transfer'
@@ -487,9 +485,11 @@ export interface ReturnLine {
   qty: number;
   approvedQty?: number;
   unitPrice: number;
+  /** GST snapshot from the order line at return submit time. */
+  gstPercent: number;
   reason: string;
   batchNumber?: string;
-  deliveryId: string;
+  deliveryId?: string;
   invoiceId?: string;
 }
 
@@ -506,6 +506,7 @@ export interface ReturnRequest {
   disposition?: string;
   creditNoteId?: string;
   submittedBy: string;
+  idempotencyKey?: string;
   statusHistory: StatusHistoryEntry[];
   createdAt: string;
   updatedAt: string;
@@ -536,6 +537,7 @@ export interface CreditNote {
   /** When set and auto-expire is on, remaining credit voids after this timestamp. */
   expiresAt?: string;
   issuedBy: string;
+  idempotencyKey?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -992,6 +994,8 @@ export interface Favourite {
   id: string;
   pharmacyId: string;
   stockistId: string;
+  /** When false, row holds private rating/note only (not sorted as a pin). Omitted/true = pinned. */
+  pinned?: boolean;
   rating?: number;
   note?: string;
 }

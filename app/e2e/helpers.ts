@@ -31,10 +31,3 @@ export async function selectInviteRole(page: Page, role: string) {
   const inviteCard = page.locator('.card').filter({ hasText: /^Invite/ });
   await inviteCard.locator('.field').filter({ has: page.locator('label', { hasText: /^Role$/ }) }).locator('select').selectOption(role);
 }
-
-export async function quickLogin(page: Page, role: 'Pharmacy' | 'Stockist' | 'Admin') {
-  await page.goto('/auth/login');
-  await expect(page.getByLabel('Email or phone')).toBeVisible({ timeout: 30_000 });
-  await page.getByRole('button', { name: new RegExp(`^${role} —`) }).click();
-  await page.getByRole('button', { name: 'Sign in' }).click();
-}

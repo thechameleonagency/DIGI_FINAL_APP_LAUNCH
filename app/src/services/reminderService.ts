@@ -19,6 +19,15 @@ export async function sendPaymentReminder(params: {
   if (params.stockist.type !== 'Stockist') {
     return fail('BusinessRule', 'REM_ROLE', 'Only stockists can send payment reminders.', 'Reminder was not sent.');
   }
+  const settings = await db.platformSettings.get('platform');
+  if (settings?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'REM_MAINTENANCE',
+      'Platform is in maintenance mode.',
+      'Reminder was not sent.',
+    );
+  }
 
   const inv = await db.invoices.get(params.invoiceId);
   if (!inv || inv.stockistId !== params.stockist.id) {

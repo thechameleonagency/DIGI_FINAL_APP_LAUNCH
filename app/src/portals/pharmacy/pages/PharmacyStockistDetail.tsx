@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
 import { requestConnection } from '../../../services/connectionService';
-import { setFavourite, setSupplierRating } from '../../../services/favouriteService';
+import { isFavouritePinned, setFavourite, setSupplierRating } from '../../../services/favouriteService';
 import { useUi } from '../../../store/ui';
 import { Button, EmptyState, Field, Input, Kpi, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
@@ -44,6 +44,7 @@ export function PharmacyStockistDetail() {
   const outstanding = pairOutstanding(invoices, business.id, stockist.id);
   const canRequest =
     !connection || ['Rejected', 'Disconnected', 'Cancelled'].includes(connection.status);
+  const pinned = isFavouritePinned(favourite);
 
   return (
     <div className="stack">
@@ -56,12 +57,12 @@ export function PharmacyStockistDetail() {
               size="sm"
               variant="secondary"
               onClick={async () => {
-                const wasFav = !!favourite;
+                const wasFav = pinned;
                 const res = await setFavourite({
                   actor: user,
                   pharmacy: business,
                   stockistId: stockist.id,
-                  favourite: !favourite,
+                  favourite: !pinned,
                 });
                 pushToast(
                   res.ok
@@ -82,7 +83,7 @@ export function PharmacyStockistDetail() {
                 );
               }}
             >
-              {favourite ? 'Unpin' : 'Pin favourite'}
+              {pinned ? 'Unpin' : 'Pin favourite'}
             </Button>
             {connection?.status === 'Active' ? (
               <>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
-import { availableQty, expiryRiskBand } from '../../../domain/calc';
+import { expiryRiskBand } from '../../../domain/calc';
 import { formatINR } from '../../../domain/utils/money';
 import { Button, EmptyState, Kpi, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
@@ -17,7 +17,7 @@ export function StockistExpiry() {
       batches.map((b) => {
         const p = products.find((x) => x.id === b.productId);
         const bandName = expiryRiskBand(b.expiryDate);
-        const qty = availableQty(b);
+        const qty = Math.max(0, b.onHand - b.reserved);
         return { b, p, bandName, qty, value: qty * (p?.ptr ?? 0) };
       }),
     [batches, products],

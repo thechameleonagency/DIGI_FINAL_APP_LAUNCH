@@ -51,7 +51,7 @@ export function PharmacyLedger() {
         meta: p.method,
       });
     }
-    for (const c of creditNotes) {
+    for (const c of creditNotes.filter((x) => x.status !== 'Void')) {
       list.push({
         id: `cn-${c.id}`,
         at: c.issuedAt,

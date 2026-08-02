@@ -18,7 +18,6 @@ import { getCart, setCartLine, toggleWishlist } from '../../../services/catalogu
 import { cancelConnectionRequest, disconnectConnection, requestConnection } from '../../../services/connectionService';
 import { cancelOrder, placeOrder } from '../../../services/orderService';
 import { recordGrn } from '../../../services/fulfilmentService';
-import { applyCreditNote, submitPayment, submitReturn } from '../../../services/paymentService';
 import { createTicket, sendMessage } from '../../../services/supportService';
 import { inviteStaff } from '../../../services/authService';
 import { pharmacyAnalytics } from '../../../services/analyticsService';

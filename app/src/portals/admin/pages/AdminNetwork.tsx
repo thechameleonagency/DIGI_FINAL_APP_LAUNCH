@@ -45,7 +45,7 @@ export function AdminNetwork() {
       {
         key: 'accountStatus',
         label: 'Account',
-        options: ['Active', 'Suspended', 'Deactivated'].map((t) => ({ value: t, label: t })),
+        options: ['Active', 'PendingActivation', 'Suspended', 'Deactivated'].map((t) => ({ value: t, label: t })),
       },
     ],
     defaultSortKey: 'name',
@@ -63,7 +63,7 @@ export function AdminNetwork() {
           {
             key: 'accountStatus',
             label: 'Account',
-            options: ['Active', 'Suspended', 'Deactivated'].map((t) => ({ value: t, label: t })),
+            options: ['Active', 'PendingActivation', 'Suspended', 'Deactivated'].map((t) => ({ value: t, label: t })),
           },
         ]}
         filterValues={list.filterValues}

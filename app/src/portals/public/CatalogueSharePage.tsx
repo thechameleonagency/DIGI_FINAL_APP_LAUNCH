@@ -3,7 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
 import { formatINR } from '../../domain/utils/money';
-import { Button, EmptyState, Field, Input, Select } from '../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, LoadingState, Select } from '../../ui/components/primitives';
+import { resolveCatalogueSharePhase } from './catalogueShare';
 
 const PAGE_SIZE = 25;
 
@@ -13,70 +14,100 @@ export function CatalogueSharePage() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All');
   const [page, setPage] = useState(0);
-  const stockist = useLiveQuery(() => (stockistId ? db.businesses.get(stockistId) : undefined), [stockistId]);
-  const catalogue = useLiveQuery(
-    () => (stockistId ? db.catalogues.where('stockistId').equals(stockistId).first() : undefined),
+
+  const stockist = useLiveQuery(
+    async () => {
+      if (!stockistId) return null;
+      return (await db.businesses.get(stockistId)) ?? null;
+    },
     [stockistId],
   );
-  const products =
-    useLiveQuery(
-      () =>
-        stockistId
-          ? db.products
-              .where('stockistId')
-              .equals(stockistId)
-              .filter((p) => p.status === 'Active')
-              .toArray()
-          : [],
-      [stockistId],
-    ) ?? [];
+  const catalogue = useLiveQuery(
+    async () => {
+      if (!stockistId) return null;
+      return (await db.catalogues.where('stockistId').equals(stockistId).first()) ?? null;
+    },
+    [stockistId],
+  );
+  const products = useLiveQuery(
+    async () => {
+      if (!stockistId) return [];
+      return db.products.where('stockistId').equals(stockistId).toArray();
+    },
+    [stockistId],
+  );
 
+  const phase = resolveCatalogueSharePhase({ stockist, catalogue, products });
+
+  const readyProducts = phase.kind === 'ready' ? phase.products : [];
   const categories = useMemo(
-    () => ['All', ...[...new Set(products.map((p) => p.category).filter(Boolean))].sort()],
-    [products],
+    () => ['All', ...[...new Set(readyProducts.map((p) => p.category).filter(Boolean))].sort()],
+    [readyProducts],
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return products.filter((p) => {
+    return readyProducts.filter((p) => {
       if (category !== 'All' && p.category !== category) return false;
       if (!q) return true;
       return `${p.name} ${p.brand} ${p.sku} ${p.category}`.toLowerCase().includes(q);
     });
-  }, [products, query, category]);
+  }, [readyProducts, query, category]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const pageRows = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
-  if (!stockist || stockist.type !== 'Stockist') {
+  if (phase.kind === 'loading') {
     return (
       <div className="auth-page">
         <div className="auth-card">
-          <EmptyState title="Catalogue not found" description="This share link is not valid on this installation." />
+          <LoadingState label="Loading catalogue…" />
+        </div>
+      </div>
+    );
+  }
+
+  if (phase.kind === 'not_found' || phase.kind === 'unavailable') {
+    const title =
+      phase.kind === 'unavailable' && phase.reason === 'suspended'
+        ? 'Catalogue unavailable'
+        : phase.kind === 'unavailable' && phase.reason === 'deactivated'
+          ? 'Catalogue unavailable'
+          : 'Catalogue not found';
+    const description =
+      phase.kind === 'unavailable' && (phase.reason === 'suspended' || phase.reason === 'deactivated')
+        ? 'This stockist is not currently sharing a public catalogue.'
+        : 'This share link is not valid on this installation.';
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <EmptyState title={title} description={description} />
           <Link to="/auth/login">Sign in</Link>
         </div>
       </div>
     );
   }
 
-  const paused = catalogue?.status !== 'Active';
+  const stockistBiz = phase.stockist;
+  const paused = phase.kind === 'paused';
+  const empty = phase.kind === 'empty';
 
   return (
     <div className="auth-page">
       <div className="auth-card" style={{ maxWidth: 720 }}>
         <h1 className="auth-brand">DigiSwasthya</h1>
         <p className="auth-sub">Shared catalogue</p>
-        <h2 style={{ margin: '8px 0 4px', fontSize: 20 }}>{stockist.name}</h2>
+        <h2 style={{ margin: '8px 0 4px', fontSize: 20 }}>{stockistBiz.name}</h2>
         <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-          {stockist.city}, {stockist.state}
+          {stockistBiz.city}, {stockistBiz.state}
           {paused ? ' · Catalogue temporarily unavailable' : ''}
         </p>
         <div className="banner-strip" style={{ fontSize: 13 }}>
           Become a customer — <Link to="/auth/register/pharmacy">register as a pharmacy</Link> and request a connection
           to see trade prices and order.
         </div>
-        {paused || !products.length ? (
+        {paused || empty ? (
           <EmptyState
             title={paused ? 'Catalogue paused' : 'No products listed'}
             description="PTR and stock levels are never shown on public shares."

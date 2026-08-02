@@ -3,23 +3,24 @@ import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { Button, Field, Select } from './primitives';
 
-const PHARMACY_PREVIEW: OperationalRole[] = ['Manager', 'Staff', 'Accountant', 'DeliveryBoy'];
-const STOCKIST_PREVIEW: OperationalRole[] = ['Manager', 'Staff', 'Accountant', 'DeliveryBoy'];
-
-/** CF-34: Owner-only UI gating preview — actions remain audited as Owner. */
+/** CF-34: Primary account can preview DeliveryStaff UI gating only. */
 export function RolePreviewControls() {
   const { user, business, rolePreview, setRolePreview } = useSession();
   const { pushToast } = useUi();
 
-  if (!user || !business || user.role !== 'Owner' || business.type === 'Platform') return null;
+  if (!user || !business || business.type === 'Platform') return null;
+  const isPrimary =
+    (business.type === 'Pharmacy' && user.role === 'Pharmacist') ||
+    (business.type === 'Stockist' && user.role === 'Stockist');
+  if (!isPrimary) return null;
 
-  const options = business.type === 'Pharmacy' ? PHARMACY_PREVIEW : STOCKIST_PREVIEW;
+  const options: OperationalRole[] = ['DeliveryStaff'];
 
   return (
     <div className="card card-pad stack">
       <strong>Preview as role</strong>
       <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-        Trims navigation and action visibility only. Any change you make is still performed and audited as Owner.
+        Trims navigation and action visibility only. Changes are still audited as your primary role.
       </p>
       <Field label="Preview role">
         <Select
@@ -33,7 +34,7 @@ export function RolePreviewControls() {
             });
           }}
         >
-          <option value="">Owner (no preview)</option>
+          <option value="">{user.role} (no preview)</option>
           {options.map((r) => (
             <option key={r} value={r}>
               {r}

@@ -9,7 +9,7 @@ import { emitNotification, notifyBusinessUsers } from './notifications';
 
 async function notifyPlatformAdmins(code: string, vars: Record<string, string>, entityId: string) {
   const admins = await db.users
-    .filter((u) => ['Admin', 'SuperAdmin'].includes(u.role) && u.status === 'Active')
+    .filter((u) => ['SuperAdmin', 'SupportManager'].includes(u.role) && u.status === 'Active')
     .toArray();
   for (const a of admins) {
     await emitNotification({

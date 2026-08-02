@@ -91,7 +91,7 @@ describe('AC permissions & gates', () => {
     expect(
       can('payment.approve', {
         businessType: 'Pharmacy',
-        role: 'Owner',
+        role: 'Pharmacist',
         accountStatus: 'Active',
         verificationStatus: 'Approved',
       }).allow,
@@ -102,7 +102,7 @@ describe('AC permissions & gates', () => {
     expect(
       can('order.place', {
         businessType: 'Pharmacy',
-        role: 'Owner',
+        role: 'Pharmacist',
         accountStatus: 'Suspended',
         verificationStatus: 'Approved',
       }).allow,
@@ -124,7 +124,7 @@ describe('AC permissions & gates', () => {
     expect(
       can('catalogue.manage', {
         businessType: 'Stockist',
-        role: 'DeliveryBoy',
+        role: 'DeliveryStaff',
         accountStatus: 'Active',
         verificationStatus: 'Approved',
       }).allow,
@@ -135,7 +135,7 @@ describe('AC permissions & gates', () => {
     expect(
       can('order.place', {
         businessType: 'Pharmacy',
-        role: 'Owner',
+        role: 'Pharmacist',
         accountStatus: 'Active',
         verificationStatus: 'UnderReview',
       }).allow,

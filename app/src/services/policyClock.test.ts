@@ -9,7 +9,7 @@ describe('runPolicyClock emitters (T-1 / F11)', () => {
   });
 
   it('marks overdue invoices and emits N-028 deduped', async () => {
-    const owner = await makeActor({ id: 'ph-owner', businessId: 'biz-ph', role: 'Owner' });
+    const owner = await makeActor({ id: 'ph-owner', businessId: 'biz-ph', role: 'Stockist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: owner.id, name: 'Care' });
     await db.platformSettings.put({
       id: 'platform',

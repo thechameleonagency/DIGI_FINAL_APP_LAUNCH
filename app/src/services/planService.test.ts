@@ -14,7 +14,7 @@ describe('planService (CF-23)', () => {
     await clearDb();
     const admin = await makeActor({ id: 'u-admin', businessId: 'biz-plat', role: 'SuperAdmin' });
     await makeBusiness({ id: 'biz-plat', type: 'Platform', ownerUserId: admin.id, name: 'Platform' });
-    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Pharmacist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: owner.id, name: 'CarePlus' });
     await db.platformSettings.put({
       id: 'platform',
@@ -86,7 +86,7 @@ describe('planService (CF-23)', () => {
     const biz = (await db.businesses.get('biz-ph'))!;
     const admin = (await db.users.get('u-admin'))!;
     const platform = (await db.businesses.get('biz-plat'))!;
-    const stOwner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Owner' });
+    const stOwner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: stOwner.id, name: 'MedRoute' });
 
     const a = await submitUpgradeRequest({ actor: owner, business: biz, utr: 'SAMEUTR1' });
@@ -128,5 +128,48 @@ describe('planService (CF-23)', () => {
     expect(res.ok).toBe(true);
     const settings = await db.platformSettings.get('platform');
     expect(settings?.premiumPlan?.priceText).toBe('₹499');
+  });
+
+  it('SupportManager cannot save plan copy (plan.manage)', async () => {
+    const sm = await makeActor({ id: 'u-sm', businessId: 'biz-plat', role: 'SupportManager' });
+    const platform = (await db.businesses.get('biz-plat'))!;
+    const res = await savePlanConfig({
+      actor: sm,
+      platform,
+      config: { priceText: '₹1', upiId: 'x@upi', benefits: ['Nope'] },
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe('PERM_DENIED');
+  });
+
+  it('SupportManager can read platform but cannot decide or revoke (plan.manage)', async () => {
+    const owner = (await db.users.get('u-ph'))!;
+    const biz = (await db.businesses.get('biz-ph'))!;
+    const sm = await makeActor({ id: 'u-sm', businessId: 'biz-plat', role: 'SupportManager' });
+    const platform = (await db.businesses.get('biz-plat'))!;
+    const submitted = await submitUpgradeRequest({ actor: owner, business: biz, utr: 'UTRSMDENY' });
+    expect(submitted.ok).toBe(true);
+    if (!submitted.ok) return;
+
+    const decided = await decideUpgradeRequest({
+      actor: sm,
+      platform,
+      id: submitted.data.id,
+      decision: 'Approved',
+    });
+    expect(decided.ok).toBe(false);
+    if (!decided.ok) expect(decided.code).toBe('PERM_DENIED');
+    expect((await db.businesses.get('biz-ph'))!.plan ?? 'Free').toBe('Free');
+
+    await db.businesses.update('biz-ph', { plan: 'Premium' });
+    const revoked = await revokePremium({
+      actor: sm,
+      platform,
+      businessId: 'biz-ph',
+      reason: 'Should not revoke',
+    });
+    expect(revoked.ok).toBe(false);
+    if (!revoked.ok) expect(revoked.code).toBe('PERM_DENIED');
+    expect((await db.businesses.get('biz-ph'))!.plan).toBe('Premium');
   });
 });

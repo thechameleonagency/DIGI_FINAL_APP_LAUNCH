@@ -35,6 +35,11 @@ export async function upsertAnnouncement(params: {
   }
 
   const ts = new Date().toISOString();
+  const startsAt = params.startsAt || ts;
+  const endsAt = params.endsAt?.trim() || undefined;
+  if (endsAt && new Date(endsAt) < new Date(startsAt)) {
+    return fail('Validation', 'ANN_DATES', 'End date must be on or after the start date.', 'Announcement was not saved.');
+  }
   const existing = params.id ? await db.announcements.get(params.id) : undefined;
   const row: Announcement = {
     id: existing?.id ?? newId(),
@@ -43,8 +48,8 @@ export async function upsertAnnouncement(params: {
     targetRoles: params.targetRoles,
     placements: params.placements,
     priority: params.priority,
-    startsAt: params.startsAt || ts,
-    endsAt: params.endsAt?.trim() || undefined,
+    startsAt,
+    endsAt,
     active: params.active ?? true,
     createdBy: existing?.createdBy ?? params.actor.id,
     createdAt: existing?.createdAt ?? ts,
@@ -62,6 +67,7 @@ export async function upsertAnnouncement(params: {
       before: existing,
       after: row,
     });
+    if (row.active && !existing.active) await fanOutAnnouncement(row);
   } else {
     await db.announcements.add(row);
     await writeAudit({

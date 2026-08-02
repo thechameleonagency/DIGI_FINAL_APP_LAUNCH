@@ -37,15 +37,15 @@ export function StockistDelivery() {
   const pharmacies = useLiveQuery(() => db.businesses.where('type').equals('Pharmacy').toArray()) ?? [];
   const orders = useLiveQuery(() => db.orders.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const staff = useLiveQuery(
-    () => db.users.where('businessId').equals(business.id).filter((u) => u.role === 'DeliveryBoy' && u.status === 'Active').toArray(),
+    () => db.users.where('businessId').equals(business.id).filter((u) => u.role === 'DeliveryStaff' && u.status === 'Active').toArray(),
     [business.id],
   ) ?? [];
   const routes =
     useLiveQuery(() => db.stockistRoutes.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
-  const isBoy = user.role === 'DeliveryBoy';
+  const isBoy = user.role === 'DeliveryStaff';
   const visible = isBoy ? deliveries.filter((d) => d.assignedTo === user.id) : deliveries;
 
-  const [tab, setTab] = useState<'Board' | 'Routes' | 'Execute'>('Board');
+  const [tab, setTab] = useState<'Board' | 'Routes' | 'Execute'>(isBoy ? 'Execute' : 'Board');
   const [failId, setFailId] = useState<string | null>(null);
   const [deleteRouteId, setDeleteRouteId] = useState<string | null>(null);
   const [restockId, setRestockId] = useState<string | null>(null);
@@ -140,12 +140,20 @@ export function StockistDelivery() {
   const deliverTarget = deliverId ? deliveries.find((d) => d.id === deliverId) : undefined;
   const historyTarget = historyId ? deliveries.find((d) => d.id === historyId) : undefined;
 
-  const execRoute = routes.find((r) => r.id === execRouteId) ?? (isBoy ? routes.find((r) => r.assigneeId === user.id) : undefined);
+  const boyRoutes = isBoy
+    ? routes.filter(
+        (r) =>
+          r.assigneeId === user.id ||
+          r.stops.some((s) => deliveries.find((d) => d.id === s.deliveryId)?.assignedTo === user.id),
+      )
+    : routes;
+  const execRoute =
+    routes.find((r) => r.id === execRouteId) ?? (isBoy ? boyRoutes[0] : undefined);
   const execStops = (execRoute?.stops ?? [])
     .slice()
     .sort((a, b) => a.seq - b.seq)
     .map((s) => deliveries.find((d) => d.id === s.deliveryId))
-    .filter(Boolean);
+    .filter((d): d is NonNullable<typeof d> => !!d && (!isBoy || d.assignedTo === user.id));
 
   const closeRouteModal = () => {
     setRouteModalOpen(false);
@@ -547,9 +555,22 @@ export function StockistDelivery() {
                 ))}
               </Select>
             </Field>
+          ) : boyRoutes.length > 1 ? (
+            <Field label="Route">
+              <Select value={execRouteId || execRoute?.id || ''} onChange={(e) => setExecRouteId(e.target.value)}>
+                {boyRoutes.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           ) : null}
           {!execRoute ? (
-            <EmptyState title="No route selected" description="Pick a route or ask a manager to assign you one." />
+            <EmptyState
+              title="No route selected"
+              description={isBoy ? 'Ask a manager to assign you a route or stops.' : 'Pick a route or ask a manager to assign you one.'}
+            />
           ) : !execStops.length ? (
             <EmptyState title="No stops on this route" description="Assign open deliveries as stops first." />
           ) : (
@@ -586,7 +607,7 @@ export function StockistDelivery() {
                     </a>
                   ) : null}
                   <div className="row">
-                    {d.status === 'Assigned' || d.status === 'Created' ? (
+                    {d.status === 'Assigned' ? (
                       <Button
                         size="sm"
                         disabled={!d.assignedTo}
@@ -749,7 +770,7 @@ export function StockistDelivery() {
                   ))}
                 </Select>
               ) : null}
-              {d.status === 'Assigned' || d.status === 'Created' ? (
+              {d.status === 'Assigned' ? (
                 <Button
                   size="sm"
                   onClick={async () => {

@@ -16,11 +16,28 @@ async function getCurrentVerification(businessId: string): Promise<Verification 
   return db.verifications.where('businessId').equals(businessId).reverse().sortBy('updatedAt').then((rows) => rows[0]);
 }
 
+async function notifyPlatformAdminsVerificationSubmitted(business: Business, verificationId: string): Promise<void> {
+  const admins = await db.users.filter((u) => ['SuperAdmin', 'SupportManager'].includes(u.role)).toArray();
+  for (const a of admins) {
+    await emitNotification({
+      userId: a.id,
+      businessId: a.businessId,
+      code: 'N-002',
+      vars: { businessName: business.name },
+      entityType: 'Verification',
+      entityId: verificationId,
+    });
+  }
+}
+
 export async function submitVerification(
   actor: User,
   business: Business,
   extras?: { documents?: VerificationDocument[]; documentIds?: string[] },
 ): Promise<Result<Verification>> {
+  if (actor.businessId !== business.id) {
+    return fail('Permission', 'PERM_DENIED', 'You can only submit verification for your own business.', 'Verification was not submitted.');
+  }
   const perm = assertCan(actor, business, 'verification.submit');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Verification was not submitted.');
   const current = await getCurrentVerification(business.id);
@@ -52,6 +69,7 @@ export async function submitVerification(
     };
     await db.verifications.add(v);
     await db.businesses.update(business.id, { verificationStatus: 'Submitted', updatedAt: ts });
+    await notifyPlatformAdminsVerificationSubmitted(business, v.id);
     return ok(v);
   }
   await db.verifications.update(current.id, {
@@ -74,6 +92,7 @@ export async function submitVerification(
     action: 'verification.resubmit',
     after: { status: 'Submitted', documentCount: nextIds.length },
   });
+  await notifyPlatformAdminsVerificationSubmitted(business, current.id);
   return ok((await db.verifications.get(current.id))!);
 }
 
@@ -113,22 +132,32 @@ export async function adminReviewVerification(params: {
   if (params.decision === 'Rejected') patch.rejectReason = params.reason?.trim();
   if (params.decision === 'DocumentsRequested') patch.requestDocsNote = (params.note ?? params.reason)?.trim();
 
-  await db.transaction('rw', db.verifications, db.businesses, async () => {
-    const fresh = await db.verifications.get(v.id);
-    if (!fresh || fresh.status !== v.status) {
-      throw new Error('CONCURRENCY');
-    }
-    await db.verifications.update(v.id, patch);
-    await db.businesses.update(v.businessId, {
-      verificationStatus: params.decision === 'Approved' ? 'Approved' : params.decision,
-      updatedAt: ts,
+  try {
+    await db.transaction('rw', db.verifications, db.businesses, async () => {
+      const fresh = await db.verifications.get(v.id);
+      if (!fresh || fresh.status !== v.status) {
+        throw new Error('CONCURRENCY');
+      }
+      await db.verifications.update(v.id, patch);
+      const bizPatch: Partial<Business> = {
+        verificationStatus: params.decision === 'Approved' ? 'Approved' : params.decision,
+        updatedAt: ts,
+      };
+      // Approval activates a still-pending trader account (register starts as PendingActivation).
+      if (params.decision === 'Approved') {
+        const target = await db.businesses.get(v.businessId);
+        if (target && (target.accountStatus === 'PendingActivation' || target.accountStatus === 'Active')) {
+          bizPatch.accountStatus = 'Active';
+        }
+      }
+      await db.businesses.update(v.businessId, bizPatch);
     });
-  }).catch((e) => {
-    if (String(e.message) === 'CONCURRENCY') {
-      return Promise.reject(fail('Concurrency', 'VER_CONFLICT', 'Another admin already decided.', 'Your decision was not applied.'));
+  } catch (e) {
+    if (e instanceof Error && e.message === 'CONCURRENCY') {
+      return fail('Concurrency', 'VER_CONFLICT', 'Another admin already decided.', 'Your decision was not applied.');
     }
     throw e;
-  });
+  }
 
   const updated = (await db.verifications.get(v.id))!;
   const biz = (await db.businesses.get(v.businessId))!;
@@ -167,6 +196,14 @@ export async function suspendBusiness(params: {
   const biz = await db.businesses.get(params.targetBusinessId);
   if (!biz) return fail('NotFound', 'BIZ_MISSING', 'Business not found.', 'Business was not suspended.');
   if (biz.type === 'Platform') return fail('BusinessRule', 'SUSPEND_PLATFORM', 'Cannot suspend platform.', 'Business was not suspended.');
+  if (biz.accountStatus !== 'Active' && biz.accountStatus !== 'PendingActivation') {
+    return fail(
+      'StateConflict',
+      'SUSPEND_STATE',
+      `Cannot suspend a business that is ${biz.accountStatus}.`,
+      'Business was not suspended.',
+    );
+  }
   const ts = new Date().toISOString();
   const visibleReason = params.reason.trim();
   const internalNotes = params.internalNotes?.trim() || undefined;
@@ -197,26 +234,31 @@ export async function requestReactivation(params: {
   business: Business;
   note?: string;
 }): Promise<Result<true>> {
-  if (params.business.accountStatus !== 'Suspended') {
+  if (params.actor.businessId !== params.business.id) {
+    return fail('Permission', 'PERM_DENIED', 'You can only request reactivation for your own business.', 'No request sent.');
+  }
+  const biz = await db.businesses.get(params.business.id);
+  if (!biz) return fail('NotFound', 'BIZ_MISSING', 'Business not found.', 'No request sent.');
+  if (biz.accountStatus !== 'Suspended') {
     return fail('BusinessRule', 'NOT_SUSPENDED', 'Business is not suspended.', 'No request sent.');
   }
-  const admins = await db.users.filter((u) => ['Admin', 'SuperAdmin', 'SupportAgent'].includes(u.role)).toArray();
+  const admins = await db.users.filter((u) => ['SuperAdmin', 'SupportManager'].includes(u.role)).toArray();
   for (const a of admins) {
     await emitNotification({
       userId: a.id,
       businessId: a.businessId,
       code: 'N-057',
-      vars: { businessName: params.business.name },
+      vars: { businessName: biz.name },
       entityType: 'Business',
-      entityId: params.business.id,
+      entityId: biz.id,
     });
   }
   await writeAudit({
     actorId: params.actor.id,
     actorName: params.actor.name,
-    businessId: params.business.id,
+    businessId: biz.id,
     entityType: 'Business',
-    entityId: params.business.id,
+    entityId: biz.id,
     action: 'business.request_reactivation',
     reason: params.note,
   });
@@ -237,8 +279,10 @@ export async function reactivateBusiness(params: {
     return fail('BusinessRule', 'NOT_INACTIVE', 'Business is already active.', 'No change made.');
   }
   const ts = new Date().toISOString();
+  // Unverified traders return to PendingActivation — not Active — so analytics/marketplace stay correct.
+  const nextStatus = biz.verificationStatus === 'Approved' ? 'Active' : 'PendingActivation';
   await db.businesses.update(biz.id, {
-    accountStatus: 'Active',
+    accountStatus: nextStatus,
     suspendedAt: undefined,
     suspendReason: undefined,
     internalNotes: undefined,
@@ -251,6 +295,7 @@ export async function reactivateBusiness(params: {
     entityType: 'Business',
     entityId: biz.id,
     action: 'business.reactivate',
+    after: { accountStatus: nextStatus },
   });
   await notifyBusinessUsers(biz.id, 'N-006', { businessName: biz.name });
   return ok((await db.businesses.get(biz.id))!);

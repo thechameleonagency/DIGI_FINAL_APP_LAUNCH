@@ -6,6 +6,7 @@ import { db } from '../../../data/db';
 import { availableQty, expiryRiskBand, lowStock } from '../../../domain/calc';
 import { nextNumberFieldValue } from '../../../domain/utils/validation';
 import { stockIn, transferStock } from '../../../services/inventoryService';
+import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { BarcodeScanField } from '../../../ui/components/BarcodeScanField';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
@@ -15,6 +16,7 @@ import { useBiz } from './useBiz';
 export function StockistInventory() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const canAdjust = useCan('inventory.adjust');
   const [params] = useSearchParams();
   const { items: batches, loading: batchesLoading } = useLiveArray(
     () => db.batches.where('stockistId').equals(business.id).toArray(),
@@ -131,12 +133,16 @@ export function StockistInventory() {
         title="Inventory & batches"
         actions={
           <div className="row">
-            <Button size="sm" onClick={() => setStockInModalOpen(true)}>
-              Stock in
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setTransferModalOpen(true)}>
-              Transfer between locations
-            </Button>
+            {canAdjust ? (
+              <>
+                <Button size="sm" onClick={() => setStockInModalOpen(true)}>
+                  Stock in
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setTransferModalOpen(true)}>
+                  Transfer between locations
+                </Button>
+              </>
+            ) : null}
             <Link className="btn btn-secondary btn-sm" to="/stockist/movements">
               Movements
             </Link>
@@ -231,6 +237,7 @@ export function StockistInventory() {
                 setXferBatchId(e.target.value);
                 const b = batches.find((x) => x.id === e.target.value);
                 setXferFrom(b?.location || 'Unassigned');
+                if (b) setXferQty(String(b.onHand - b.reserved));
               }}
             >
               <option value="">Select…</option>
@@ -282,7 +289,7 @@ export function StockistInventory() {
                   </Select>
                 </Field>
               </div>
-              <Field label="Qty (≤ un-reserved)">
+              <Field label="Qty (must equal un-reserved — moves whole batch)">
                 <Input type="number" value={xferQty} onChange={(e) => setXferQty(e.target.value)} />
               </Field>
             </>

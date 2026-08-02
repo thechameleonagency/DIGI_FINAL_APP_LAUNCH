@@ -7,10 +7,10 @@ import { updateDeliveryStatus } from './fulfilmentService';
 describe('routeService (CF-18)', () => {
   beforeEach(async () => {
     await clearDb();
-    const owner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Owner' });
+    const owner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: owner.id });
-    await makeActor({ id: 'u-boy', businessId: 'biz-st', role: 'DeliveryBoy', name: 'Rider' });
-    const ph = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    await makeActor({ id: 'u-boy', businessId: 'biz-st', role: 'DeliveryStaff', name: 'Rider' });
+    const ph = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Stockist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: ph.id });
     const ts = new Date().toISOString();
     await db.deliveries.add({

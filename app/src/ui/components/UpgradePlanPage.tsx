@@ -27,7 +27,7 @@ export function UpgradePlanPage() {
   const plan = business?.plan ?? 'Free';
   const open = requests.find((r) => r.status === 'Submitted');
   const history = [...requests].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const isOwner = user?.role === 'Owner';
+  const isOwner = user?.role === 'Pharmacist' || user?.role === 'Stockist';
 
   useEffect(() => {
     if (user && business && sessionBiz && business.plan !== sessionBiz.plan) {
@@ -94,7 +94,7 @@ export function UpgradePlanPage() {
             No payment gateway is called. Enter the UPI reference / UTR from your transfer.
           </p>
           {!isOwner ? (
-            <p className="muted">Only the business Owner can submit an upgrade request.</p>
+            <p className="muted">Only the primary Pharmacist or Stockist account can submit an upgrade request.</p>
           ) : (
             <>
               <Field label="UPI reference / UTR">

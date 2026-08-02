@@ -7,6 +7,7 @@ import { expiryRiskBand, lowStock } from '../../../domain/calc';
 import { newId } from '../../../domain/utils/ids';
 import { nextNumberFieldValue, parseNumberInput } from '../../../domain/utils/validation';
 import { stockAdd, stockAdjust } from '../../../services/inventoryService';
+import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
 import { Button, EmptyState, Field, Input, Kpi, LoadingState, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
@@ -15,12 +16,20 @@ import { useBiz } from './useBiz';
 export function PharmacyInventory() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const canAdjust = useCan('inventory.adjust');
   const [params] = useSearchParams();
   const { items, loading: itemsLoading } = useLiveArray(
     () => db.pharmacyInventory.where('pharmacyId').equals(business.id).toArray(),
     [business.id],
   );
-  const products = useLiveQuery(() => db.products.toArray()) ?? [];
+  const products =
+    useLiveQuery(async () => {
+      const conns = await db.connections.where({ pharmacyId: business.id, status: 'Active' }).toArray();
+      const allowed = new Set(conns.map((c) => c.stockistId));
+      if (!allowed.size) return [];
+      const all = await db.products.toArray();
+      return all.filter((p) => p.status === 'Active' && allowed.has(p.stockistId));
+    }, [business.id]) ?? [];
   const movements =
     useLiveQuery(() => db.inventoryMovements.where('businessId').equals(business.id).reverse().sortBy('at'), [business.id]) ?? [];
   const [addOpen, setAddOpen] = useState(false);
@@ -99,32 +108,44 @@ export function PharmacyInventory() {
         getValue: (r: (typeof rows)[0]) => r.flag,
         render: (r: (typeof rows)[0]) => (r.flag !== 'ok' ? <StatusBadge status={r.flag} /> : '—'),
       },
-      {
-        key: 'actions',
-        label: '',
-        getValue: () => '',
-        render: (r: (typeof rows)[0]) => (
-          <div className="row">
-            <Button size="sm" variant="ghost" onClick={() => { setAdjustId(r.id); setAdjDelta('-1'); setAdjReason(''); }}>
-              Adjust
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={r.onHand <= 0}
-              onClick={() => {
-                setAdjustId(r.id);
-                setAdjDelta(String(-r.onHand));
-                setAdjReason('Write-off');
-              }}
-            >
-              Write off
-            </Button>
-          </div>
-        ),
-      },
+      ...(canAdjust
+        ? [
+            {
+              key: 'actions',
+              label: '',
+              getValue: () => '',
+              render: (r: (typeof rows)[0]) => (
+                <div className="row">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setAdjustId(r.id);
+                      setAdjDelta('-1');
+                      setAdjReason('');
+                    }}
+                  >
+                    Adjust
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={r.onHand <= 0}
+                    onClick={() => {
+                      setAdjustId(r.id);
+                      setAdjDelta(String(-r.onHand));
+                      setAdjReason('Write-off');
+                    }}
+                  >
+                    Write off
+                  </Button>
+                </div>
+              ),
+            },
+          ]
+        : []),
     ],
-    [],
+    [canAdjust],
   );
 
   const list = useListControls(rows, {
@@ -169,19 +190,23 @@ export function PharmacyInventory() {
             <Button size="sm" variant="secondary" onClick={() => setShowMovements((v) => !v)}>
               {showMovements ? 'Hide movements' : 'Movements'}
             </Button>
-            <Button size="sm" onClick={() => setAddOpen(true)}>
-              Add medicine
-            </Button>
+            {canAdjust ? (
+              <Button size="sm" onClick={() => setAddOpen(true)}>
+                Add medicine
+              </Button>
+            ) : null}
           </div>
         }
       />
 
-      <div className="kpi-grid">
-        <Kpi label="SKUs" value={kpis.skus} />
-        <Kpi label="Low stock" value={kpis.low} />
-        <Kpi label="Expiring / expired" value={kpis.near} />
-        <Kpi label="Units on hand" value={kpis.units} />
-      </div>
+      {!itemsLoading && items.length ? (
+        <div className="kpi-grid">
+          <Kpi label="SKUs" value={kpis.skus} />
+          <Kpi label="Low stock" value={kpis.low} />
+          <Kpi label="Expiring / expired" value={kpis.near} />
+          <Kpi label="Units on hand" value={kpis.units} />
+        </div>
+      ) : null}
 
       <Modal
         open={addOpen}
@@ -399,9 +424,12 @@ export function PharmacyInventory() {
           description="Receive an order (GRN) or add stock to start tracking."
           action={
             <div className="row">
-              <Button onClick={() => setAddOpen(true)}>Add medicine</Button>
+              {canAdjust ? <Button onClick={() => setAddOpen(true)}>Add medicine</Button> : null}
               <Link className="btn btn-secondary" to="/pharmacy/orders">
                 View orders
+              </Link>
+              <Link className="btn btn-secondary" to="/pharmacy/connections">
+                Connect stockist
               </Link>
             </div>
           }

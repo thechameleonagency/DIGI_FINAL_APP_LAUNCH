@@ -9,7 +9,7 @@ describe('impersonationService (CF-25)', () => {
     await clearDb();
     const admin = await makeActor({ id: 'u-admin', businessId: 'biz-plat', role: 'SuperAdmin' });
     await makeBusiness({ id: 'biz-plat', type: 'Platform', ownerUserId: admin.id, name: 'Platform' });
-    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Pharmacist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: owner.id, name: 'CarePlus' });
   });
 
@@ -76,5 +76,18 @@ describe('impersonationService (CF-25)', () => {
     });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.data.viewBusiness.accountStatus).toBe('Suspended');
+  });
+
+  it('SupportManager cannot impersonate', async () => {
+    const sm = await makeActor({ id: 'u-sm', businessId: 'biz-plat', role: 'SupportManager' });
+    const platform = (await db.businesses.get('biz-plat'))!;
+    const res = await enterImpersonation({
+      actor: sm,
+      platform,
+      targetBusinessId: 'biz-ph',
+      reason: 'Should fail',
+      notifyOwner: false,
+    });
+    expect(res.ok).toBe(false);
   });
 });

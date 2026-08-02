@@ -7,14 +7,17 @@ import { cancelOrder, editOrderLines } from '../../../services/orderService';
 import { deliveryPendingGrnQty, recordGrn } from '../../../services/fulfilmentService';
 import { submitReturn } from '../../../services/paymentService';
 import { ensureMessageThread } from '../../../services/supportService';
+import { makeIdempotencyKey } from '../../../domain/utils/idempotency';
 import { pluralize } from '../../../domain/utils/pluralize';
 import { nextNumberFieldValue } from '../../../domain/utils/validation';
+import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileUpload } from '../../../ui/components/FileUpload';
 import { BarcodeScanField } from '../../../ui/components/BarcodeScanField';
 import { OrderDeliveriesPanel } from '../../../ui/components/OrderDeliveriesPanel';
 import { alreadyReturnedQty, ReturnLinesForm, validateReturnLines } from '../../../ui/components/ReturnLinesForm';
+import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { Button, EmptyState, Field, Input, Money, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -26,6 +29,8 @@ export function PharmacyOrderDetail() {
   const [params, setParams] = useSearchParams();
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const canGrn = useCan('inventory.adjust');
+  const { busy: returnBusy, run: runReturn } = useBusyAction();
   const [placedBanner, setPlacedBanner] = useState(params.get('placed') === '1');
   const order = useLiveQuery(() => db.orders.where('orderNo').equals(orderNo!).first(), [orderNo]);
 
@@ -67,7 +72,7 @@ export function PharmacyOrderDetail() {
   const alreadyReturned = (productId: string) => alreadyReturnedQty(priorReturns, productId);
 
   if (!order) return <EmptyState title="Order not found" description="Check the order number." />;
-  const linesEditable = order.status === 'Pending';
+  const linesEditable = ['Pending', 'Accepted', 'PartiallyAccepted'].includes(order.status);
   const addr = order.deliveryAddress;
   const activeDelivery =
     deliveries.find((d) =>
@@ -75,6 +80,7 @@ export function PharmacyOrderDetail() {
       d.lines.some((l) => deliveryPendingGrnQty(l) > 0),
     ) ?? delivery;
   const canRecordGrn =
+    canGrn &&
     !!activeDelivery &&
     ['Delivered', 'PartiallyDelivered'].includes(activeDelivery.status) &&
     activeDelivery.lines.some((l) => deliveryPendingGrnQty(l) > 0);
@@ -195,9 +201,9 @@ export function PharmacyOrderDetail() {
                 Cancel
               </Button>
             ) : null}
-            {['Delivered', 'PartiallyDelivered'].includes(order.status) ? (
+            {['Delivered', 'PartiallyDelivered', 'Closed'].includes(order.status) ? (
               <>
-                {canRecordGrn ? (
+                {canRecordGrn && ['Delivered', 'PartiallyDelivered'].includes(order.status) ? (
                   <Button size="sm" variant="secondary" onClick={openGrn}>
                     Record GRN
                   </Button>
@@ -671,31 +677,35 @@ export function PharmacyOrderDetail() {
         title="Raise return"
         footer={
           <Button
-            onClick={async () => {
-              const check = validateReturnLines(order, priorReturns, returnQty, returnReasons);
-              if (!check.ok) {
-                setReturnFieldErrors(check.fieldErrors);
-                setReturnFormError(Object.keys(check.fieldErrors).length ? undefined : check.message);
-                return;
-              }
-              setReturnFieldErrors({});
-              setReturnFormError(undefined);
-              const res = await submitReturn({
-                actor: user,
-                pharmacy: business,
-                orderId: order.id,
-                lines: check.lines,
-                evidenceFileIds: evidenceFileId ? [evidenceFileId] : [],
+            disabled={returnBusy}
+            onClick={() => {
+              void runReturn(async () => {
+                const check = validateReturnLines(order, priorReturns, returnQty, returnReasons);
+                if (!check.ok) {
+                  setReturnFieldErrors(check.fieldErrors);
+                  setReturnFormError(Object.keys(check.fieldErrors).length ? undefined : check.message);
+                  return;
+                }
+                setReturnFieldErrors({});
+                setReturnFormError(undefined);
+                const res = await submitReturn({
+                  actor: user,
+                  pharmacy: business,
+                  orderId: order.id,
+                  lines: check.lines,
+                  evidenceFileIds: evidenceFileId ? [evidenceFileId] : [],
+                  idempotencyKey: makeIdempotencyKey(`ret-${order.id}`, user.id),
+                });
+                pushToast(
+                  res.ok
+                    ? { tone: 'success', title: 'Return submitted', message: res.data.returnNo }
+                    : { tone: 'error', title: res.message, message: res.businessImpact },
+                );
+                if (res.ok) setReturnOpen(false);
               });
-              pushToast(
-                res.ok
-                  ? { tone: 'success', title: 'Return submitted', message: res.data.returnNo }
-                  : { tone: 'error', title: res.message, message: res.businessImpact },
-              );
-              if (res.ok) setReturnOpen(false);
             }}
           >
-            Submit return
+            {returnBusy ? 'Submitting…' : 'Submit return'}
           </Button>
         }
       >

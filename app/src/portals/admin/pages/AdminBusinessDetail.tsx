@@ -332,7 +332,7 @@ export function AdminBusinessDetail() {
           <Textarea value={auditNote} onChange={(e) => setAuditNote(e.target.value)} rows={2} />
         </Field>
         <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          {biz.accountStatus === 'Active' ? (
+          {biz.accountStatus === 'Active' || biz.accountStatus === 'PendingActivation' ? (
             <>
               <Button size="sm" variant="danger" onClick={() => setSuspendOpen(true)}>
                 Suspend

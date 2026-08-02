@@ -5,8 +5,14 @@ import { db } from '../../data/db';
 import type { VerificationDocKind, VerificationDocument } from '../../domain/entities/types';
 import { portalFor } from '../../domain/permissions';
 import { DEMO_OTP } from '../../domain/utils/crypto';
-import { acceptInvite, getInvitePreview, login, resetPassword } from '../../services/authService';
-import { DEMO_ACCOUNTS } from '../../data/seed';
+import {
+  acceptInvite,
+  createFirstSuperAdmin,
+  getInvitePreview,
+  login,
+  needsFirstSuperAdmin,
+  resetPassword,
+} from '../../services/authService';
 import { isGstin, isLicenseNo, isPhone, normalizeGstin } from '../../domain/utils/validation';
 import { updateBusiness } from '../../services/businessService';
 import { storeFile } from '../../services/fileService';
@@ -55,7 +61,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [lockRemaining, setLockRemaining] = useState(0);
-  const [demoGroup, setDemoGroup] = useState<'Pharmacy' | 'Stockist' | 'Admin'>('Pharmacy');
+  const [showSetupLink, setShowSetupLink] = useState(false);
   const { setSession, user, business } = useSession();
   const { pushToast } = useUi();
   const navigate = useNavigate();
@@ -68,6 +74,10 @@ export function LoginPage() {
       pushToast({ tone: 'warning', title: 'Signed out', message: 'Your access changed. Please sign in again.' });
     }
   }, [pushToast]);
+
+  useEffect(() => {
+    void needsFirstSuperAdmin().then(setShowSetupLink);
+  }, []);
 
   useEffect(() => {
     setLockRemaining(getLoginLockoutRemainingMs(email));
@@ -93,6 +103,14 @@ export function LoginPage() {
     <AuthShell>
       <h1 className="auth-brand">DigiSwasthya</h1>
       <p className="auth-sub">B2B pharmaceutical commerce — sign in to your Pharmacy, Stockist, or Platform Admin workspace.</p>
+      {showSetupLink ? (
+        <div className="banner-strip info" style={{ marginBottom: 12 }}>
+          Empty workspace — create the first SuperAdmin, then sign in.{' '}
+          <Link to="/auth/setup" style={{ fontWeight: 700 }}>
+            Create SuperAdmin
+          </Link>
+        </div>
+      ) : null}
       {locked ? (
         <div className="banner-strip warning" style={{ marginBottom: 12 }}>
           Too many failed attempts for this account. Try again in {Math.ceil(lockRemaining / 1000)}s.
@@ -165,46 +183,117 @@ export function LoginPage() {
           Verify a bill (anti-counterfeit)
         </Link>
       </form>
-      <details className="card card-pad" style={{ marginTop: 18, fontSize: 12, color: 'var(--muted)' }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--text)' }}>Demo accounts</summary>
-        <p style={{ margin: '8px 0 10px' }}>
-          Click a row to fill the form, then Sign in. Seed covers 5 pharmacies · 5 stockists · full trade lifecycles.
-        </p>
-        <div className="row" style={{ gap: 6, marginBottom: 8, flexWrap: 'wrap' }} role="tablist" aria-label="Demo role group">
-          {(['Pharmacy', 'Stockist', 'Admin'] as const).map((group) => (
-            <button
-              key={group}
-              type="button"
-              role="tab"
-              aria-selected={demoGroup === group}
-              className={`btn btn-sm ${demoGroup === group ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setDemoGroup(group)}
-            >
-              {group}
-            </button>
-          ))}
-        </div>
-        <div className="stack" style={{ marginTop: 4 }}>
-          {DEMO_ACCOUNTS.filter((a) => a.roleGroup === demoGroup).map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              className="btn btn-secondary btn-sm"
-              style={{ textAlign: 'left', height: 'auto', padding: '8px 10px', whiteSpace: 'normal' }}
-              onClick={() => {
-                setEmail(a.email);
-                setPassword(a.password);
-              }}
-            >
-              {a.name} · {a.role} · {a.businessName}
-              <br />
-              <span style={{ opacity: 0.85 }}>
-                {a.email} · {a.password}
-              </span>
-            </button>
-          ))}
-        </div>
-      </details>
+    </AuthShell>
+  );
+}
+
+/** One-time empty-state SuperAdmin create — does not auto-login. */
+export function SetupSuperAdminPage() {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const { user, business } = useSession();
+  const { pushToast } = useUi();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    void needsFirstSuperAdmin().then(setAllowed);
+  }, []);
+
+  if (user && business) {
+    return <Navigate to={`/${portalFor(business.type)}`} replace />;
+  }
+
+  if (allowed === false) {
+    return (
+      <AuthShell>
+        <h1 className="auth-brand">DigiSwasthya</h1>
+        <p className="auth-sub">A platform admin already exists. Sign in with your SuperAdmin or SupportManager account.</p>
+        <Link to="/auth/login" style={{ textAlign: 'center', fontSize: 13, fontWeight: 600 }}>
+          Back to sign in
+        </Link>
+      </AuthShell>
+    );
+  }
+
+  if (allowed === null) {
+    return (
+      <AuthShell>
+        <h1 className="auth-brand">DigiSwasthya</h1>
+        <p className="auth-sub">Checking workspace…</p>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell>
+      <h1 className="auth-brand">DigiSwasthya</h1>
+      <p className="auth-sub">
+        Create the first SuperAdmin for this empty workspace. You will sign in afterward — this step does not open a
+        session.
+      </p>
+      <form
+        className="stack"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (password !== confirm) {
+            pushToast({ tone: 'error', title: 'Passwords do not match' });
+            return;
+          }
+          setBusy(true);
+          const res = await createFirstSuperAdmin({ name, email, phone, password });
+          setBusy(false);
+          if (!res.ok) {
+            pushToast({ tone: 'error', title: res.message, message: res.businessImpact });
+            if (res.code === 'AUTH_PLATFORM_EXISTS') setAllowed(false);
+            return;
+          }
+          pushToast({
+            tone: 'success',
+            title: 'SuperAdmin created',
+            message: 'Sign in with the email and password you just set.',
+          });
+          navigate('/auth/login', { replace: true });
+        }}
+      >
+        <Field label="Full name" htmlFor="setup-name">
+          <Input id="setup-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+        </Field>
+        <Field label="Email" htmlFor="setup-email">
+          <Input id="setup-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
+        </Field>
+        <Field label="Mobile phone" htmlFor="setup-phone">
+          <Input id="setup-phone" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
+        </Field>
+        <Field label="Password" htmlFor="setup-password" hint="Min 6 characters">
+          <Input
+            id="setup-password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+        </Field>
+        <Field label="Confirm password" htmlFor="setup-confirm">
+          <Input
+            id="setup-confirm"
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+          />
+        </Field>
+        <Button type="submit" disabled={busy}>
+          {busy ? 'Creating…' : 'Create SuperAdmin'}
+        </Button>
+        <Link to="/auth/login" style={{ textAlign: 'center', fontSize: 13, fontWeight: 600 }}>
+          Back to sign in
+        </Link>
+      </form>
     </AuthShell>
   );
 }

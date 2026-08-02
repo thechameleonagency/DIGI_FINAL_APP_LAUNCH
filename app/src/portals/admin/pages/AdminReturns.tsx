@@ -36,8 +36,8 @@ export function AdminReturns() {
         pharmacyName: nameOf(r.pharmacyId),
         stockistName: nameOf(r.stockistId),
         orderNo: orders.find((o) => o.id === r.orderId)?.orderNo ?? r.orderId.slice(0, 8),
-        lineQty: r.lines.reduce((s, l) => s + l.qty, 0),
-        lineValue: r.lines.reduce((s, l) => s + l.qty * l.unitPrice, 0),
+        lineQty: r.lines.reduce((s, l) => s + (l.approvedQty ?? l.qty), 0),
+        lineValue: r.lines.reduce((s, l) => s + (l.approvedQty ?? l.qty) * l.unitPrice, 0),
       }));
   }, [returns, businesses, orders, from, to]);
 

@@ -1,5 +1,6 @@
 import { differenceInCalendarDays, parseISO } from 'date-fns';
 import type { Batch, Invoice, OrderLine, Payment, CreditNote } from '../entities/types';
+import { localDayKey } from '../utils/dateKeys';
 import { roundMoney } from '../utils/money';
 
 export interface LineCalcInput {
@@ -60,7 +61,8 @@ export function deriveInvoiceStatus(
 
 export function availableQty(batch: Pick<Batch, 'onHand' | 'reserved' | 'status' | 'expiryDate'>, today = new Date()): number {
   if (batch.status !== 'Available') return 0;
-  if (parseISO(batch.expiryDate) <= today) return 0;
+  // Local calendar day — not sellable on/after expiry (aligns with expiryRiskBand).
+  if (batch.expiryDate.slice(0, 10) <= localDayKey(today)) return 0;
   return Math.max(0, batch.onHand - batch.reserved);
 }
 

@@ -58,9 +58,9 @@ function packedOrder(id: string, orderNo: string, invoiceId?: string): Order {
 describe('bulkIssueInvoices (CF-16)', () => {
   beforeEach(async () => {
     await clearDb();
-    const ph = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    const ph = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Stockist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: ph.id });
-    const st = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Owner' });
+    const st = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: st.id });
     const ts = new Date().toISOString();
     await db.connections.add({

@@ -17,36 +17,35 @@ function slidesFor(role: User['role'], bizType: Business['type']): Slide[] {
       { title: 'Audit & settings', body: 'Export audit logs and tune SLA hours under Settings (SuperAdmin).' },
     ];
   }
+  if (role === 'DeliveryStaff') {
+    if (bizType === 'Pharmacy') {
+      return [
+        { title: 'Customer deliveries', body: 'Open Delivery to see routes and stops assigned to you.' },
+        { title: 'Update stops', body: 'Mark stops Out for delivery / Delivered / Failed with notes when needed.' },
+        { title: 'No trade access', body: 'Orders, payments, and catalogue stay with the Pharmacist account.' },
+        { title: 'Ask for help', body: 'Use Support if a stop fails or an address needs clarification.' },
+      ];
+    }
+    return [
+      { title: 'Your deliveries', body: 'Open Delivery to see Assigned and Out-for-delivery B2B work only.' },
+      { title: 'Update status', body: 'Mark Out for delivery / Delivered / Failed with POD when required.' },
+      { title: 'No finance access', body: 'Payments and catalogues stay with the Stockist account.' },
+      { title: 'Ask for help', body: 'Use Support if a stop fails or an address needs clarification.' },
+    ];
+  }
   if (bizType === 'Pharmacy') {
     return [
       { title: 'Connect to stockists', body: 'Find approved stockists and request Active connections before you can see prices.' },
       { title: 'Buy & order', body: 'Browse catalogues, build a cart, and place orders — GRN when goods arrive.' },
       { title: 'Pay & returns', body: 'Submit payment proofs against invoices; raise returns with evidence when needed.' },
-      { title: 'Team & support', body: 'Invite staff with roles, mute notification categories, and raise Support tickets.' },
-    ];
-  }
-  // Stockist
-  if (role === 'DeliveryBoy') {
-    return [
-      { title: 'Your deliveries', body: 'Open Delivery to see Assigned and Out-for-delivery work only.' },
-      { title: 'Update status', body: 'Mark Out for delivery / Delivered / Failed with POD when required.' },
-      { title: 'No finance access', body: 'Payments and catalogues stay with Owner / Manager / Accountant roles.' },
-      { title: 'Ask for help', body: 'Use Support if a stop fails or an address needs clarification.' },
-    ];
-  }
-  if (role === 'Accountant') {
-    return [
-      { title: 'Collections', body: 'Review Submitted payments and approve or hold with a reason.' },
-      { title: 'Credit notes', body: 'Issue and apply credit notes after return decisions.' },
-      { title: 'Receivables', body: 'Watch overdue invoices on Home and Payments.' },
-      { title: 'Support', body: 'Raise tickets for remittance disputes; chat never approves money.' },
+      { title: 'Team & delivery', body: 'Invite DeliveryStaff for customer home-delivery and mute notification categories as needed.' },
     ];
   }
   return [
     { title: 'Catalogue & stock', body: 'Add products, receive stock batches, and keep the catalogue Active for pharmacies.' },
     { title: 'Fulfil orders', body: 'Accept → allocate → pack → invoice → dispatch → deliver in the Orders flow.' },
     { title: 'Pharmacies & money', body: 'Approve connection requests; review payments and returns from your queues.' },
-    { title: 'Team', body: 'Invite Manager, Accountant, DeliveryBoy staff and set permission overrides when needed.' },
+    { title: 'Team', body: 'Invite DeliveryStaff for B2B pharmacy deliveries and set permission overrides when needed.' },
   ];
 }
 

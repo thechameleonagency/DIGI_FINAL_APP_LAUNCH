@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Business, OperationalRole, User } from '../domain/entities/types';
-import { portalFor, type Action, can } from '../domain/permissions';
+import { portalFor, type Action, can, normalizeRoleForBusiness } from '../domain/permissions';
 import type { ImpersonationSession } from '../services/impersonationService';
 
 /** Demo session TTL (docs/9 A7) — 8 hours from issuedAt. */
@@ -14,7 +14,7 @@ export interface SessionState {
   business: Business | null;
   hydrated: boolean;
   impersonation: ImpersonationSession | null;
-  /** CF-34: UI-only role preview (Owner); services still use real Owner role */
+  /** CF-34: UI-only role preview (primary account); services still use real role */
   rolePreview: OperationalRole | null;
   setSession: (user: User, business: Business) => void;
   clearSession: () => void;
@@ -272,7 +272,7 @@ export const useSession = create<SessionState>((set, get) => ({
     if (!user || !business) return false;
     return can(action, {
       businessType: business.type,
-      role: rolePreview ?? user.role,
+      role: normalizeRoleForBusiness(rolePreview ?? user.role, business.type),
       accountStatus: business.accountStatus,
       verificationStatus: business.verificationStatus,
       overrides: rolePreview ? undefined : user.permissionOverrides,

@@ -134,6 +134,14 @@ export function AdminVerifications() {
   };
 
   if (id) {
+    if (verificationsLoading) {
+      return (
+        <div className="stack">
+          <PageHeader title="Verification detail" />
+          <p className="muted">Loading verification…</p>
+        </div>
+      );
+    }
     if (!detail || !detailBiz) {
       return (
         <div className="stack">

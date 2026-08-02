@@ -40,8 +40,18 @@ export const HELP_FAQS: FaqItem[] = [
   },
   {
     q: 'How do I invite staff?',
-    a: 'Owners and Managers use Staff to invite by phone/email with a role. Invitees accept via the invite link and set a password.',
+    a: 'The Pharmacist or Stockist primary account uses Staff to invite DeliveryStaff by phone/email. Invitees accept via the invite link and set a password. Platform SuperAdmin/SupportManager invite SupportManager only (first SuperAdmin is created at empty-boot setup).',
+    audiences: ['pharmacy', 'stockist', 'admin'],
+  },
+  {
+    q: 'Can DeliveryStaff open Support tickets?',
+    a: 'Yes. DeliveryStaff keep Support as a help channel for delivery issues (failed stops, address problems). They do not receive general trade notifications and cannot use partner Messages — only Support tickets and delivery-targeted alerts (for example assignment).',
     audiences: ['pharmacy', 'stockist'],
+  },
+  {
+    q: 'What can SupportManager do vs SuperAdmin?',
+    a: 'SupportManager can review verifications, manage support tickets, announcements, staff invites, and audits. Only SuperAdmin can change platform Settings, plans, or view-as a workspace.',
+    audiences: ['admin'],
   },
   {
     q: 'What should I do if a batch looks counterfeit?',

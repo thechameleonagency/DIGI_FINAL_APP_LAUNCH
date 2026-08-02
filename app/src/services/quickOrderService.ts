@@ -240,6 +240,15 @@ export async function resolveQuickOrder(params: {
 }): Promise<Result<{ matched: MatchedQuickLine[]; unmatched: UnmatchedQuickLine[]; parsedCount: number }>> {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Quick Order was not parsed.');
+  const platform = await db.platformSettings.get('platform');
+  if (platform?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'QUICK_MAINTENANCE',
+      'Platform maintenance is on — Quick Order is paused. Try again after the banner clears.',
+      'Quick Order was not parsed.',
+    );
+  }
   const parsed = parseQuickOrderText(params.text);
   if (!parsed.length) {
     return fail('Validation', 'QUICK_EMPTY', 'Paste at least one product line.', 'Quick Order was not parsed.');
@@ -256,6 +265,15 @@ export async function confirmQuickOrder(params: {
 }): Promise<Result<{ added: number; skipped: string[] }>> {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Cart was not updated.');
+  const platform = await db.platformSettings.get('platform');
+  if (platform?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'QUICK_MAINTENANCE',
+      'Platform maintenance is on — Quick Order is paused. Try again after the banner clears.',
+      'Cart was not updated.',
+    );
+  }
   if (!params.lines.length) {
     return fail('Validation', 'QUICK_NONE', 'No matched lines to add.', 'Cart was not updated.');
   }

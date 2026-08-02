@@ -5,6 +5,7 @@ import { db } from '../../../data/db';
 import { expiryRiskBand } from '../../../domain/calc';
 import type { PharmacyInventoryItem } from '../../../domain/entities/types';
 import { stockAdjust } from '../../../services/inventoryService';
+import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { Button, EmptyState, Field, Input, Kpi, Modal, PageHeader, StatusBadge, Tabs } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
@@ -12,6 +13,7 @@ import { useBiz } from './useBiz';
 export function PharmacyExpiry() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const canAdjust = useCan('inventory.adjust');
   const items = useLiveQuery(() => db.pharmacyInventory.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const [band, setBand] = useState<'All' | 'Expired' | 'Critical' | 'Near' | 'Healthy'>('All');
   const [adjustItem, setAdjustItem] = useState<PharmacyInventoryItem | null>(null);
@@ -100,14 +102,16 @@ export function PharmacyExpiry() {
                   </td>
                   <td>
                     <div className="row">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={i.onHand <= 0}
-                        onClick={() => openWriteOff(i, bandName)}
-                      >
-                        Write off
-                      </Button>
+                      {canAdjust ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={i.onHand <= 0}
+                          onClick={() => openWriteOff(i, bandName)}
+                        >
+                          Write off
+                        </Button>
+                      ) : null}
                       <Link className="btn btn-ghost btn-sm" to="/pharmacy/returns">
                         Mark return
                       </Link>

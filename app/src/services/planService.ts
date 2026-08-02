@@ -76,7 +76,7 @@ function normalizeUtr(raw: string): string {
 
 async function notifyPlatformAdmins(code: string, vars: Record<string, string>, entityId: string) {
   const admins = await db.users
-    .filter((u) => ['Admin', 'SuperAdmin'].includes(u.role) && u.status === 'Active')
+    .filter((u) => ['SuperAdmin', 'SupportManager'].includes(u.role) && u.status === 'Active')
     .toArray();
   for (const a of admins) {
     await emitNotification({
@@ -97,8 +97,8 @@ export async function submitUpgradeRequest(params: {
   utr: string;
   proofFileId?: string;
 }): Promise<Result<UpgradeRequest>> {
-  if (params.actor.role !== 'Owner') {
-    return fail('Permission', 'UPG_OWNER', 'Only the business Owner can request Premium.', 'Request was not submitted.');
+  if (params.actor.role !== 'Pharmacist' && params.actor.role !== 'Stockist') {
+    return fail('Permission', 'UPG_OWNER', 'Only the primary business account can request Premium.', 'Request was not submitted.');
   }
   const perm = assertCan(params.actor, params.business, 'read.own');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Request was not submitted.');
@@ -160,11 +160,8 @@ export async function decideUpgradeRequest(params: {
   decision: 'Approved' | 'Rejected';
   reason?: string;
 }): Promise<Result<UpgradeRequest & { duplicateUtr?: boolean }>> {
-  const perm = assertCan(params.actor, params.platform, 'read.platform');
+  const perm = assertCan(params.actor, params.platform, 'plan.manage');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Decision was not saved.');
-  if (!['Admin', 'SuperAdmin'].includes(params.actor.role)) {
-    return fail('Permission', 'UPG_ROLE', 'Only Admin or SuperAdmin can decide upgrades.', 'Decision was not saved.');
-  }
   const row = await db.upgradeRequests.get(params.id);
   if (!row) return fail('NotFound', 'UPG_MISSING', 'Request not found.', 'Decision was not saved.');
   if (row.status !== 'Submitted') {
@@ -219,11 +216,8 @@ export async function revokePremium(params: {
   businessId: string;
   reason: string;
 }): Promise<Result<Business>> {
-  const perm = assertCan(params.actor, params.platform, 'read.platform');
+  const perm = assertCan(params.actor, params.platform, 'plan.manage');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Premium was not revoked.');
-  if (!['Admin', 'SuperAdmin'].includes(params.actor.role)) {
-    return fail('Permission', 'UPG_ROLE', 'Only Admin or SuperAdmin can revoke Premium.', 'Premium was not revoked.');
-  }
   if (!params.reason.trim()) {
     return fail('Validation', 'UPG_REASON', 'Revocation reason is required.', 'Premium was not revoked.');
   }

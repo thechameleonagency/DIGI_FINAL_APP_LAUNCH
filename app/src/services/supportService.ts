@@ -2,11 +2,13 @@ import type { Business, Message, MessageThread, SupportTicket, User } from '../d
 import { availableQty, lowStock } from '../domain/calc';
 import { fail, ok, type Result } from '../domain/errors/types';
 import { machines } from '../domain/machines/transitions';
+import { normalizeRoleForBusiness } from '../domain/permissions';
 import { hydrateCounters } from '../data/counters';
 import { SEED_VERSION } from '../data/seed';
 import { formatINR } from '../domain/utils/money';
 import { newId, nextNumber } from '../domain/utils/ids';
 import { db } from '../data/db';
+import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { hasNotification } from './notificationService';
 import { emitNotification, notifyBusinessUsers } from './notifications';
@@ -46,7 +48,7 @@ export async function createTicket(params: {
     updatedAt: ts,
   };
   await db.supportTickets.add(ticket);
-  const admins = await db.users.filter((u) => ['Admin', 'SuperAdmin', 'SupportAgent'].includes(u.role)).toArray();
+  const admins = await db.users.filter((u) => ['SuperAdmin', 'SupportManager'].includes(u.role)).toArray();
   for (const a of admins) {
     await notifyBusinessUsers(a.businessId, 'N-043', { ticketNo: ticket.ticketNo, subject: ticket.subject }, {
       type: 'SupportTicket',
@@ -103,6 +105,21 @@ export async function updateTicket(params: {
     updatedAt: ts,
   });
   await notifyBusinessUsers(ticket.businessId, 'N-044', { ticketNo: ticket.ticketNo }, { type: 'SupportTicket', id: ticket.id });
+  // DeliveryStaff are excluded from general fan-out; still notify the ticket creator (help-channel intent).
+  const creator = await db.users.get(ticket.createdBy);
+  if (creator && creator.status === 'Active') {
+    const biz = await db.businesses.get(ticket.businessId);
+    if (biz && normalizeRoleForBusiness(creator.role, biz.type) === 'DeliveryStaff') {
+      await emitNotification({
+        userId: creator.id,
+        businessId: ticket.businessId,
+        code: 'N-044',
+        vars: { ticketNo: ticket.ticketNo },
+        entityType: 'SupportTicket',
+        entityId: ticket.id,
+      });
+    }
+  }
   if (nextAssignee && nextAssignee !== ticket.assigneeId) {
     await emitNotification({
       userId: nextAssignee,
@@ -126,6 +143,14 @@ export async function ensureMessageThread(params: {
 }): Promise<Result<MessageThread>> {
   const perm = assertCan(params.actor, params.business, 'read.own');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Thread was not opened.');
+  if (normalizeRoleForBusiness(params.actor.role, params.business.type) === 'DeliveryStaff') {
+    return fail(
+      'Permission',
+      'MSG_DELIVERY',
+      'Delivery staff use Support tickets for help, not partner messages.',
+      'Thread was not opened.',
+    );
+  }
   const existing = (await db.messageThreads.toArray()).find((t) => {
     const ids = t.participantBusinessIds;
     if (!ids.includes(params.business.id) || !ids.includes(params.counterpartBusinessId)) return false;
@@ -160,6 +185,14 @@ export async function sendMessage(params: {
 }): Promise<Result<{ thread: MessageThread; message: Message }>> {
   const perm = assertCan(params.actor, params.business, 'read.own');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Message was not sent.');
+  if (normalizeRoleForBusiness(params.actor.role, params.business.type) === 'DeliveryStaff') {
+    return fail(
+      'Permission',
+      'MSG_DELIVERY',
+      'Delivery staff use Support tickets for help, not partner messages.',
+      'Message was not sent.',
+    );
+  }
   if (!params.body.trim()) return fail('Validation', 'MSG_EMPTY', 'Message cannot be empty.', 'Message was not sent.');
   const ts = new Date().toISOString();
   let thread = params.threadId ? await db.messageThreads.get(params.threadId) : undefined;
@@ -221,6 +254,9 @@ async function notifyBizDeduped(
 ) {
   let users = await db.users.where('businessId').equals(businessId).filter((u) => u.status === 'Active').toArray();
   if (roles?.length) users = users.filter((u) => roles.includes(u.role));
+  else users = users.filter((u) => {
+    return u.role !== 'DeliveryStaff';
+  });
   for (const u of users) {
     await emitDeduped(u.id, businessId, code, entityId, vars, entityType);
   }
@@ -280,7 +316,7 @@ export async function runPolicyClock(): Promise<void> {
   for (const u of invited) {
     if (u.inviteExpiresAt && new Date(u.inviteExpiresAt) < today) {
       await db.users.update(u.id, { status: 'Removed', updatedAt: today.toISOString() });
-      await notifyBizDeduped(u.businessId, 'N-050', u.id, { email: u.email }, 'User', ['Owner', 'Manager']);
+      await notifyBizDeduped(u.businessId, 'N-050', u.id, { email: u.email }, 'User', ['Pharmacist', 'Stockist']);
     }
   }
 
@@ -318,6 +354,19 @@ export async function runPolicyClock(): Promise<void> {
         expiresAt: cn.expiresAt ?? expiry.toISOString(),
         updatedAt: today.toISOString(),
       });
+      await writeAudit({
+        actorId: 'system',
+        actorName: 'Policy clock',
+        businessId: cn.stockistId,
+        entityType: 'CreditNote',
+        entityId: cn.id,
+        action: 'credit.expire',
+        after: { creditNoteNo: cn.creditNoteNo, status: 'Void', remaining: 0 },
+      });
+      await notifyBusinessUsers(cn.pharmacyId, 'N-317', { creditNoteNo: cn.creditNoteNo }, {
+        type: 'CreditNote',
+        id: cn.id,
+      });
     }
   }
 
@@ -329,7 +378,7 @@ export async function runPolicyClock(): Promise<void> {
   for (const v of pendingVer) {
     const age = today.getTime() - new Date(v.submittedAt ?? v.createdAt).getTime();
     if (age <= verSla) continue;
-    const admins = await db.users.filter((u) => ['Admin', 'SuperAdmin', 'SupportAgent'].includes(u.role) && u.status === 'Active').toArray();
+    const admins = await db.users.filter((u) => ['SuperAdmin', 'SupportManager'].includes(u.role) && u.status === 'Active').toArray();
     for (const a of admins) {
       await emitDeduped(a.id, a.businessId, 'N-048', v.id, { entity: 'verification', detail: v.id.slice(0, 8) }, 'Verification');
     }
@@ -338,14 +387,14 @@ export async function runPolicyClock(): Promise<void> {
   const pendingOrders = await db.orders.filter((o) => o.status === 'Pending').toArray();
   for (const o of pendingOrders) {
     if (today.getTime() - new Date(o.placedAt).getTime() > orderSla) {
-      await notifyBizDeduped(o.stockistId, 'N-048', o.id, { entity: 'order', detail: o.orderNo }, 'Order', ['Owner', 'Manager']);
+      await notifyBizDeduped(o.stockistId, 'N-048', o.id, { entity: 'order', detail: o.orderNo }, 'Order', ['Stockist']);
     }
   }
 
   const pendingPay = await db.payments.filter((p) => ['Submitted', 'UnderReview'].includes(p.status)).toArray();
   for (const p of pendingPay) {
     if (today.getTime() - new Date(p.createdAt).getTime() > paySla) {
-      await notifyBizDeduped(p.stockistId, 'N-048', p.id, { entity: 'payment', detail: p.paymentNo }, 'Payment', ['Owner', 'Accountant']);
+      await notifyBizDeduped(p.stockistId, 'N-048', p.id, { entity: 'payment', detail: p.paymentNo }, 'Payment', ['Stockist']);
     }
   }
 

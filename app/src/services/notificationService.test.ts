@@ -51,7 +51,7 @@ describe('notification fan-out prefs (T-1)', () => {
   });
 
   it('markRead flips Unread → Read', async () => {
-    const user = await makeActor({ id: 'nu1', businessId: 'nb1', role: 'Owner' });
+    const user = await makeActor({ id: 'nu1', businessId: 'nb1', role: 'Stockist' });
     await makeBusiness({ id: 'nb1', type: 'Pharmacy', ownerUserId: user.id });
     await db.notifications.add({
       id: 'n1',
@@ -68,7 +68,7 @@ describe('notification fan-out prefs (T-1)', () => {
   });
 
   it('muted category skips emitNotification', async () => {
-    const user = await makeActor({ id: 'nu2', businessId: 'nb2', role: 'Owner' });
+    const user = await makeActor({ id: 'nu2', businessId: 'nb2', role: 'Stockist' });
     await makeBusiness({ id: 'nb2', type: 'Pharmacy', ownerUserId: user.id });
     await setMutedCategories(user.id, ['Order']);
     await emitNotification({
@@ -83,7 +83,7 @@ describe('notification fan-out prefs (T-1)', () => {
   });
 
   it('hasNotification detects prior code+entity', async () => {
-    const user = await makeActor({ id: 'nu3', businessId: 'nb3', role: 'Owner' });
+    const user = await makeActor({ id: 'nu3', businessId: 'nb3', role: 'Stockist' });
     await db.notifications.add({
       id: 'n3',
       userId: user.id,

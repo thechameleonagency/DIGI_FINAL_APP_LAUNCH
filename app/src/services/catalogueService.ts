@@ -27,6 +27,22 @@ export async function upsertProduct(params: {
 }): Promise<Result<Product>> {
   const perm = assertCan(params.actor, params.stockist, 'catalogue.manage');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Product was not saved.');
+  const name = params.product.name?.trim() ?? '';
+  const sku = params.product.sku?.trim() ?? '';
+  const brand = params.product.brand?.trim() ?? '';
+  const category = params.product.category?.trim() ?? '';
+  const packSize = params.product.packSize?.trim() ?? '';
+  if (!name || !sku) {
+    return fail('Validation', 'PROD_FIELDS', 'Name and SKU are required.', 'Product was not saved.');
+  }
+  if (!brand || !category || !packSize) {
+    return fail(
+      'Validation',
+      'PROD_FIELDS',
+      'Brand, category, and pack size are required.',
+      'Product was not saved.',
+    );
+  }
   if (!(params.product.mrp > 0) || !(params.product.ptr > 0) || !(params.product.gstPercent > 0)) {
     return fail(
       'Validation',
@@ -38,9 +54,23 @@ export async function upsertProduct(params: {
   if (params.product.ptr > params.product.mrp) {
     return fail('Validation', 'PROD_PTR_MRP', 'PTR cannot exceed MRP.', 'Product was not saved.');
   }
+  if (!Number.isInteger(params.product.moq) || params.product.moq < 1) {
+    return fail('Validation', 'PROD_MOQ', 'MOQ must be a whole number of at least 1.', 'Product was not saved.');
+  }
   const cat = await db.catalogues.where('stockistId').equals(params.stockist.id).first();
   if (!cat) return fail('NotFound', 'CAT_MISSING', 'Catalogue not found.', 'Product was not saved.');
   const ts = new Date().toISOString();
+
+  const skuDup = await db.products
+    .where('stockistId')
+    .equals(params.stockist.id)
+    .filter(
+      (p) =>
+        p.sku.toLowerCase() === sku.toLowerCase() &&
+        (!params.productId || p.id !== params.productId),
+    )
+    .first();
+  if (skuDup) return fail('Duplicate', 'PROD_SKU_DUP', 'SKU already exists.', 'Product was not saved.');
 
   if (params.productId) {
     const existing = await db.products.get(params.productId);
@@ -49,6 +79,11 @@ export async function upsertProduct(params: {
     }
     await db.products.update(params.productId, {
       ...params.product,
+      name,
+      sku,
+      brand,
+      category,
+      packSize,
       reorderLevel: params.product.reorderLevel,
       updatedAt: ts,
     });
@@ -59,7 +94,7 @@ export async function upsertProduct(params: {
       entityType: 'Product',
       entityId: params.productId,
       action: 'product.update',
-      after: { sku: params.product.sku, name: params.product.name },
+      after: { sku, name },
     });
     if (params.product.ptr !== existing.ptr || params.product.mrp !== existing.mrp) {
       await db.priceChanges.add({
@@ -78,22 +113,15 @@ export async function upsertProduct(params: {
     return ok((await db.products.get(params.productId))!);
   }
 
-  const skuDup = await db.products
-    .where('stockistId')
-    .equals(params.stockist.id)
-    .filter((p) => p.sku.toLowerCase() === params.product.sku.toLowerCase())
-    .first();
-  if (skuDup) return fail('Duplicate', 'PROD_SKU_DUP', 'SKU already exists.', 'Product was not saved.');
-
   const product: Product = {
     id: newId(),
     stockistId: params.stockist.id,
     catalogueId: cat.id,
-    name: params.product.name,
-    sku: params.product.sku,
-    brand: params.product.brand,
-    category: params.product.category,
-    packSize: params.product.packSize,
+    name,
+    sku,
+    brand,
+    category,
+    packSize,
     mrp: params.product.mrp,
     ptr: params.product.ptr,
     gstPercent: params.product.gstPercent,
@@ -142,12 +170,35 @@ export async function importProductsCsv(params: {
     pricingClass?: 'Generic' | 'Ethical';
   }[];
 }): Promise<Result<{ succeeded: string[]; failed: { sku: string; reason: string }[] }>> {
+  const perm = assertCan(params.actor, params.stockist, 'catalogue.manage');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Import was not run.');
   const succeeded: string[] = [];
   const failed: { sku: string; reason: string }[] = [];
+  const seenSku = new Set<string>();
   for (const row of params.rows) {
-    const res = await upsertProduct({ actor: params.actor, stockist: params.stockist, product: row });
-    if (res.ok) succeeded.push(row.sku);
-    else failed.push({ sku: row.sku, reason: res.message });
+    const skuKey = row.sku.trim().toLowerCase();
+    if (!skuKey) {
+      failed.push({ sku: row.sku || '(blank)', reason: 'SKU is required.' });
+      continue;
+    }
+    if (seenSku.has(skuKey)) {
+      failed.push({ sku: row.sku, reason: 'Duplicate SKU in this CSV file.' });
+      continue;
+    }
+    seenSku.add(skuKey);
+    const existing = await db.products
+      .where('stockistId')
+      .equals(params.stockist.id)
+      .filter((p) => p.sku.toLowerCase() === skuKey)
+      .first();
+    const res = await upsertProduct({
+      actor: params.actor,
+      stockist: params.stockist,
+      product: row,
+      productId: existing?.id,
+    });
+    if (res.ok) succeeded.push(row.sku.trim());
+    else failed.push({ sku: row.sku.trim() || '(blank)', reason: res.message });
   }
   return ok({ succeeded, failed });
 }
@@ -173,6 +224,15 @@ export async function setCartLine(params: {
 }): Promise<Result<true>> {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Cart was not updated.');
+  const platform = await db.platformSettings.get('platform');
+  if (platform?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'CART_MAINTENANCE',
+      'Platform maintenance is on — cart updates are paused. Try again after the banner clears.',
+      'Cart was not updated.',
+    );
+  }
   const conn = await db.connections.where({ pharmacyId: params.pharmacy.id, stockistId: params.stockistId }).first();
   if (!conn || conn.status !== 'Active') {
     return fail('BusinessRule', 'CART_NO_CONN', 'Active connection required to cart products.', 'Cart was not updated.');
@@ -180,6 +240,10 @@ export async function setCartLine(params: {
   const product = await db.products.get(params.productId);
   if (!product || product.stockistId !== params.stockistId || product.status !== 'Active') {
     return fail('NotFound', 'CART_PROD', 'Product not available.', 'Cart was not updated.');
+  }
+  const cat = await db.catalogues.where('stockistId').equals(params.stockistId).first();
+  if (!cat || cat.status !== 'Active') {
+    return fail('BusinessRule', 'CART_CAT', 'Stockist catalogue is not available for ordering.', 'Cart was not updated.');
   }
   if (params.qty > 0 && params.qty < product.moq) {
     return fail('Validation', 'CART_MOQ', `Minimum order quantity is ${product.moq}.`, 'Cart was not updated.');
@@ -361,6 +425,13 @@ export async function toggleWishlist(params: {
     await db.wishlists.delete(existing.id);
     return ok(false);
   }
+  const product = await db.products.get(params.productId);
+  if (!product || product.stockistId !== params.stockistId) {
+    return fail('NotFound', 'WISH_PROD', 'Product not available.', 'Wishlist was not updated.');
+  }
+  if (product.status !== 'Active') {
+    return fail('BusinessRule', 'WISH_INACTIVE', 'Only Active products can be wishlisted.', 'Wishlist was not updated.');
+  }
   await db.wishlists.add({
     id: newId(),
     pharmacyId: params.pharmacy.id,
@@ -440,6 +511,9 @@ export async function bulkUpdatePrices(params: {
   const perm = assertCan(params.actor, params.stockist, "catalogue.manage");
   if (!perm.allow) return fail("Permission", "PERM_DENIED", perm.reason!, "Prices were not updated.");
   if (!params.productIds.length) return fail("Validation", "PRICE_EMPTY", "Select at least one product.", "Prices were not updated.");
+  if (!Number.isFinite(params.value)) {
+    return fail("Validation", "PRICE_VALUE", "Price update value must be a finite number.", "Prices were not updated.");
+  }
   const ts = new Date().toISOString();
   let updated = 0;
   for (const id of params.productIds) {
@@ -452,6 +526,9 @@ export async function bulkUpdatePrices(params: {
       next.ptr = params.mode === "percent" ? Math.round(p.ptr * (1 + params.value / 100) * 100) / 100 : params.value;
     } else {
       next.mrp = params.mode === "percent" ? Math.round(p.mrp * (1 + params.value / 100) * 100) / 100 : params.value;
+    }
+    if (!(next.ptr > 0) || !(next.mrp > 0) || next.ptr > next.mrp) {
+      continue;
     }
     await db.products.update(p.id, { ptr: next.ptr, mrp: next.mrp, updatedAt: ts });
     await db.priceChanges.add({

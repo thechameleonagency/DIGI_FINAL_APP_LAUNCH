@@ -11,11 +11,11 @@ import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
 
-function canManageRoutes(actor: User, pharmacy: Business) {
-  const record = assertCan(actor, pharmacy, 'sale.record');
-  if (record.allow) return record;
-  // DeliveryBoy: view/update assigned route stops only
-  return assertCan(actor, pharmacy, 'sale.view');
+/** Stop status: Pharmacist (sale.record / delivery.update) or DeliveryStaff (delivery.update) on their assigned route. */
+function canUpdateStops(actor: User, pharmacy: Business) {
+  const update = assertCan(actor, pharmacy, 'delivery.update');
+  if (update.allow) return update;
+  return assertCan(actor, pharmacy, 'sale.record');
 }
 
 export async function upsertDeliveryArea(params: {
@@ -237,7 +237,7 @@ export async function updateRouteStopStatus(params: {
   status: Extract<PharmacyRouteStopStatus, 'Delivered' | 'Failed'>;
   failReason?: string;
 }): Promise<Result<PharmacyRoute>> {
-  const perm = canManageRoutes(params.actor, params.pharmacy);
+  const perm = canUpdateStops(params.actor, params.pharmacy);
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Stop was not updated.');
 
   const route = await db.pharmacyRoutes.get(params.routeId);
@@ -245,12 +245,14 @@ export async function updateRouteStopStatus(params: {
     return fail('NotFound', 'ROUTE_MISSING', 'Route not found.', 'Stop was not updated.');
   }
 
-  if (
-    params.actor.role === 'DeliveryBoy' &&
-    route.assigneeUserId &&
-    route.assigneeUserId !== params.actor.id
-  ) {
-    return fail('Permission', 'ROUTE_NOT_YOURS', 'This route is assigned to another rider.', 'Stop was not updated.');
+  // DeliveryStaff: assigned board only — unassigned or other riders' routes are blocked.
+  if (params.actor.role === 'DeliveryStaff' && route.assigneeUserId !== params.actor.id) {
+    return fail(
+      'Permission',
+      'ROUTE_NOT_YOURS',
+      route.assigneeUserId ? 'This route is assigned to another rider.' : 'This route is not assigned to you.',
+      'Stop was not updated.',
+    );
   }
 
   const stop = route.stops.find((s) => s.saleId === params.saleId);

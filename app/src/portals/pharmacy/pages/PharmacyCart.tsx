@@ -181,6 +181,9 @@ export function PharmacyCart() {
   const selectedAddress = addresses.find((a) => a.id === addressId) ?? addresses[0];
   const blocking = lines.some((l) => l.flag === 'Deleted' || l.flag === 'Inactive' || l.flag === 'Disconnected' || l.flag === 'Over max');
   const priceDiffs = lines.filter((l) => l.flag === 'Price changed' && l.product);
+  const maintenanceOn = !!settings?.maintenanceMode;
+  const creditOverLimit =
+    creditLimit != null && Number.isFinite(creditLimit) && outstanding + totals.grandTotal > creditLimit;
 
   const submitOrder = async () => {
     if (!selectedAddress) {
@@ -559,10 +562,15 @@ export function PharmacyCart() {
             <Field label="Notes">
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
             </Field>
+            {maintenanceOn ? (
+              <div className="banner-strip warning" style={{ fontSize: 13 }}>
+                Platform maintenance is on — placing orders is paused until the banner clears.
+              </div>
+            ) : null}
             {creditLimit != null ? (
               <div
                 className={
-                  outstanding + totals.grandTotal > creditLimit ? 'banner-strip warning' : 'banner-strip info'
+                  creditOverLimit ? 'banner-strip warning' : 'banner-strip info'
                 }
                 style={{ fontSize: 13 }}
               >
@@ -570,8 +578,8 @@ export function PharmacyCart() {
                 {creditDays != null ? ` · ${creditDays} days` : ''}: outstanding {formatINR(outstanding)} + this order{' '}
                 {formatINR(totals.grandTotal)} = {formatINR(outstanding + totals.grandTotal)} / limit{' '}
                 {formatINR(creditLimit)}
-                {outstanding + totals.grandTotal > creditLimit
-                  ? ` · ${formatINR(outstanding + totals.grandTotal - creditLimit)} over limit`
+                {creditOverLimit
+                  ? ` · ${formatINR(outstanding + totals.grandTotal - creditLimit)} over limit — place is blocked`
                   : ''}
               </div>
             ) : (
@@ -597,7 +605,7 @@ export function PharmacyCart() {
               </div>
             </div>
             <Button
-              disabled={busy || !selectedAddress || blocking}
+              disabled={busy || !selectedAddress || blocking || creditOverLimit || maintenanceOn}
               onClick={() => {
                 if (priceDiffs.length) {
                   setPriceConfirm(

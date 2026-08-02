@@ -1,6 +1,7 @@
 import type { Batch, BatchStatus, Business, User } from '../domain/entities/types';
 import { fail, ok, type Result } from '../domain/errors/types';
 import { machines } from '../domain/machines/transitions';
+import { localTodayKey } from '../domain/utils/dateKeys';
 import { newId } from '../domain/utils/ids';
 import { db } from '../data/db';
 import { writeAudit } from './audit';
@@ -19,6 +20,12 @@ export async function stockIn(params: {
   const perm = assertCan(params.actor, params.stockist, 'inventory.adjust');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Stock was not added.');
   if (params.qty <= 0) return fail('Validation', 'STOCK_QTY', 'Quantity must be greater than zero.', 'Stock was not added.');
+  if (!params.batchNumber.trim()) {
+    return fail('Validation', 'STOCK_BATCH', 'Batch number is required.', 'Stock was not added.');
+  }
+  if (!params.expiryDate?.trim()) {
+    return fail('Validation', 'STOCK_EXPIRY', 'Expiry date is required.', 'Stock was not added.');
+  }
   const product = await db.products.get(params.productId);
   if (!product || product.stockistId !== params.stockist.id) {
     return fail('NotFound', 'PROD_MISSING', 'Product not found.', 'Stock was not added.');
@@ -32,17 +39,18 @@ export async function stockIn(params: {
   }
   const ts = new Date().toISOString();
   const location = params.location?.trim() || undefined;
+  const expiryDate = params.expiryDate.slice(0, 10);
   const batch: Batch = {
     id: newId(),
     productId: params.productId,
     stockistId: params.stockist.id,
     batchNumber: params.batchNumber.trim(),
-    expiryDate: params.expiryDate,
+    expiryDate,
     onHand: params.qty,
     reserved: 0,
     cost: params.cost,
     location,
-    status: 'Available',
+    status: expiryDate < localTodayKey() ? 'Expired' : 'Available',
     createdAt: ts,
     updatedAt: ts,
   };
@@ -190,11 +198,11 @@ export async function transferStock(params: {
     return fail('NotFound', 'XFER_BATCH', 'Batch not found.', 'Transfer was not recorded.');
   }
   const available = batch.onHand - batch.reserved;
-  if (params.qty > available) {
+  if (params.qty !== available) {
     return fail(
       'BusinessRule',
-      'XFER_OVER',
-      `Cannot transfer more than un-reserved on-hand (${available}).`,
+      'XFER_PARTIAL',
+      `Location transfer moves the whole batch — qty must equal un-reserved on-hand (${available}).`,
       'Transfer was not recorded.',
     );
   }
@@ -276,7 +284,10 @@ export async function stockAdd(params: {
     return fail('Validation', 'STOCK_MRP', 'MRP cannot be negative.', 'Stock was not added.');
   }
   const ts = new Date().toISOString();
-  const existing = await db.pharmacyInventory.where({ pharmacyId: params.pharmacy.id, productId: params.productId }).first();
+  const batchKey = params.batchNumber?.trim().toLowerCase() ?? '';
+  const existing = (
+    await db.pharmacyInventory.where({ pharmacyId: params.pharmacy.id, productId: params.productId }).toArray()
+  ).find((i) => (i.batchNumber?.trim().toLowerCase() ?? '') === batchKey);
   const prev = existing?.onHand ?? 0;
   const mrp = params.mrp != null && Number.isFinite(params.mrp) ? params.mrp : undefined;
   await db.transaction('rw', db.pharmacyInventory, db.inventoryMovements, async () => {

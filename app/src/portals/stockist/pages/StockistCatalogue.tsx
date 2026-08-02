@@ -14,6 +14,7 @@ import {
   setProductStatus,
   upsertProduct,
 } from '../../../services/catalogueService';
+import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
@@ -44,11 +45,12 @@ const emptyForm = {
 };
 
 const CSV_TEMPLATE =
-  'name,sku,brand,category,packSize,mrp,ptr,gstPercent,moq,pricingClass\nDemo Cap,DEMO-CAP,Demo,Capsules,10 Cap,80,55,12,5,Generic\n';
+  'name,sku,brand,category,packSize,mrp,ptr,gstPercent,moq,pricingClass\nExample Cap,EX-CAP-001,ExampleBrand,Capsules,10 Cap,80,55,12,5,Generic\n';
 
 export function StockistCatalogue() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const canManage = useCan('catalogue.manage');
   const [params] = useSearchParams();
   const highlightId = params.get('highlight');
   const { items: products, loading: productsLoading } = useLiveArray(
@@ -61,6 +63,7 @@ export function StockistCatalogue() {
     succeeded: string[];
     failed: { sku: string; reason: string }[];
     skipped: number;
+    skippedDetails: string[];
     headerError?: string;
   } | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -95,18 +98,22 @@ export function StockistCatalogue() {
 
   const columns = useMemo(
     () => [
-      {
-        key: 'pick',
-        label: '',
-        getValue: () => '',
-        render: (p: (typeof products)[0]) => (
-          <input
-            type="checkbox"
-            checked={!!selected[p.id]}
-            onChange={(e) => setSelected((s) => ({ ...s, [p.id]: e.target.checked }))}
-          />
-        ),
-      },
+      ...(canManage
+        ? [
+            {
+              key: 'pick',
+              label: '',
+              getValue: () => '',
+              render: (p: (typeof products)[0]) => (
+                <input
+                  type="checkbox"
+                  checked={!!selected[p.id]}
+                  onChange={(e) => setSelected((s) => ({ ...s, [p.id]: e.target.checked }))}
+                />
+              ),
+            },
+          ]
+        : []),
       { key: 'name', label: 'Name', getValue: (p: (typeof products)[0]) => p.name },
       { key: 'sku', label: 'SKU', getValue: (p: (typeof products)[0]) => p.sku },
       { key: 'category', label: 'Category', getValue: (p: (typeof products)[0]) => p.category },
@@ -128,78 +135,92 @@ export function StockistCatalogue() {
         getValue: (p: (typeof products)[0]) => p.status,
         render: (p: (typeof products)[0]) => <StatusBadge status={p.status} />,
       },
-      {
-        key: 'actions',
-        label: 'Actions',
-        getValue: () => '',
-        render: (p: (typeof products)[0]) => (
-          <div className="row">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setEditId(p.id);
-                setForm({
-                  name: p.name,
-                  sku: p.sku,
-                  brand: p.brand,
-                  category: p.category,
-                  packSize: p.packSize,
-                  mrp: p.mrp,
-                  ptr: p.ptr,
-                  gstPercent: p.gstPercent,
-                  moq: p.moq,
-                  maxQty: p.maxQty,
-                  hsn: p.hsn ?? '',
-                  reorderLevel: p.reorderLevel,
-                  purchaseRate: p.purchaseRate,
-                  manufacturer: p.manufacturer ?? '',
-                  genericName: p.genericName ?? '',
-                  composition: p.composition ?? '',
-                  description: p.description ?? '',
-                  pricingClass: p.pricingClass ?? 'Generic',
-                  rxRequired: !!p.rxRequired,
-                  narcotic: !!p.narcotic,
-                });
-                setProductModalOpen(true);
-              }}
-            >
-              Edit
-            </Button>
-            {p.status === 'Active' ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={async () => {
-                  const res = await setProductStatus({ actor: user, stockist: business, productId: p.id, status: 'Inactive' });
-                  pushToast(res.ok ? { tone: 'info', title: 'Deactivated' } : { tone: 'error', title: res.message });
-                }}
-              >
-                Deactivate
-              </Button>
-            ) : null}
-            {p.status === 'Inactive' || p.status === 'Discontinued' ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={async () => {
-                  const res = await setProductStatus({ actor: user, stockist: business, productId: p.id, status: 'Active' });
-                  pushToast(res.ok ? { tone: 'success', title: 'Reactivated' } : { tone: 'error', title: res.message });
-                }}
-              >
-                Reactivate
-              </Button>
-            ) : null}
-            {p.status !== 'Discontinued' ? (
-              <Button size="sm" variant="danger" onClick={() => setDiscontinueId(p.id)}>
-                Discontinue
-              </Button>
-            ) : null}
-          </div>
-        ),
-      },
+      ...(canManage
+        ? [
+            {
+              key: 'actions',
+              label: 'Actions',
+              getValue: () => '',
+              render: (p: (typeof products)[0]) => (
+                <div className="row">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setEditId(p.id);
+                      setForm({
+                        name: p.name,
+                        sku: p.sku,
+                        brand: p.brand,
+                        category: p.category,
+                        packSize: p.packSize,
+                        mrp: p.mrp,
+                        ptr: p.ptr,
+                        gstPercent: p.gstPercent,
+                        moq: p.moq,
+                        maxQty: p.maxQty,
+                        hsn: p.hsn ?? '',
+                        reorderLevel: p.reorderLevel,
+                        purchaseRate: p.purchaseRate,
+                        manufacturer: p.manufacturer ?? '',
+                        genericName: p.genericName ?? '',
+                        composition: p.composition ?? '',
+                        description: p.description ?? '',
+                        pricingClass: p.pricingClass ?? 'Generic',
+                        rxRequired: !!p.rxRequired,
+                        narcotic: !!p.narcotic,
+                      });
+                      setProductModalOpen(true);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                  {p.status === 'Active' ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={async () => {
+                        const res = await setProductStatus({
+                          actor: user,
+                          stockist: business,
+                          productId: p.id,
+                          status: 'Inactive',
+                        });
+                        pushToast(res.ok ? { tone: 'info', title: 'Deactivated' } : { tone: 'error', title: res.message });
+                      }}
+                    >
+                      Deactivate
+                    </Button>
+                  ) : null}
+                  {p.status === 'Inactive' || p.status === 'Discontinued' ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={async () => {
+                        const res = await setProductStatus({
+                          actor: user,
+                          stockist: business,
+                          productId: p.id,
+                          status: 'Active',
+                        });
+                        pushToast(res.ok ? { tone: 'success', title: 'Reactivated' } : { tone: 'error', title: res.message });
+                      }}
+                    >
+                      Reactivate
+                    </Button>
+                  ) : null}
+                  {p.status !== 'Discontinued' ? (
+                    <Button size="sm" variant="danger" onClick={() => setDiscontinueId(p.id)}>
+                      Discontinue
+                    </Button>
+                  ) : null}
+                </div>
+              ),
+            },
+          ]
+        : []),
     ],
-    [selected, user, business, pushToast],
+    [selected, user, business, pushToast, canManage],
   );
 
   const list = useListControls(products, {
@@ -330,22 +351,26 @@ export function StockistCatalogue() {
         subtitle={`${products.length} products`}
         actions={
           <div className="row">
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditId(undefined);
-                setForm(emptyForm);
-                setProductModalOpen(true);
-              }}
-            >
-              Add product
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setBulkModalOpen(true)}>
-              Bulk price
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setCsvModalOpen(true)}>
-              Import CSV
-            </Button>
+            {canManage ? (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setEditId(undefined);
+                    setForm(emptyForm);
+                    setProductModalOpen(true);
+                  }}
+                >
+                  Add product
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setBulkModalOpen(true)}>
+                  Bulk price
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setCsvModalOpen(true)}>
+                  Import CSV
+                </Button>
+              </>
+            ) : null}
             <Link className="btn btn-secondary btn-sm" to="/stockist/price-history">
               Price history
             </Link>
@@ -367,7 +392,7 @@ export function StockistCatalogue() {
             <a className="btn btn-secondary btn-sm" href={`/catalogue-share/${business.id}`} target="_blank" rel="noreferrer">
               Open share
             </a>
-            {catalogue ? (
+            {canManage && catalogue ? (
               <Select
                 value={catalogue.status}
                 onChange={(e) => {
@@ -386,8 +411,30 @@ export function StockistCatalogue() {
         }
       />
       {!products.length ? (
-        <EmptyState title="No products" description="Add your first SKU or import a CSV template." />
-      ) : null}
+        <EmptyState
+          title="No products"
+          description="Add your first SKU or import a CSV template."
+          action={
+            canManage ? (
+              <div className="row">
+                <Button
+                  onClick={() => {
+                    setEditId(undefined);
+                    setForm(emptyForm);
+                    setProductModalOpen(true);
+                  }}
+                >
+                  Add product
+                </Button>
+                <Button variant="secondary" onClick={() => setCsvModalOpen(true)}>
+                  Import CSV
+                </Button>
+              </div>
+            ) : undefined
+          }
+        />
+      ) : (
+        <>
       <ListToolbar
         query={list.query}
         onQuery={list.setQuery}
@@ -421,6 +468,8 @@ export function StockistCatalogue() {
         activeRowId={highlightId}
       />
       <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        </>
+      )}
 
       <Modal
         open={productModalOpen}
@@ -770,6 +819,7 @@ export function StockistCatalogue() {
                     succeeded: [],
                     failed: [],
                     skipped: 0,
+                    skippedDetails: [],
                     headerError: 'CSV is empty',
                   });
                   pushToast({ tone: 'error', title: 'CSV is empty' });
@@ -779,11 +829,23 @@ export function StockistCatalogue() {
                 const missing = expected.filter((h) => !normalizedHeader.includes(h));
                 if (missing.length) {
                   const msg = `Header missing: ${missing.join(', ')}. Expected name,sku,brand,category,packSize,mrp,ptr,gstPercent,moq[,pricingClass]`;
-                  setImportReport({ succeeded: [], failed: [], skipped: 0, headerError: msg });
+                  setImportReport({ succeeded: [], failed: [], skipped: 0, skippedDetails: [], headerError: msg });
                   pushToast({ tone: 'error', title: 'Invalid CSV header', message: msg });
                   return;
                 }
                 let skipped = 0;
+                const skippedDetails: string[] = [];
+                const col = (name: string) => normalizedHeader.indexOf(name);
+                const iName = col('name');
+                const iSku = col('sku');
+                const iBrand = col('brand');
+                const iCategory = col('category');
+                const iPack = col('packsize');
+                const iMrp = col('mrp');
+                const iPtr = col('ptr');
+                const iGst = col('gstpercent');
+                const iMoq = col('moq');
+                const iClass = col('pricingclass');
                 const rows: {
                   name: string;
                   sku: string;
@@ -797,43 +859,70 @@ export function StockistCatalogue() {
                   pricingClass: 'Generic' | 'Ethical';
                 }[] = [];
                 rawRows.forEach((cols, idx) => {
+                  const rowNo = idx + 2;
                   if (cols.every((c) => !c)) {
                     skipped += 1;
+                    skippedDetails.push(`Row ${rowNo}: empty`);
                     return;
                   }
-                  if (cols.length < 9) {
+                  const mrp = parseNumberInput(cols[iMrp] ?? '');
+                  const ptr = parseNumberInput(cols[iPtr] ?? '');
+                  const gst = parseNumberInput(cols[iGst] ?? '');
+                  const moq = parseNumberInput(cols[iMoq] ?? '');
+                  const name = (cols[iName] ?? '').trim();
+                  const sku = (cols[iSku] ?? '').trim();
+                  const brand = (cols[iBrand] ?? '').trim();
+                  const category = (cols[iCategory] ?? '').trim();
+                  const packSize = (cols[iPack] ?? '').trim();
+                  if (!name || !sku) {
                     skipped += 1;
+                    skippedDetails.push(`Row ${rowNo}: name and SKU required`);
                     return;
                   }
-                  const mrp = parseNumberInput(cols[5]);
-                  const ptr = parseNumberInput(cols[6]);
-                  const gst = parseNumberInput(cols[7]);
-                  const moq = parseNumberInput(cols[8]);
-                  if (
-                    mrp.status !== 'ok' ||
-                    ptr.status !== 'ok' ||
-                    gst.status !== 'ok' ||
-                    moq.status !== 'ok'
-                  ) {
+                  if (!brand || !category || !packSize) {
                     skipped += 1;
+                    skippedDetails.push(`Row ${rowNo}: brand, category, and packSize required`);
+                    return;
+                  }
+                  if (mrp.status !== 'ok' || ptr.status !== 'ok' || gst.status !== 'ok' || moq.status !== 'ok') {
+                    skipped += 1;
+                    skippedDetails.push(`Row ${rowNo}: invalid mrp/ptr/gst/moq`);
+                    return;
+                  }
+                  if (!Number.isInteger(moq.value) || moq.value < 1) {
+                    skipped += 1;
+                    skippedDetails.push(`Row ${rowNo}: MOQ must be a whole number ≥ 1`);
+                    return;
+                  }
+                  if (ptr.value > mrp.value) {
+                    skipped += 1;
+                    skippedDetails.push(`Row ${rowNo}: PTR cannot exceed MRP`);
+                    return;
+                  }
+                  const classRaw = (cols[iClass] ?? '').trim();
+                  const pricingClass =
+                    classRaw === 'Ethical' ? 'Ethical' : classRaw === '' || classRaw === 'Generic' ? 'Generic' : null;
+                  if (pricingClass === null) {
+                    skipped += 1;
+                    skippedDetails.push(`Row ${rowNo}: pricingClass must be Generic or Ethical`);
                     return;
                   }
                   rows.push({
-                    name: cols[0],
-                    sku: cols[1] || `ROW-${idx + 2}`,
-                    brand: cols[2],
-                    category: cols[3],
-                    packSize: cols[4],
+                    name,
+                    sku,
+                    brand,
+                    category,
+                    packSize,
                     mrp: mrp.value,
                     ptr: ptr.value,
                     gstPercent: gst.value,
                     moq: moq.value,
-                    pricingClass: cols[9] === 'Ethical' ? 'Ethical' : 'Generic',
+                    pricingClass,
                   });
                 });
                 const res = await importProductsCsv({ actor: user, stockist: business, rows });
                 if (res.ok) {
-                  setImportReport({ ...res.data, skipped });
+                  setImportReport({ ...res.data, skipped, skippedDetails });
                   pushToast({
                     tone: res.data.failed.length || skipped ? 'warning' : 'success',
                     title: `Import: ${res.data.succeeded.length} ok, ${res.data.failed.length} failed, ${skipped} skipped`,
@@ -884,6 +973,13 @@ export function StockistCatalogue() {
               Failed: {importReport.failed.map((f) => `${f.sku} (${f.reason})`).join('; ') || '—'}
               <br />
               Skipped rows: {importReport.skipped}
+              {importReport.skippedDetails.length ? (
+                <>
+                  <br />
+                  {importReport.skippedDetails.slice(0, 8).join('; ')}
+                  {importReport.skippedDetails.length > 8 ? '…' : ''}
+                </>
+              ) : null}
             </div>
           ) : null}
         </div>

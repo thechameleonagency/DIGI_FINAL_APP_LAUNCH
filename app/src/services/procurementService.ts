@@ -194,7 +194,7 @@ export async function receivePurchaseOrder(params: {
   }[];
   confirmOverReceipt?: boolean;
 }): Promise<Result<PurchaseOrder>> {
-  // Staff may receive via inventory.adjust; owners/managers via po.manage
+  // Stockist may receive via po.manage; inventory.adjust also suffices for receiving staff with overrides
   const poPerm = assertCan(params.actor, params.stockist, 'po.manage');
   const invPerm = assertCan(params.actor, params.stockist, 'inventory.adjust');
   if (!poPerm.allow && !invPerm.allow) {
@@ -213,6 +213,17 @@ export async function receivePurchaseOrder(params: {
 
   const updatedLines = po.lines.map((l) => ({ ...l }));
   const ts = new Date().toISOString();
+  type Prep = {
+    recv: (typeof params.lines)[number];
+    batchId?: string;
+    batchNumber: string;
+    expiry: string;
+    expired: boolean;
+    createNew: boolean;
+  };
+  const prepared: Prep[] = [];
+  /** Staged qty per product within this receipt — prevents split lines bypassing over-receipt. */
+  const stagedByProduct = new Map<string, number>();
 
   for (const recv of params.lines) {
     if (recv.qty <= 0) {
@@ -222,7 +233,8 @@ export async function receivePurchaseOrder(params: {
     if (!line) {
       return fail('Validation', 'PO_RECV_LINE', 'Product is not on this PO.', 'Receipt was not recorded.');
     }
-    const remaining = line.qty - line.receivedQty;
+    const staged = stagedByProduct.get(recv.productId) ?? 0;
+    const remaining = line.qty - line.receivedQty - staged;
     if (recv.qty > remaining && !params.confirmOverReceipt) {
       return fail(
         'BusinessRule',
@@ -231,6 +243,7 @@ export async function receivePurchaseOrder(params: {
         'Receipt was not recorded.',
       );
     }
+    stagedByProduct.set(recv.productId, staged + recv.qty);
     const expiry = recv.expiryDate.slice(0, 10);
     const today = localTodayKey();
     const expired = expiry < today;
@@ -238,13 +251,11 @@ export async function receivePurchaseOrder(params: {
     if (!batchNumber) {
       return fail('Validation', 'PO_BATCH', 'Batch number is required.', 'Receipt was not recorded.');
     }
-
-    let batch = await db.batches
+    const batch = await db.batches
       .where('productId')
       .equals(recv.productId)
       .filter((b) => b.stockistId === params.stockist.id && b.batchNumber.toLowerCase() === batchNumber.toLowerCase())
       .first();
-
     if (batch && batch.expiryDate.slice(0, 10) !== expiry) {
       return fail(
         'BusinessRule',
@@ -253,77 +264,100 @@ export async function receivePurchaseOrder(params: {
         'Receipt was not recorded.',
       );
     }
-
-    if (batch) {
-      const prev = batch.onHand;
-      const status = expired ? 'Expired' : batch.status === 'Expired' ? 'Expired' : 'Available';
-      await db.batches.update(batch.id, {
-        onHand: prev + recv.qty,
-        cost: recv.cost ?? batch.cost,
-        status,
-        updatedAt: ts,
-      });
-      await db.inventoryMovements.add({
-        id: newId(),
-        businessId: params.stockist.id,
-        productId: recv.productId,
-        batchId: batch.id,
-        type: 'StockIn',
-        qty: recv.qty,
-        reason: `PO ${po.poNo} receive`,
-        sourceDocType: 'PO',
-        sourceDocId: po.id,
-        actorId: params.actor.id,
-        prevQty: prev,
-        newQty: prev + recv.qty,
-        at: ts,
-      });
-    } else {
-      const batchId = newId();
-      await db.batches.add({
-        id: batchId,
-        productId: recv.productId,
-        stockistId: params.stockist.id,
-        batchNumber,
-        expiryDate: expiry,
-        onHand: recv.qty,
-        reserved: 0,
-        cost: recv.cost,
-        status: expired ? 'Expired' : 'Available',
-        createdAt: ts,
-        updatedAt: ts,
-      });
-      await db.inventoryMovements.add({
-        id: newId(),
-        businessId: params.stockist.id,
-        productId: recv.productId,
-        batchId,
-        type: 'StockIn',
-        qty: recv.qty,
-        reason: `PO ${po.poNo} receive`,
-        sourceDocType: 'PO',
-        sourceDocId: po.id,
-        actorId: params.actor.id,
-        prevQty: 0,
-        newQty: recv.qty,
-        at: ts,
-      });
+    if (batch && (batch.status === 'Quarantined' || batch.status === 'Recalled')) {
+      return fail(
+        'BusinessRule',
+        'PO_BATCH_STATUS',
+        `Cannot receive into ${batch.status.toLowerCase()} batch ${batch.batchNumber}.`,
+        'Receipt was not recorded.',
+      );
     }
-    line.receivedQty += recv.qty;
+    prepared.push({
+      recv,
+      batchId: batch?.id,
+      batchNumber,
+      expiry,
+      expired,
+      createNew: !batch,
+    });
   }
 
-  const allReceived = updatedLines.every((l) => l.receivedQty >= l.qty);
-  const anyReceived = updatedLines.some((l) => l.receivedQty > 0);
-  const nextStatus: PurchaseOrderStatus = allReceived ? 'Received' : anyReceived ? 'PartiallyReceived' : po.status;
-  const next: PurchaseOrder = {
-    ...po,
-    lines: updatedLines,
-    status: nextStatus,
-    updatedAt: ts,
-    statusHistory: [...po.statusHistory, { from: po.status, to: nextStatus, at: ts, actorId: params.actor.id }],
-  };
-  await db.purchaseOrders.put(next);
-  if (nextStatus === 'Received') {
+  await db.transaction('rw', db.batches, db.inventoryMovements, db.purchaseOrders, async () => {
+    for (const item of prepared) {
+      const { recv, batchNumber, expiry, expired, createNew, batchId } = item;
+      const line = updatedLines.find((l) => l.productId === recv.productId)!;
+      if (!createNew && batchId) {
+        const live = (await db.batches.get(batchId))!;
+        const prev = live.onHand;
+        const status = expired ? 'Expired' : live.status === 'Expired' ? 'Expired' : 'Available';
+        await db.batches.update(live.id, {
+          onHand: prev + recv.qty,
+          cost: recv.cost ?? live.cost,
+          status,
+          updatedAt: ts,
+        });
+        await db.inventoryMovements.add({
+          id: newId(),
+          businessId: params.stockist.id,
+          productId: recv.productId,
+          batchId: live.id,
+          type: 'StockIn',
+          qty: recv.qty,
+          reason: `PO ${po.poNo} receive`,
+          sourceDocType: 'PO',
+          sourceDocId: po.id,
+          actorId: params.actor.id,
+          prevQty: prev,
+          newQty: prev + recv.qty,
+          at: ts,
+        });
+      } else {
+        const newBatchId = newId();
+        await db.batches.add({
+          id: newBatchId,
+          productId: recv.productId,
+          stockistId: params.stockist.id,
+          batchNumber,
+          expiryDate: expiry,
+          onHand: recv.qty,
+          reserved: 0,
+          cost: recv.cost,
+          status: expired ? 'Expired' : 'Available',
+          createdAt: ts,
+          updatedAt: ts,
+        });
+        await db.inventoryMovements.add({
+          id: newId(),
+          businessId: params.stockist.id,
+          productId: recv.productId,
+          batchId: newBatchId,
+          type: 'StockIn',
+          qty: recv.qty,
+          reason: `PO ${po.poNo} receive`,
+          sourceDocType: 'PO',
+          sourceDocId: po.id,
+          actorId: params.actor.id,
+          prevQty: 0,
+          newQty: recv.qty,
+          at: ts,
+        });
+      }
+      line.receivedQty += recv.qty;
+    }
+    const allReceived = updatedLines.every((l) => l.receivedQty >= l.qty);
+    const anyReceived = updatedLines.some((l) => l.receivedQty > 0);
+    const nextStatus: PurchaseOrderStatus = allReceived ? 'Received' : anyReceived ? 'PartiallyReceived' : po.status;
+    await db.purchaseOrders.put({
+      ...po,
+      lines: updatedLines,
+      status: nextStatus,
+      updatedAt: ts,
+      statusHistory: [...po.statusHistory, { from: po.status, to: nextStatus, at: ts, actorId: params.actor.id }],
+    });
+  });
+
+  const next = (await db.purchaseOrders.get(po.id))!;
+  if (next.status === 'Received') {
     await notifyBusinessUsers(params.stockist.id, 'N-308', { poNo: po.poNo }, { type: 'PurchaseOrder', id: po.id });
   }
   await writeAudit({
@@ -333,7 +367,7 @@ export async function receivePurchaseOrder(params: {
     entityType: 'PurchaseOrder',
     entityId: po.id,
     action: 'po.receive',
-    after: { status: nextStatus, poNo: po.poNo },
+    after: { status: next.status, poNo: po.poNo },
   });
   return ok(next);
 }
@@ -405,6 +439,10 @@ export async function createSupplierReturn(params: {
 }): Promise<Result<SupplierReturn>> {
   const perm = assertCan(params.actor, params.stockist, 'supplier.manage');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Return was not created.');
+  const supplier = await db.suppliers.get(params.supplierId);
+  if (!supplier || supplier.stockistId !== params.stockist.id || !supplier.active) {
+    return fail('NotFound', 'SRET_SUP', 'Active supplier required.', 'Return was not created.');
+  }
   if (!params.lines.length) return fail('Validation', 'SRET_LINES', 'Add lines.', 'Return was not created.');
   const lines = [];
   for (const l of params.lines) {
@@ -452,34 +490,66 @@ export async function sendSupplierReturn(params: {
   if (ret.status !== 'Draft') {
     return fail('StateConflict', 'SRET_STATE', 'Only Draft returns can be sent.', 'Return was not sent.');
   }
-  const ts = new Date().toISOString();
+
+  // Pre-validate all lines so we never partially decrement on failure.
+  type Deduct = { batchId: string; productId: string; qty: number; reason: string; prev: number; batchNumber: string };
+  const plan: Deduct[] = [];
   for (const line of ret.lines) {
     const batch = await db.batches.get(line.batchId);
-    if (!batch) continue;
+    if (!batch || batch.stockistId !== params.stockist.id) {
+      return fail('NotFound', 'SRET_BATCH', 'Batch not found.', 'Return was not sent.');
+    }
     const available = batch.onHand - batch.reserved;
     if (line.qty > available) {
       return fail('BusinessRule', 'SRET_QTY', `Insufficient stock for batch ${batch.batchNumber}.`, 'Return was not sent.');
     }
-    const prev = batch.onHand;
-    await db.batches.update(batch.id, { onHand: prev - line.qty, updatedAt: ts });
-    await db.inventoryMovements.add({
-      id: newId(),
-      businessId: params.stockist.id,
-      productId: batch.productId,
+    plan.push({
       batchId: batch.id,
-      type: 'Adjustment',
-      qty: -line.qty,
-      reason: `Supplier return ${ret.retNo}: ${line.reason}`,
-      sourceDocType: 'SupplierReturn',
-      sourceDocId: ret.id,
-      actorId: params.actor.id,
-      prevQty: prev,
-      newQty: prev - line.qty,
-      at: ts,
+      productId: batch.productId,
+      qty: line.qty,
+      reason: line.reason,
+      prev: batch.onHand,
+      batchNumber: batch.batchNumber,
     });
   }
+
+  const ts = new Date().toISOString();
   const next = { ...ret, status: 'Sent' as const, updatedAt: ts };
-  await db.supplierReturns.put(next);
+  try {
+    await db.transaction('rw', db.batches, db.inventoryMovements, db.supplierReturns, async () => {
+      for (const item of plan) {
+        const live = await db.batches.get(item.batchId);
+        if (!live) throw new Error('SRET_BATCH');
+        const available = live.onHand - live.reserved;
+        if (item.qty > available) throw new Error('SRET_QTY');
+        const prev = live.onHand;
+        await db.batches.update(live.id, { onHand: prev - item.qty, updatedAt: ts });
+        await db.inventoryMovements.add({
+          id: newId(),
+          businessId: params.stockist.id,
+          productId: item.productId,
+          batchId: live.id,
+          type: 'Adjustment',
+          qty: -item.qty,
+          reason: `Supplier return ${ret.retNo}: ${item.reason}`,
+          sourceDocType: 'SupplierReturn',
+          sourceDocId: ret.id,
+          actorId: params.actor.id,
+          prevQty: prev,
+          newQty: prev - item.qty,
+          at: ts,
+        });
+      }
+      await db.supplierReturns.put(next);
+    });
+  } catch {
+    return fail(
+      'Concurrency',
+      'SRET_RACE',
+      'Stock changed while sending return — nothing was decremented.',
+      'Return was not sent.',
+    );
+  }
   return ok(next);
 }
 
@@ -491,6 +561,8 @@ export async function settleSupplierReturn(params: {
 }): Promise<Result<SupplierReturn>> {
   const perm = assertCan(params.actor, params.stockist, 'supplier.manage');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Return was not settled.');
+  const note = params.settledNote.trim();
+  if (!note) return fail('Validation', 'SRET_NOTE', 'Settlement note is required.', 'Return was not settled.');
   const ret = await db.supplierReturns.get(params.id);
   if (!ret || ret.stockistId !== params.stockist.id) {
     return fail('NotFound', 'SRET_MISSING', 'Return not found.', 'Return was not settled.');
@@ -501,7 +573,7 @@ export async function settleSupplierReturn(params: {
   const next = {
     ...ret,
     status: 'Settled' as const,
-    settledNote: params.settledNote.trim(),
+    settledNote: note,
     updatedAt: new Date().toISOString(),
   };
   await db.supplierReturns.put(next);
@@ -517,7 +589,10 @@ export async function listRequiredStock(stockistId: string): Promise<
   for (const p of products) {
     const reorderLevel = p.reorderLevel ?? 0;
     if (reorderLevel <= 0) continue;
-    const onHand = batches.filter((b) => b.productId === p.id).reduce((s, b) => s + Math.max(0, b.onHand - b.reserved), 0);
+    // Available only — quarantined/recalled/expired must not suppress reorder signals.
+    const onHand = batches
+      .filter((b) => b.productId === p.id && b.status === 'Available')
+      .reduce((s, b) => s + Math.max(0, b.onHand - b.reserved), 0);
     if (onHand > reorderLevel) continue;
     out.push({
       productId: p.id,

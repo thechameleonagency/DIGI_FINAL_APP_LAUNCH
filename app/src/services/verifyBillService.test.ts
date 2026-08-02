@@ -7,9 +7,9 @@ import { verifyBillPayload } from './verifyBillService';
 describe('verifyBillPayload (CF-15)', () => {
   beforeEach(async () => {
     await clearDb();
-    const ph = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    const ph = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Stockist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: ph.id, name: 'CarePlus' });
-    const st = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Owner' });
+    const st = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: st.id, name: 'MedRoute' });
     const ts = '2026-01-15T10:00:00.000Z';
     await db.invoices.add({

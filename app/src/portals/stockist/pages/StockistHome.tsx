@@ -36,8 +36,7 @@ export function StockistHome() {
   const batches = useLiveQuery(() => db.batches.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const products = useLiveQuery(() => db.products.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const pharmacies = useLiveQuery(() => db.businesses.where('type').equals('Pharmacy').toArray()) ?? [];
-  const isBoy = user.role === 'DeliveryBoy';
-  const isAccountant = user.role === 'Accountant';
+  const isBoy = user.role === 'DeliveryStaff';
 
   const toPack = orders.filter((o) => o.status === 'Allocated').length;
   const toDispatch = orders.filter((o) => o.status === 'Packed').length;
@@ -131,7 +130,6 @@ export function StockistHome() {
       <div className="card card-pad stack">
         <strong>Today&apos;s work</strong>
         <div className="row gap" style={{ flexWrap: 'wrap' }}>
-          {!isAccountant ? (
             <>
               <Link className="btn btn-secondary btn-sm" to="/stockist/orders?status=Pending">
                 Accept queue
@@ -143,7 +141,6 @@ export function StockistHome() {
                 Dispatch ({toDispatch})
               </Link>
             </>
-          ) : null}
           <Link className="btn btn-secondary btn-sm" to="/stockist/payments">
             Payments ({payments.length})
           </Link>
@@ -165,8 +162,7 @@ export function StockistHome() {
           ) : null}
         </div>
       </div>
-      {!isAccountant ? (
-        <div className="kpi-grid">
+      <div className="kpi-grid">
           <Link className="kpi-link" to="/stockist/orders?status=Allocated">
             <Kpi label="To pack" value={toPack} />
           </Link>
@@ -186,7 +182,6 @@ export function StockistHome() {
             <Kpi label="Returns to review" value={returnsReview} />
           </Link>
         </div>
-      ) : null}
       <div className="kpi-grid">
         <Link className="kpi-link" to="/stockist/payments?status=Overdue">
           <Kpi label="Overdue receivables" value={overdue} sub={formatINR(stockistReceivables(invoices, business.id))} />
@@ -226,8 +221,7 @@ export function StockistHome() {
           </div>
         </div>
       </div>
-      {!isAccountant ? (
-        <div className="card card-pad">
+      <div className="card card-pad">
           <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>Delivery outcomes</h3>
           <div className="row">
             {deliveryStats.map((d) => (
@@ -235,7 +229,6 @@ export function StockistHome() {
             ))}
           </div>
         </div>
-      ) : null}
     </div>
   );
 }

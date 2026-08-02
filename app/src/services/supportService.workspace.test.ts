@@ -63,7 +63,7 @@ describe('workspace export/import (SW-1 / G22)', () => {
   });
 
   it('round-trips v2 trade tables and stamps seedMeta', async () => {
-    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Stockist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: owner.id });
     await db.favourites.add({
       id: 'fav-1',

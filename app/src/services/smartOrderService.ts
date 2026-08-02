@@ -231,11 +231,20 @@ export async function generateSmartOrderSuggestions(params: {
 }): Promise<Result<SmartOrderSuggestionLine[]>> {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Suggestions were not generated.');
+  const platform = await db.platformSettings.get('platform');
+  if (platform?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'SMART_MAINTENANCE',
+      'Platform maintenance is on — Smart Order is paused. Try again after the banner clears.',
+      'Suggestions were not generated.',
+    );
+  }
   if (!params.scopes.length) {
     return fail('Validation', 'SMART_SCOPE', 'Select at least one suggestion scope.', 'Suggestions were not generated.');
   }
 
-  const settings = await db.platformSettings.get('platform');
+  const settings = platform;
   const nearExpiryDays = settings?.expiryNearDays ?? 90;
   const inventory = await db.pharmacyInventory.where('pharmacyId').equals(params.pharmacy.id).toArray();
   const productsById = new Map((await db.products.bulkGet([...new Set(inventory.map((i) => i.productId))])).filter(Boolean).map((p) => [p!.id, p!]));
@@ -296,6 +305,15 @@ export async function completeSmartOrderRun(params: {
 }): Promise<Result<SmartOrderRun>> {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Smart Order was not completed.');
+  const platform = await db.platformSettings.get('platform');
+  if (platform?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'SMART_MAINTENANCE',
+      'Platform maintenance is on — Smart Order is paused. Try again after the banner clears.',
+      'Smart Order was not completed.',
+    );
+  }
 
   const acceptedLines: SmartOrderAcceptedLine[] = [];
   const errors: string[] = [];
@@ -371,6 +389,15 @@ export async function reapplySmartOrderRun(params: {
 }): Promise<Result<{ added: number; skipped: string[] }>> {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Run was not re-applied.');
+  const platform = await db.platformSettings.get('platform');
+  if (platform?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'SMART_MAINTENANCE',
+      'Platform maintenance is on — Smart Order is paused. Try again after the banner clears.',
+      'Run was not re-applied.',
+    );
+  }
   const run = await db.smartOrderRuns.get(params.runId);
   if (!run || run.pharmacyId !== params.pharmacy.id) {
     return fail('NotFound', 'SMART_RUN', 'Smart Order run not found.', 'Run was not re-applied.');

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { RequireAuth, RequirePortal } from './app/guards';
 import { db } from './data/db';
-import { ensureSeeded } from './data/seed';
+import { ensureEmptyWorkspace } from './data/seed';
 import {
   ForgotPasswordPage,
   InviteAcceptPage,
@@ -10,6 +10,7 @@ import {
   PendingVerificationPage,
   RegisterPage,
   RegisterWizardPage,
+  SetupSuperAdminPage,
   SuspendedPage,
 } from './portals/auth/AuthPages';
 import { AdminApp } from './portals/admin/AdminApp';
@@ -76,7 +77,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await ensureSeeded();
+      await ensureEmptyWorkspace();
       const persisted = readPersistedSession();
       if (persisted) {
         if (isSessionExpired(persisted.issuedAt)) {
@@ -221,6 +222,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/auth/login" replace />} />
         <Route path="/auth/login" element={<LoginPage />} />
+        <Route path="/auth/setup" element={<SetupSuperAdminPage />} />
         <Route path="/auth/register" element={<RegisterPage />} />
         <Route path="/auth/register/:type" element={<RegisterWizardPage />} />
         <Route path="/auth/forgot" element={<ForgotPasswordPage />} />

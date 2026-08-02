@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
 import type { Business, OperationalRole, User } from '../../domain/entities/types';
 import type { Action } from '../../domain/permissions';
+import { normalizeRoleForBusiness } from '../../domain/permissions';
 import { verifyPassword } from '../../domain/utils/crypto';
 import { actionLabel } from '../../domain/utils/humanLabels';
 import { inviteStaff } from '../../services/authService';
@@ -21,7 +22,16 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { RolePreviewControls } from './RolePreviewControls';
 import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from './primitives';
 
-const ROLES: OperationalRole[] = ['Owner', 'Manager', 'Staff', 'Accountant', 'DeliveryBoy'];
+function primaryRoleFor(business: Business): OperationalRole {
+  if (business.type === 'Stockist') return 'Stockist';
+  if (business.type === 'Platform') return 'SuperAdmin';
+  return 'Pharmacist';
+}
+
+function isPrimaryUser(user: User, business: Business): boolean {
+  const role = normalizeRoleForBusiness(user.role, business.type);
+  return role === primaryRoleFor(business) || user.id === business.ownerUserId;
+}
 
 const PHARMACY_OVERRIDE_ACTIONS: Action[] = [
   'order.place',
@@ -31,6 +41,7 @@ const PHARMACY_OVERRIDE_ACTIONS: Action[] = [
   'inventory.adjust',
   'connection.request',
   'staff.manage',
+  'delivery.update',
 ];
 const STOCKIST_OVERRIDE_ACTIONS: Action[] = [
   'order.accept',
@@ -42,8 +53,29 @@ const STOCKIST_OVERRIDE_ACTIONS: Action[] = [
   'catalogue.manage',
   'inventory.adjust',
   'delivery.assign',
+  'delivery.update',
   'staff.manage',
 ];
+/** Platform overrides: ops SupportManager may hold; never settings.manage / plan.manage / impersonate. */
+const PLATFORM_OVERRIDE_ACTIONS: Action[] = [
+  'verification.review',
+  'business.suspend',
+  'support.manage',
+  'announcement.manage',
+  'audit.export',
+  'counterfeit.review',
+  'staff.manage',
+];
+
+function demotedRoleLabel(business: Business): string {
+  return business.type === 'Platform' ? 'SupportManager' : 'DeliveryStaff';
+}
+
+function overrideActionsFor(business: Business): Action[] {
+  if (business.type === 'Stockist') return STOCKIST_OVERRIDE_ACTIONS;
+  if (business.type === 'Platform') return PLATFORM_OVERRIDE_ACTIONS;
+  return PHARMACY_OVERRIDE_ACTIONS;
+}
 
 export function StaffManager({
   actor,
@@ -61,13 +93,12 @@ export function StaffManager({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [inviteErrors, setInviteErrors] = useState<{ name?: string; email?: string; phone?: string }>({});
-  const defaultInviteRoles = (
-    business.type === 'Platform'
-      ? (['SupportAgent', 'Admin'] as OperationalRole[])
-      : ROLES.filter((r) => !['Owner', 'SuperAdmin', 'Admin', 'SupportAgent'].includes(r))
+  const defaultInviteRoles: OperationalRole[] =
+    business.type === 'Platform' ? ['SupportManager'] : ['DeliveryStaff'];
+  const inviteRoles = (roleOptions ?? defaultInviteRoles).filter(
+    (r) => r === 'DeliveryStaff' || r === 'SupportManager',
   );
-  const inviteRoles = (roleOptions ?? defaultInviteRoles).filter((r) => r !== 'Owner' && r !== 'SuperAdmin');
-  const [role, setRole] = useState<OperationalRole>(inviteRoles[0] ?? 'Staff');
+  const [role, setRole] = useState<OperationalRole>(inviteRoles[0] ?? 'DeliveryStaff');
   const [overrideUserId, setOverrideUserId] = useState<string | null>(null);
   const [draftOverrides, setDraftOverrides] = useState<Record<string, boolean>>({});
   const [transferTargetId, setTransferTargetId] = useState<string | null>(null);
@@ -80,7 +111,8 @@ export function StaffManager({
     from: OperationalRole;
     to: OperationalRole;
   } | null>(null);
-  const overrideActions = business.type === 'Stockist' ? STOCKIST_OVERRIDE_ACTIONS : PHARMACY_OVERRIDE_ACTIONS;
+  const overrideActions = overrideActionsFor(business);
+  const demotedLabel = demotedRoleLabel(business);
   const overrideTarget = overrideUserId ? staff.find((s) => s.id === overrideUserId) : undefined;
   const transferTarget = transferTargetId ? staff.find((s) => s.id === transferTargetId) : undefined;
   const suspendTarget = suspendTargetId ? staff.find((s) => s.id === suspendTargetId) : undefined;
@@ -117,12 +149,12 @@ export function StaffManager({
           transferTarget ? (
             <>
               <p>
-                You are about to make <strong>{transferTarget.name}</strong> the Owner of{' '}
-                <strong>{business.name}</strong>.
+                You are about to make <strong>{transferTarget.name}</strong> the primary account holder (
+                {primaryRoleFor(business)}) for <strong>{business.name}</strong>.
               </p>
               <p style={{ marginTop: 8 }}>
-                You will become <strong>Manager</strong> and lose Owner admin rights. This cannot be undone
-                without the new owner transferring ownership back.
+                You will become <strong>{demotedLabel}</strong> and lose primary admin rights. This cannot be undone
+                without the new holder transferring ownership back.
               </p>
             </>
           ) : null
@@ -138,7 +170,11 @@ export function StaffManager({
           const res = await transferOwnership({ actor, business, newOwnerUserId: transferTarget.id });
           pushToast(
             res.ok
-              ? { tone: 'success', title: 'Ownership transferred', message: `You are now Manager. ${transferTarget.name} is Owner.` }
+              ? {
+                  tone: 'success',
+                  title: 'Ownership transferred',
+                  message: `You are now ${demotedLabel}. ${transferTarget.name} is ${primaryRoleFor(business)}.`,
+                }
               : { tone: 'error', title: res.message },
           );
           if (res.ok) setTransferTargetId(null);
@@ -308,7 +344,7 @@ export function StaffManager({
                 <tr key={s.id}>
                   <td>{s.name}</td>
                   <td>
-                    {s.role === 'Owner' ? (
+                    {isPrimaryUser(s, business) ? (
                       s.role
                     ) : (
                       <Select
@@ -350,7 +386,7 @@ export function StaffManager({
                   </td>
                   <td>
                     <div className="row" style={{ flexWrap: 'wrap', gap: 4 }}>
-                      {s.status === 'Active' && s.role !== 'Owner' ? (
+                      {s.status === 'Active' && !isPrimaryUser(s, business) ? (
                         <Button size="sm" variant="secondary" onClick={() => setSuspendTargetId(s.id)}>
                           Suspend
                         </Button>
@@ -397,7 +433,7 @@ export function StaffManager({
                           </Button>
                         </>
                       ) : null}
-                      {s.role !== 'Owner' && s.status !== 'Removed' ? (
+                      {!isPrimaryUser(s, business) && s.status !== 'Removed' ? (
                         <details
                           style={{ position: 'relative' }}
                           open={actionsOpenId === s.id}
@@ -433,7 +469,7 @@ export function StaffManager({
                                 Overrides
                               </Button>
                             ) : null}
-                            {actor.role === 'Owner' && s.status === 'Active' ? (
+                            {isPrimaryUser(actor, business) && s.status === 'Active' ? (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -442,7 +478,7 @@ export function StaffManager({
                                   setActionsOpenId(null);
                                 }}
                               >
-                                Make owner
+                                Make primary
                               </Button>
                             ) : null}
                             <Button

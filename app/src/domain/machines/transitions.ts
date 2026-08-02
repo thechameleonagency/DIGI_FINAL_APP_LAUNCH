@@ -47,13 +47,13 @@ const connection: Record<ConnectionStatus, ConnectionStatus[]> = {
 const order: Record<OrderStatus, OrderStatus[]> = {
   Draft: ['Pending', 'Cancelled'],
   Pending: ['Accepted', 'PartiallyAccepted', 'Rejected', 'Cancelled'],
-  Accepted: ['Allocated', 'Cancelled', 'Packed'],
-  PartiallyAccepted: ['Allocated', 'Cancelled', 'Packed'],
+  Accepted: ['Allocated', 'Cancelled'],
+  PartiallyAccepted: ['Allocated', 'Cancelled'],
   Rejected: [],
   Cancelled: [],
   Allocated: ['Packed', 'Cancelled'],
   Packed: ['Dispatched'],
-  Dispatched: ['Delivered', 'PartiallyDelivered'],
+  Dispatched: ['Delivered', 'PartiallyDelivered', 'Packed'],
   PartiallyDelivered: ['Delivered', 'Closed'],
   Delivered: ['Closed'],
   Closed: [],
@@ -61,7 +61,7 @@ const order: Record<OrderStatus, OrderStatus[]> = {
 
 const delivery: Record<DeliveryStatus, DeliveryStatus[]> = {
   Created: ['Assigned', 'Cancelled'],
-  Assigned: ['OutForDelivery', 'Cancelled'],
+  Assigned: ['OutForDelivery', 'Cancelled', 'Created'],
   OutForDelivery: ['Delivered', 'PartiallyDelivered', 'Failed'],
   Delivered: [],
   PartiallyDelivered: ['OutForDelivery', 'Delivered'],

@@ -7,7 +7,7 @@ import { formatINR } from '../../../domain/utils/money';
 import { pluralize } from '../../../domain/utils/pluralize';
 import { getCart, setCartLine, toggleWishlist } from '../../../services/catalogueService';
 import { requestConnection } from '../../../services/connectionService';
-import { setFavourite, sortStockistsFavouritesFirst } from '../../../services/favouriteService';
+import { isFavouritePinned, setFavourite, sortStockistsFavouritesFirst } from '../../../services/favouriteService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useUi } from '../../../store/ui';
 import { AnnouncementStrip } from '../../../ui/components/AnnouncementStrip';
@@ -26,7 +26,7 @@ export function PharmacyBuy() {
   const connections = useLiveQuery(() => db.connections.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const favourites =
     useLiveQuery(() => db.favourites.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
-  const favIds = new Set(favourites.map((f) => f.stockistId));
+  const favIds = new Set(favourites.filter(isFavouritePinned).map((f) => f.stockistId));
   const [stockistQ, setStockistQ] = useState('');
   const [productQ, setProductQ] = useState('');
   const [category, setCategory] = useState('All');
@@ -78,7 +78,7 @@ export function PharmacyBuy() {
         stockists
           .filter((s) => s.verificationStatus === 'Approved')
           .filter((s) => !stockistQ || `${s.name} ${s.city}`.toLowerCase().includes(stockistQ.toLowerCase())),
-        new Set(favourites.map((f) => f.stockistId)),
+        new Set(favourites.filter(isFavouritePinned).map((f) => f.stockistId)),
       ),
     [stockists, stockistQ, favourites],
   );

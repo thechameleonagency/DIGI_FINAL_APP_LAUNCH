@@ -2,12 +2,15 @@ import {
   Activity,
   Building2,
   ClipboardCheck,
+  CreditCard,
   FileText,
   Home,
   AlertTriangle,
   LifeBuoy,
+  Megaphone,
   PackageMinus,
   Settings,
+  Users,
 } from 'lucide-react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequirePermission } from '../../app/guards';
@@ -47,7 +50,10 @@ const nav = [
   { to: '/admin/returns', label: 'Returns', icon: PackageMinus, section: 'Queues', requires: 'read.platform' as const },
   { to: '/admin/support', label: 'Support', icon: LifeBuoy, section: 'Queues', requires: 'support.manage' as const },
   { to: '/admin/network', label: 'Network', icon: Building2, section: 'Governance', requires: 'read.platform' as const },
+  { to: '/admin/plans', label: 'Plans', icon: CreditCard, section: 'Governance', requires: 'read.platform' as const },
   { to: '/admin/counterfeit', label: 'Counterfeit', icon: AlertTriangle, section: 'Governance', requires: 'counterfeit.review' as const },
+  { to: '/admin/announcements', label: 'Announcements', icon: Megaphone, section: 'Content', requires: 'announcement.manage' as const },
+  { to: '/admin/staff', label: 'Staff', icon: Users, section: 'Content', requires: 'staff.manage' as const },
   { to: '/admin/settings', label: 'Settings', icon: Settings, section: 'Content', requires: 'settings.manage' as const },
 ];
 
@@ -56,6 +62,7 @@ const mobileNav = [
   { to: '/admin/verifications', label: 'Verify', icon: ClipboardCheck, requires: 'verification.review' as const },
   { to: '/admin/support', label: 'Support', icon: LifeBuoy, requires: 'support.manage' as const },
   { to: '/admin/network', label: 'Network', icon: Building2, requires: 'read.platform' as const },
+  { to: '/admin/staff', label: 'Staff', icon: Users, requires: 'staff.manage' as const },
   { to: '/admin/settings', label: 'Settings', icon: Settings, requires: 'settings.manage' as const },
 ];
 

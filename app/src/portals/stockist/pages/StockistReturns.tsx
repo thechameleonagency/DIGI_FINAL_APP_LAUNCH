@@ -2,21 +2,26 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
+import { makeIdempotencyKey } from '../../../domain/utils/idempotency';
+import { nextNumberFieldValue } from '../../../domain/utils/validation';
 import { issueCreditNote, recordGoodsReceived, reviewReturn } from '../../../services/paymentService';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
+import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function StockistReturns() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const { busy, run } = useBusyAction();
   const returns = useLiveQuery(() => db.returns.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const orders = useLiveQuery(() => db.orders.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [approvedQtys, setApprovedQtys] = useState<Record<string, number>>({});
   const [disposition, setDisposition] = useState('Restock');
+  const [reviewError, setReviewError] = useState<string | undefined>();
 
   const review = reviewId ? returns.find((r) => r.id === reviewId) : undefined;
   const reviewOrder = review ? orders.find((o) => o.id === review.orderId) : undefined;
@@ -33,48 +38,84 @@ export function StockistReturns() {
         confirmLabel="Reject return"
         onClose={() => setRejectId(null)}
         onConfirm={async (reason) => {
-          const res = await reviewReturn({
-            actor: user,
-            stockist: business,
-            returnId: rejectId!,
-            decision: 'Rejected',
-            reason: reason!,
+          await run(async () => {
+            const res = await reviewReturn({
+              actor: user,
+              stockist: business,
+              returnId: rejectId!,
+              decision: 'Rejected',
+              reason: reason!,
+            });
+            pushToast(res.ok ? { tone: 'info', title: 'Rejected' } : { tone: 'error', title: res.message });
+            setRejectId(null);
           });
-          pushToast(res.ok ? { tone: 'info', title: 'Rejected' } : { tone: 'error', title: res.message });
-          setRejectId(null);
         }}
       />
       <Modal
         open={!!review}
         title={review ? `Review ${review.returnNo}` : 'Review return'}
-        onClose={() => setReviewId(null)}
+        onClose={() => {
+          setReviewId(null);
+          setReviewError(undefined);
+        }}
         footer={
           <div className="row" style={{ justifyContent: 'flex-end' }}>
-            <Button variant="secondary" onClick={() => setReviewId(null)}>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                setReviewId(null);
+                setReviewError(undefined);
+              }}
+            >
               Cancel
             </Button>
             <Button
-              onClick={async () => {
-                const partial = review!.lines.some((l) => (approvedQtys[l.productId] ?? l.qty) < l.qty);
-                const res = await reviewReturn({
-                  actor: user,
-                  stockist: business,
-                  returnId: review!.id,
-                  decision: partial ? 'PartiallyApproved' : 'Approved',
-                  approvedQtys,
-                  disposition,
+              disabled={busy}
+              onClick={() => {
+                void run(async () => {
+                  const lines = review!.lines;
+                  const qtys = Object.fromEntries(
+                    lines.map((l) => {
+                      const raw = approvedQtys[l.productId] ?? l.qty;
+                      const clamped = Math.max(0, Math.min(l.qty, Number.isFinite(raw) ? Math.floor(raw) : 0));
+                      return [l.productId, clamped];
+                    }),
+                  );
+                  const sum = Object.values(qtys).reduce((s, n) => s + n, 0);
+                  if (sum <= 0) {
+                    setReviewError('Approve at least one unit, or reject the return.');
+                    return;
+                  }
+                  setReviewError(undefined);
+                  const partial = lines.some((l) => (qtys[l.productId] ?? l.qty) < l.qty);
+                  const res = await reviewReturn({
+                    actor: user,
+                    stockist: business,
+                    returnId: review!.id,
+                    decision: partial ? 'PartiallyApproved' : 'Approved',
+                    approvedQtys: qtys,
+                    disposition,
+                  });
+                  pushToast(res.ok ? { tone: 'success', title: 'Return decided' } : { tone: 'error', title: res.message });
+                  if (res.ok) {
+                    setReviewId(null);
+                    setReviewError(undefined);
+                  } else {
+                    setReviewError(res.message);
+                  }
                 });
-                pushToast(res.ok ? { tone: 'success', title: 'Return decided' } : { tone: 'error', title: res.message });
-                setReviewId(null);
               }}
             >
-              Approve
+              {busy ? 'Saving…' : 'Approve'}
             </Button>
             <Button
               variant="danger"
+              disabled={busy}
               onClick={() => {
                 const id = review!.id;
                 setReviewId(null);
+                setReviewError(undefined);
                 setRejectId(id);
               }}
             >
@@ -85,6 +126,7 @@ export function StockistReturns() {
       >
         {review ? (
           <div className="stack">
+            {reviewError ? <div className="banner-strip danger">{reviewError}</div> : null}
             <div style={{ fontSize: 13 }}>
               {reviewOrder ? (
                 <div>
@@ -100,7 +142,12 @@ export function StockistReturns() {
                   min={0}
                   max={l.qty}
                   value={approvedQtys[l.productId] ?? l.qty}
-                  onChange={(e) => setApprovedQtys((prev) => ({ ...prev, [l.productId]: Number(e.target.value) }))}
+                  onChange={(e) => {
+                    const next = nextNumberFieldValue(e.target.value, approvedQtys[l.productId] ?? l.qty);
+                    const n = next === '' ? 0 : Math.min(l.qty, Math.max(0, next));
+                    setApprovedQtys((prev) => ({ ...prev, [l.productId]: n }));
+                    setReviewError(undefined);
+                  }}
                 />
               </Field>
             ))}
@@ -144,15 +191,17 @@ export function StockistReturns() {
                 <div className="row">
                   <Button
                     size="sm"
+                    disabled={busy}
                     onClick={() => {
                       setReviewId(r.id);
                       setApprovedQtys(Object.fromEntries(r.lines.map((l) => [l.productId, l.qty])));
                       setDisposition(r.disposition ?? 'Restock');
+                      setReviewError(undefined);
                     }}
                   >
                     Review
                   </Button>
-                  <Button size="sm" variant="danger" onClick={() => setRejectId(r.id)}>
+                  <Button size="sm" variant="danger" disabled={busy} onClick={() => setRejectId(r.id)}>
                     Reject
                   </Button>
                 </div>
@@ -162,18 +211,21 @@ export function StockistReturns() {
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={async () => {
-                      const res = await recordGoodsReceived({
-                        actor: user,
-                        stockist: business,
-                        returnId: r.id,
-                        disposition: (r.disposition as 'Restock' | 'Quarantine' | 'Destroy') || 'Restock',
+                    disabled={busy}
+                    onClick={() => {
+                      void run(async () => {
+                        const res = await recordGoodsReceived({
+                          actor: user,
+                          stockist: business,
+                          returnId: r.id,
+                          disposition: (r.disposition as 'Restock' | 'Quarantine' | 'Destroy') || 'Restock',
+                        });
+                        pushToast(
+                          res.ok
+                            ? { tone: 'success', title: 'Goods received', message: r.disposition ?? 'Restock' }
+                            : { tone: 'error', title: res.message },
+                        );
                       });
-                      pushToast(
-                        res.ok
-                          ? { tone: 'success', title: 'Goods received', message: r.disposition ?? 'Restock' }
-                          : { tone: 'error', title: res.message },
-                      );
                     }}
                   >
                     Record goods received
@@ -181,13 +233,21 @@ export function StockistReturns() {
                   {!r.creditNoteId ? (
                     <Button
                       size="sm"
-                      onClick={async () => {
-                        const res = await issueCreditNote({ actor: user, stockist: business, returnId: r.id });
-                        pushToast(
-                          res.ok
-                            ? { tone: 'success', title: 'Credit note issued', message: res.data.creditNoteNo }
-                            : { tone: 'error', title: res.message },
-                        );
+                      disabled={busy}
+                      onClick={() => {
+                        void run(async () => {
+                          const res = await issueCreditNote({
+                            actor: user,
+                            stockist: business,
+                            returnId: r.id,
+                            idempotencyKey: makeIdempotencyKey(`cn-${r.id}`, user.id),
+                          });
+                          pushToast(
+                            res.ok
+                              ? { tone: 'success', title: 'Credit note issued', message: res.data.creditNoteNo }
+                              : { tone: 'error', title: res.message },
+                          );
+                        });
                       }}
                     >
                       Issue credit note
@@ -198,13 +258,21 @@ export function StockistReturns() {
               {r.status === 'GoodsReceived' && !r.creditNoteId ? (
                 <Button
                   size="sm"
-                  onClick={async () => {
-                    const res = await issueCreditNote({ actor: user, stockist: business, returnId: r.id });
-                    pushToast(
-                      res.ok
-                        ? { tone: 'success', title: 'Credit note issued', message: res.data.creditNoteNo }
-                        : { tone: 'error', title: res.message },
-                    );
+                  disabled={busy}
+                  onClick={() => {
+                    void run(async () => {
+                      const res = await issueCreditNote({
+                        actor: user,
+                        stockist: business,
+                        returnId: r.id,
+                        idempotencyKey: makeIdempotencyKey(`cn-${r.id}`, user.id),
+                      });
+                      pushToast(
+                        res.ok
+                          ? { tone: 'success', title: 'Credit note issued', message: res.data.creditNoteNo }
+                          : { tone: 'error', title: res.message },
+                      );
+                    });
                   }}
                 >
                   Issue credit note

@@ -15,8 +15,10 @@ import { useCan, useSession } from '../../../store/session';
 export function PharmacyHome() {
   const { business } = useBiz();
   const { user } = useSession();
-  const canSale = useCan('sale.view');
+  // sale.record gates POS; sale.view is delivery-context only (DeliveryStaff) and must not open sales.
+  const canSale = useCan('sale.record');
   const canStaff = useCan('staff.manage');
+  const isDeliveryStaff = user?.role === 'DeliveryStaff';
   const charts = chartColors();
   const orders = useLiveQuery(() => db.orders.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const invoices = useLiveQuery(() => db.invoices.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
@@ -74,6 +76,24 @@ export function PharmacyHome() {
       .slice(0, 5)
       .map(([id, total]) => ({ name: stockists.find((s) => s.id === id)?.name ?? id.slice(0, 6), total }));
   }, [orders, stockists]);
+
+  if (isDeliveryStaff) {
+    return (
+      <div className="stack">
+        <PageHeader title="Delivery home" subtitle="Customer home-delivery routes assigned to you" />
+        <BannerStrip placement="Pharmacy Home" />
+        <div className="card card-pad stack">
+          <strong>Your board</strong>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            Update stop status on assigned routes. Sales totals and catalogue stay with the Pharmacist.
+          </p>
+          <Link className="btn btn-primary" to="/pharmacy/delivery">
+            Open delivery board
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="stack">

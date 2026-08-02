@@ -15,10 +15,10 @@ export function alreadyReturnedQty(priorReturns: ReturnRequest[], productId: str
 }
 
 export function eligibleReturnQty(
-  line: { productId: string; qty: number; deliveredQty?: number },
+  line: { productId: string; qty: number; deliveredQty?: number; receivedQty?: number },
   priorReturns: ReturnRequest[],
 ): number {
-  const delivered = line.deliveredQty ?? line.qty;
+  const delivered = line.deliveredQty ?? line.receivedQty ?? line.qty;
   return Math.max(0, delivered - alreadyReturnedQty(priorReturns, line.productId));
 }
 
@@ -100,7 +100,7 @@ export function ReturnLinesForm({
         />
       ) : (
         order.lines.map((l) => {
-          const delivered = l.deliveredQty ?? l.qty;
+          const delivered = l.deliveredQty ?? l.receivedQty ?? l.qty;
           const already = alreadyReturnedQty(priorReturns, l.productId);
           const eligible = Math.max(0, delivered - already);
           if (eligible <= 0) return null;

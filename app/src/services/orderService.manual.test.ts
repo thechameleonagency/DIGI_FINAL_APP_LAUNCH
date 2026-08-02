@@ -6,9 +6,9 @@ import { recordManualOrder } from './orderService';
 describe('recordManualOrder (CF-11)', () => {
   beforeEach(async () => {
     await clearDb();
-    const phOwner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    const phOwner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Stockist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: phOwner.id, name: 'CarePlus' });
-    const stOwner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Owner' });
+    const stOwner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: stOwner.id, name: 'MedRoute' });
     await db.catalogues.put({
       id: 'cat-st',

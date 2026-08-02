@@ -9,7 +9,7 @@ describe('activityLogService (CF-37)', () => {
   });
 
   it('lists only own-business audit rows and filters by action', async () => {
-    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Stockist' });
     const biz = await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: owner.id });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: 'u-st' });
     const ts = '2026-03-10T12:00:00.000Z';
@@ -63,7 +63,7 @@ describe('activityLogService (CF-37)', () => {
   });
 
   it('exports CSV and writes activity.export audit', async () => {
-    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Stockist' });
     const biz = await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: owner.id });
     await db.auditLogs.add({
       id: 'a1',

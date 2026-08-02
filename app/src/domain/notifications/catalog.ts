@@ -88,4 +88,6 @@ export const NOTIFICATION_CATALOG: Record<string, NotificationTemplate> = {
   'N-314': t('N-314', 'Counterfeit report outcome', 'Counterfeit report {reportNo} was {status}.'),
   'N-315': t('N-315', 'Workspace viewed by support', 'Platform support is viewing your workspace. Reason: {reason}'),
   'N-316': t('N-316', 'Delivery scheduled', 'Delivery for order {orderNo} scheduled for {date}.'),
+  'N-317': t('N-317', 'Credit note expired', 'Credit note {creditNoteNo} expired and was voided. Remaining credit removed.'),
+  'N-318': t('N-318', 'Return cancelled', 'Return {returnNo} was cancelled by the pharmacy.'),
 };

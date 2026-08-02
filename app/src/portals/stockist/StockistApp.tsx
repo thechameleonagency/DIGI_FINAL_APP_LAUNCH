@@ -59,8 +59,8 @@ import {
 
 const nav = [
   { to: '/stockist', label: 'Home', icon: Home, end: true, section: 'Trade' },
-  { to: '/stockist/orders', label: 'Orders', icon: ClipboardList, section: 'Trade' },
-  { to: '/stockist/batch-ordering', label: 'Batch plan', icon: Layers, section: 'Trade' },
+  { to: '/stockist/orders', label: 'Orders', icon: ClipboardList, section: 'Trade', requires: 'order.accept' as const },
+  { to: '/stockist/batch-ordering', label: 'Batch plan', icon: Layers, section: 'Trade', requires: 'order.allocate' as const },
   { to: '/stockist/manual-order', label: 'Manual order', icon: PenLine, section: 'Trade', requires: 'order.recordManual' as const },
   { to: '/stockist/pharmacies', label: 'Pharmacies', icon: Building2, section: 'Trade', requires: 'connection.respond' as const },
   { to: '/stockist/catalogue', label: 'Catalogue', icon: ShoppingBag, section: 'Stock', requires: 'catalogue.manage' as const },
@@ -69,14 +69,14 @@ const nav = [
   { to: '/stockist/payments', label: 'Payments', icon: CreditCard, section: 'Money', requires: 'payment.approve' as const },
   { to: '/stockist/returns', label: 'Returns', icon: RotateCcw, section: 'Money', requires: 'return.approve' as const },
   { to: '/stockist/credit-notes', label: 'Credit notes', icon: FileText, section: 'Money', requires: 'credit.issue' as const },
-  { to: '/stockist/analytics', label: 'Analytics', icon: BarChart3, section: 'Workspace' },
-  { to: '/stockist/messages', label: 'Messages', icon: MessageSquare, section: 'Workspace' },
+  { to: '/stockist/analytics', label: 'Analytics', icon: BarChart3, section: 'Workspace', requires: 'order.accept' as const },
+  { to: '/stockist/messages', label: 'Messages', icon: MessageSquare, section: 'Workspace', requires: 'order.accept' as const },
   { to: '/stockist/settings', label: 'More', icon: Settings, section: 'Workspace' },
 ];
 
 const mobileNav = [
   { to: '/stockist', label: 'Home', icon: Home, end: true },
-  { to: '/stockist/orders', label: 'Orders', icon: ClipboardList },
+  { to: '/stockist/orders', label: 'Orders', icon: ClipboardList, requires: 'order.accept' as const },
   { to: '/stockist/delivery', label: 'Delivery', icon: Truck, requires: 'delivery.update' as const },
   { to: '/stockist/payments', label: 'Pay', icon: CreditCard, requires: 'payment.approve' as const },
   { to: '/stockist/settings', label: 'More', icon: Settings },
@@ -87,9 +87,13 @@ export function StockistApp() {
     <Routes>
       <Route element={<AppShell title="Stockist" nav={nav} mobileNav={mobileNav} portal="stockist" />}>
         <Route index element={<StockistHome />} />
-        <Route path="orders" element={<StockistOrders />} />
-        <Route path="orders/:orderNo" element={<StockistOrderDetail />} />
-        <Route path="batch-ordering" element={<StockistBatchOrdering />} />
+        <Route element={<RequirePermission action="order.accept" />}>
+          <Route path="orders" element={<StockistOrders />} />
+          <Route path="orders/:orderNo" element={<StockistOrderDetail />} />
+          <Route path="batch-ordering" element={<StockistBatchOrdering />} />
+          <Route path="analytics" element={<StockistAnalytics />} />
+          <Route path="reports" element={<StockistReports />} />
+        </Route>
         <Route element={<RequirePermission action="order.recordManual" />}>
           <Route path="manual-order" element={<StockistManualOrder />} />
         </Route>
@@ -130,25 +134,27 @@ export function StockistApp() {
         <Route element={<RequirePermission action="credit.issue" />}>
           <Route path="credit-notes" element={<StockistCreditNotes />} />
         </Route>
-        <Route path="analytics" element={<StockistAnalytics />} />
-        <Route path="reports" element={<StockistReports />} />
         <Route path="help" element={<StockistHelp />} />
         <Route path="announcements" element={<AnnouncementsArchivePage audience="Stockist" />} />
-        <Route path="activity" element={<StockistActivity />} />
-        <Route path="upgrade" element={<StockistUpgrade />} />
+        <Route element={<RequirePermission action="staff.manage" />}>
+          <Route path="activity" element={<StockistActivity />} />
+          <Route path="upgrade" element={<StockistUpgrade />} />
+          <Route path="staff" element={<StockistStaff />} />
+        </Route>
         <Route element={<RequirePermission action="counterfeit.report" />}>
           <Route path="counterfeit" element={<StockistCounterfeit />} />
         </Route>
-        <Route element={<RequirePermission action="staff.manage" />}>
-          <Route path="staff" element={<StockistStaff />} />
+        <Route element={<RequirePermission action="order.accept" />}>
+          <Route path="messages" element={<StockistMessages />} />
         </Route>
-        <Route path="messages" element={<StockistMessages />} />
         <Route element={<RequirePermission action="support.manage" />}>
           <Route path="support" element={<StockistSupport />} />
           <Route path="support/:id" element={<StockistSupport />} />
         </Route>
         <Route path="notifications" element={<StockistNotifications />} />
-        <Route path="business" element={<StockistBusiness />} />
+        <Route element={<RequirePermission action="verification.submit" />}>
+          <Route path="business" element={<StockistBusiness />} />
+        </Route>
         <Route path="profile" element={<StockistProfile />} />
         <Route path="settings" element={<StockistSettings />} />
         <Route path="*" element={<NotFoundPage homeTo="/stockist" />} />

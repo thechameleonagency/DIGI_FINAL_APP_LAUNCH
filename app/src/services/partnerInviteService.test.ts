@@ -10,7 +10,7 @@ import {
 describe('partnerInviteService (CF-12)', () => {
   beforeEach(async () => {
     await clearDb();
-    const owner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Owner' });
+    const owner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: owner.id });
   });
 

@@ -3,10 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
-import { submitReturn } from '../../../services/paymentService';
+import { makeIdempotencyKey } from '../../../domain/utils/idempotency';
+import { cancelReturn, submitReturn } from '../../../services/paymentService';
 import { useUi } from '../../../store/ui';
+import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { returnApprovedValue, returnRequestedValue } from '../../../ui/components/ReturnDetail';
 import { ReturnLinesForm, validateReturnLines } from '../../../ui/components/ReturnLinesForm';
+import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { Button, EmptyState, Field, Modal, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -14,6 +18,7 @@ export function PharmacyReturns() {
   const { business, user } = useBiz();
   const navigate = useNavigate();
   const { pushToast } = useUi();
+  const { busy, run } = useBusyAction();
   const { items: returns, loading: returnsLoading } = useLiveArray(
     () => db.returns.where('pharmacyId').equals(business.id).toArray(),
     [business.id],
@@ -31,6 +36,7 @@ export function PharmacyReturns() {
   const [returnFormError, setReturnFormError] = useState<string | undefined>();
   const [orderError, setOrderError] = useState<string | undefined>();
   const [evidenceFileId, setEvidenceFileId] = useState<string | undefined>();
+  const [cancelId, setCancelId] = useState<string | null>(null);
 
   const deliveredOrders = orders.filter((o) => ['Delivered', 'PartiallyDelivered', 'Closed'].includes(o.status));
   const picked = deliveredOrders.find((o) => o.id === orderId);
@@ -45,13 +51,14 @@ export function PharmacyReturns() {
       returns.map((r) => {
         const order = orders.find((o) => o.id === r.orderId);
         const cn = credits.find((c) => c.id === r.creditNoteId || c.returnId === r.id);
-        const value = r.lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
+        const requested = returnRequestedValue(r.lines);
+        const displayValue = cn ? cn.amount : r.lines.some((l) => l.approvedQty != null) ? returnApprovedValue(r.lines) : requested;
         return {
           ...r,
           stockistName: stockists.find((s) => s.id === r.stockistId)?.name ?? r.stockistId.slice(0, 6),
           orderNo: order?.orderNo ?? '—',
           reasons: [...new Set(r.lines.map((l) => l.reason))].join(', '),
-          value,
+          value: displayValue,
           cnNo: cn?.creditNoteNo ?? '—',
         };
       }),
@@ -82,22 +89,44 @@ export function PharmacyReturns() {
         getValue: (r: (typeof rows)[0]) => r.createdAt,
         render: (r: (typeof rows)[0]) => <span className="muted">{new Date(r.createdAt).toLocaleString()}</span>,
       },
+      {
+        key: 'actions',
+        label: '',
+        getValue: () => '',
+        render: (r: (typeof rows)[0]) =>
+          r.status === 'Submitted' ? (
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={busy}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCancelId(r.id);
+              }}
+            >
+              Cancel
+            </Button>
+          ) : null,
+      },
     ],
-    [],
+    [busy],
   );
+
+  const statusOpts = [
+    'Submitted',
+    'UnderReview',
+    'Approved',
+    'PartiallyApproved',
+    'Rejected',
+    'GoodsReceived',
+    'Closed',
+    'Cancelled',
+  ].map((s) => ({ value: s, label: s }));
 
   const list = useListControls(rows, {
     columns,
     searchKeys: [(r) => `${r.returnNo} ${r.stockistName} ${r.status} ${r.reasons} ${r.cnNo}`],
-    filters: [
-      {
-        key: 'status',
-        label: 'Status',
-        options: ['Submitted', 'UnderReview', 'Approved', 'PartiallyApproved', 'Rejected', 'GoodsReceived', 'Closed'].map(
-          (s) => ({ value: s, label: s }),
-        ),
-      },
-    ],
+    filters: [{ key: 'status', label: 'Status', options: statusOpts }],
     defaultSortKey: 'createdAt',
     defaultSortDir: 'desc',
   });
@@ -129,45 +158,70 @@ export function PharmacyReturns() {
           </Button>
         }
       />
+      <ConfirmDialog
+        open={!!cancelId}
+        title="Cancel return"
+        body="Withdraw this return before the stockist reviews it."
+        requireReason
+        tone="danger"
+        confirmLabel="Cancel return"
+        onClose={() => setCancelId(null)}
+        onConfirm={async (reason) => {
+          await run(async () => {
+            const res = await cancelReturn({
+              actor: user,
+              pharmacy: business,
+              returnId: cancelId!,
+              reason,
+            });
+            pushToast(res.ok ? { tone: 'info', title: 'Return cancelled' } : { tone: 'error', title: res.message });
+            setCancelId(null);
+          });
+        }}
+      />
       <Modal
         open={newOpen}
         onClose={() => setNewOpen(false)}
         title="New return"
         footer={
           <Button
-            onClick={async () => {
-              if (!picked) {
-                setOrderError('Pick a delivered order');
-                return;
-              }
-              setOrderError(undefined);
-              const check = validateReturnLines(picked, priorForOrder, returnQty, returnReasons);
-              if (!check.ok) {
-                setReturnFieldErrors(check.fieldErrors);
-                setReturnFormError(Object.keys(check.fieldErrors).length ? undefined : check.message);
-                return;
-              }
-              setReturnFieldErrors({});
-              setReturnFormError(undefined);
-              const res = await submitReturn({
-                actor: user,
-                pharmacy: business,
-                orderId: picked.id,
-                lines: check.lines,
-                evidenceFileIds: evidenceFileId ? [evidenceFileId] : [],
+            disabled={busy}
+            onClick={() => {
+              void run(async () => {
+                if (!picked) {
+                  setOrderError('Pick a delivered order');
+                  return;
+                }
+                setOrderError(undefined);
+                const check = validateReturnLines(picked, priorForOrder, returnQty, returnReasons);
+                if (!check.ok) {
+                  setReturnFieldErrors(check.fieldErrors);
+                  setReturnFormError(Object.keys(check.fieldErrors).length ? undefined : check.message);
+                  return;
+                }
+                setReturnFieldErrors({});
+                setReturnFormError(undefined);
+                const res = await submitReturn({
+                  actor: user,
+                  pharmacy: business,
+                  orderId: picked.id,
+                  lines: check.lines,
+                  evidenceFileIds: evidenceFileId ? [evidenceFileId] : [],
+                  idempotencyKey: makeIdempotencyKey(`ret-${picked.id}`, user.id),
+                });
+                pushToast(
+                  res.ok
+                    ? { tone: 'success', title: 'Return submitted', message: res.data.returnNo }
+                    : { tone: 'error', title: res.message },
+                );
+                if (res.ok) {
+                  setNewOpen(false);
+                  resetForm();
+                }
               });
-              pushToast(
-                res.ok
-                  ? { tone: 'success', title: 'Return submitted', message: res.data.returnNo }
-                  : { tone: 'error', title: res.message },
-              );
-              if (res.ok) {
-                setNewOpen(false);
-                resetForm();
-              }
             }}
           >
-            Submit return
+            {busy ? 'Submitting…' : 'Submit return'}
           </Button>
         }
       >
@@ -247,15 +301,7 @@ export function PharmacyReturns() {
             query={list.query}
             onQuery={list.setQuery}
             placeholder="Search return / stockist / reason / CN"
-            filters={[
-              {
-                key: 'status',
-                label: 'Status',
-                options: ['Submitted', 'UnderReview', 'Approved', 'PartiallyApproved', 'Rejected', 'GoodsReceived', 'Closed'].map(
-                  (s) => ({ value: s, label: s }),
-                ),
-              },
-            ]}
+            filters={[{ key: 'status', label: 'Status', options: statusOpts }]}
             filterValues={list.filterValues}
             onFilter={list.setFilter}
             onExport={() => {

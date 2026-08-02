@@ -42,11 +42,11 @@ export function AdminSuspensions() {
   const list = useListControls(rows, {
     columns,
     searchKeys: [(b) => `${b.name} ${b.city} ${b.gstNumber ?? ''} ${b.suspendReason ?? ''}`],
-    filters: [
+        filters: [
       {
         key: 'accountStatus',
         label: 'Account',
-        options: ['Suspended', 'Active', 'Deactivated'].map((s) => ({ value: s, label: s })),
+        options: ['Suspended', 'Active', 'PendingActivation', 'Deactivated'].map((s) => ({ value: s, label: s })),
       },
     ],
     defaultSortKey: 'name',
@@ -115,7 +115,7 @@ export function AdminSuspensions() {
           {
             key: 'accountStatus',
             label: 'Account',
-            options: ['Suspended', 'Active', 'Deactivated'].map((s) => ({ value: s, label: s })),
+            options: ['Suspended', 'Active', 'PendingActivation', 'Deactivated'].map((s) => ({ value: s, label: s })),
           },
         ]}
         filterValues={list.filterValues}
@@ -124,7 +124,7 @@ export function AdminSuspensions() {
       {!list.pageRows.length ? (
         <EmptyState
           title="No matches"
-          description="Clear the Suspended filter to see Active businesses you can suspend."
+          description="Clear the Suspended filter to see Active or PendingActivation businesses you can suspend."
         />
       ) : (
         <>
@@ -140,7 +140,7 @@ export function AdminSuspensions() {
               </div>
               <div className="row">
                 <StatusBadge status={b.accountStatus} />
-                {b.accountStatus === 'Active' ? (
+                {b.accountStatus === 'Active' || b.accountStatus === 'PendingActivation' ? (
                   <Button size="sm" variant="danger" onClick={() => setSuspendTarget(b)}>
                     Suspend
                   </Button>

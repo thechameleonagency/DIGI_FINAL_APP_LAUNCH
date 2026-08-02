@@ -1,4 +1,4 @@
-import type { Business, CreditNote, Payment, ReturnRequest, User } from '../domain/entities/types';
+import type { Business, CreditNote, Invoice, Payment, ReturnRequest, User } from '../domain/entities/types';
 import {
   applyCredit,
   calcPaymentAllocationValidity,
@@ -16,6 +16,30 @@ import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { notifyBusinessUsers } from './notifications';
 
+const OPEN_PAYMENT_STATUSES: Payment['status'][] = ['Submitted', 'UnderReview', 'OnHold'];
+
+/** Outstanding reduced by amounts already claimed on open (not yet approved) payments. */
+async function effectiveInvoiceOutstanding(inv: Invoice, excludePaymentId?: string): Promise<number> {
+  const base = invoiceOutstanding(inv);
+  const open = await db.payments
+    .where('pharmacyId')
+    .equals(inv.pharmacyId)
+    .filter(
+      (p) =>
+        p.stockistId === inv.stockistId &&
+        OPEN_PAYMENT_STATUSES.includes(p.status) &&
+        p.id !== excludePaymentId,
+    )
+    .toArray();
+  let claimed = 0;
+  for (const p of open) {
+    for (const a of p.allocations) {
+      if (a.invoiceId === inv.id) claimed += a.amount;
+    }
+  }
+  return roundMoney(Math.max(0, base - claimed));
+}
+
 async function creditNoteExpiresAt(issuedAt: string): Promise<string | undefined> {
   const settings = await db.platformSettings.get('platform');
   if (!settings?.creditNoteAutoExpire) return undefined;
@@ -23,6 +47,32 @@ async function creditNoteExpiresAt(issuedAt: string): Promise<string | undefined
   const d = new Date(issuedAt);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString();
+}
+
+async function assertNotMaintenance(actionLabel: string) {
+  const settings = await db.platformSettings.get('platform');
+  if (settings?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'MAINTENANCE',
+      'Platform is in maintenance mode.',
+      `${actionLabel} is paused during maintenance.`,
+    );
+  }
+  return null as null;
+}
+
+/** Anchor for return window: delivery.deliveredAt, else latest Delivered/PartiallyDelivered/Closed history. */
+function returnWindowAnchor(
+  order: { statusHistory: { to: string; at: string }[] },
+  delivery?: { deliveredAt?: string },
+): string | undefined {
+  if (delivery?.deliveredAt) return delivery.deliveredAt;
+  const hits = order.statusHistory.filter((h) =>
+    ['Delivered', 'PartiallyDelivered', 'Closed'].includes(h.to),
+  );
+  if (!hits.length) return undefined;
+  return hits.reduce((latest, h) => (h.at > latest.at ? h : latest)).at;
 }
 
 export async function submitPayment(params: {
@@ -55,6 +105,9 @@ export async function submitPayment(params: {
       'Payment was not submitted.',
     );
   }
+  if (!(params.amount > 0)) {
+    return fail('Validation', 'PAY_AMOUNT', 'Payment amount must be greater than zero.', 'Payment was not submitted.');
+  }
   if (settings?.paymentProofMandatory && !params.proofFileId) {
     return fail('Validation', 'PAY_PROOF', 'Payment proof is mandatory.', 'Payment was not submitted.');
   }
@@ -84,7 +137,7 @@ export async function submitPayment(params: {
     }
     allocWithOut.push({
       amount: a.amount,
-      outstanding: invoiceOutstanding(inv),
+      outstanding: await effectiveInvoiceOutstanding(inv),
       invoiceId: inv.id,
       invoiceNo: inv.invoiceNo,
     });
@@ -131,6 +184,8 @@ export async function withdrawPayment(params: {
   paymentId: string;
   reason?: string;
 }): Promise<Result<Payment>> {
+  const maint = await assertNotMaintenance('Payment withdrawal');
+  if (maint) return maint;
   const perm = assertCan(params.actor, params.pharmacy, 'payment.submit');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Payment was not withdrawn.');
   const payment = await db.payments.get(params.paymentId);
@@ -197,6 +252,11 @@ export async function recordOfflinePayment(params: {
   if (params.stockist.type !== 'Stockist') {
     return fail('BusinessRule', 'PAY_ROLE', 'Only stockists can record offline payments.', 'Payment was not recorded.');
   }
+  const maint = await assertNotMaintenance('Offline payment recording');
+  if (maint) return maint;
+  if (!(params.amount > 0)) {
+    return fail('Validation', 'PAY_AMOUNT', 'Payment amount must be greater than zero.', 'Payment was not recorded.');
+  }
 
   const existing = await db.payments.where('idempotencyKey').equals(params.idempotencyKey).first();
   if (existing) {
@@ -246,7 +306,7 @@ export async function recordOfflinePayment(params: {
     }
     allocWithOut.push({
       amount: a.amount,
-      outstanding: invoiceOutstanding(inv),
+      outstanding: await effectiveInvoiceOutstanding(inv),
       invoiceId: inv.id,
       invoiceNo: inv.invoiceNo,
     });
@@ -307,6 +367,8 @@ export async function reviewPayment(params: {
   /** CF-39: when approving a stockist-recorded payment with surplus, issue Advance CN */
   issueAdvanceCredit?: boolean;
 }): Promise<Result<Payment>> {
+  const maint = await assertNotMaintenance('Payment review');
+  if (maint) return maint;
   const action = params.decision === 'Approved' ? 'payment.approve' : 'payment.reject';
   const perm = assertCan(params.actor, params.stockist, action);
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Payment decision was not saved.');
@@ -336,32 +398,74 @@ export async function reviewPayment(params: {
     }
   }
 
-  await db.payments.update(payment.id, {
-    status: params.decision,
-    reviewedBy: params.actor.id,
-    reviewedAt: ts,
-    rejectReason: params.decision === 'Rejected' ? params.reason : payment.rejectReason,
-    holdReason: params.decision === 'OnHold' ? params.reason : payment.holdReason,
-    updatedAt: ts,
-    statusHistory: [...payment.statusHistory, { from: payment.status, to: params.decision, at: ts, actorId: params.actor.id, reason: params.reason }],
-  });
-
   if (params.decision === 'Approved') {
     for (const a of payment.allocations) {
       const inv = await db.invoices.get(a.invoiceId);
-      if (!inv) continue;
-      const paidAmount = roundMoney(inv.paidAmount + a.amount);
-      const outstanding = invoiceOutstanding({ ...inv, paidAmount });
-      const status = deriveInvoiceStatus({ ...inv, paidAmount });
-      await db.invoices.update(inv.id, {
-        paidAmount,
-        outstanding,
-        status,
-        updatedAt: ts,
-        version: inv.version + 1,
-        statusHistory: [...inv.statusHistory, { from: inv.status, to: status, at: ts, actorId: params.actor.id }],
-      });
+      if (!inv) {
+        return fail(
+          'NotFound',
+          'PAY_INV',
+          'An allocated invoice is missing. Payment was not approved.',
+          'Payment decision was not saved.',
+        );
+      }
+      if (inv.status === 'Void' || inv.status === 'Paid') {
+        return fail(
+          'BusinessRule',
+          'PAY_INV_STATE',
+          `Invoice ${inv.invoiceNo} is not payable.`,
+          'Payment was not approved.',
+        );
+      }
+      const outstanding = await effectiveInvoiceOutstanding(inv, payment.id);
+      if (a.amount > outstanding + 0.005) {
+        return fail(
+          'Validation',
+          'PAY_ALLOC',
+          `Allocation for ${inv.invoiceNo} exceeds outstanding ${outstanding}.`,
+          'Payment was not approved.',
+        );
+      }
     }
+  }
+
+  try {
+    await db.transaction('rw', db.payments, db.invoices, async () => {
+      await db.payments.update(payment.id, {
+        status: params.decision,
+        reviewedBy: params.actor.id,
+        reviewedAt: ts,
+        rejectReason: params.decision === 'Rejected' ? params.reason : payment.rejectReason,
+        holdReason: params.decision === 'OnHold' ? params.reason : payment.holdReason,
+        updatedAt: ts,
+        statusHistory: [
+          ...payment.statusHistory,
+          { from: payment.status, to: params.decision, at: ts, actorId: params.actor.id, reason: params.reason },
+        ],
+      });
+
+      if (params.decision === 'Approved') {
+        for (const a of payment.allocations) {
+          const inv = (await db.invoices.get(a.invoiceId))!;
+          const paidAmount = roundMoney(inv.paidAmount + a.amount);
+          const outstanding = invoiceOutstanding({ ...inv, paidAmount });
+          const status = deriveInvoiceStatus({ ...inv, paidAmount });
+          await db.invoices.update(inv.id, {
+            paidAmount,
+            outstanding,
+            status,
+            updatedAt: ts,
+            version: inv.version + 1,
+            statusHistory: [...inv.statusHistory, { from: inv.status, to: status, at: ts, actorId: params.actor.id }],
+          });
+        }
+      }
+    });
+  } catch (e) {
+    return fail('Integrity', 'PAY_TX', e instanceof Error ? e.message : 'Payment update failed.', 'Payment decision was not saved.');
+  }
+
+  if (params.decision === 'Approved') {
     if (params.issueAdvanceCredit && surplus > 0.005) {
       const adv = await issueAdvanceCreditNote({
         actor: params.actor,
@@ -370,7 +474,6 @@ export async function reviewPayment(params: {
         amount: surplus,
       });
       if (!adv.ok) {
-        // Payment already approved — surface advance failure without rolling back settlement
         await writeAudit({
           actorId: params.actor.id,
           actorName: params.actor.name,
@@ -413,9 +516,16 @@ export async function submitReturn(params: {
   orderId: string;
   lines: { productId: string; qty: number; reason: string; batchNumber?: string }[];
   evidenceFileIds?: string[];
+  idempotencyKey?: string;
 }): Promise<Result<ReturnRequest>> {
+  const maint = await assertNotMaintenance('Return submission');
+  if (maint) return maint;
   const perm = assertCan(params.actor, params.pharmacy, 'return.raise');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Return was not submitted.');
+  if (params.idempotencyKey) {
+    const existing = await db.returns.filter((r) => r.idempotencyKey === params.idempotencyKey).first();
+    if (existing) return ok(existing);
+  }
   const order = await db.orders.get(params.orderId);
   if (!order || order.pharmacyId !== params.pharmacy.id) {
     return fail('NotFound', 'RET_ORD', 'Order not found.', 'Return was not submitted.');
@@ -426,12 +536,19 @@ export async function submitReturn(params: {
 
   const settings = await db.platformSettings.get('platform');
   const delivery = order.deliveryId ? await db.deliveries.get(order.deliveryId) : undefined;
-  if (delivery?.deliveredAt) {
-    const windowDays = settings?.returnWindowDays ?? 7;
-    const elapsed = (Date.now() - new Date(delivery.deliveredAt).getTime()) / 86400000;
-    if (elapsed > windowDays) {
-      return fail('BusinessRule', 'RET_WINDOW', `Return window of ${windowDays} days has expired.`, 'Return was not submitted.');
-    }
+  const anchor = returnWindowAnchor(order, delivery);
+  if (!anchor) {
+    return fail(
+      'BusinessRule',
+      'RET_WINDOW_ANCHOR',
+      'Cannot determine delivery date for return window.',
+      'Return was not submitted.',
+    );
+  }
+  const windowDays = settings?.returnWindowDays ?? 7;
+  const elapsed = (Date.now() - new Date(anchor).getTime()) / 86400000;
+  if (elapsed > windowDays) {
+    return fail('BusinessRule', 'RET_WINDOW', `Return window of ${windowDays} days has expired.`, 'Return was not submitted.');
   }
 
   const priorReturns = await db.returns.where('orderId').equals(order.id).toArray();
@@ -459,9 +576,10 @@ export async function submitReturn(params: {
       productName: ol.productName,
       qty: rl.qty,
       unitPrice: ol.unitPrice,
+      gstPercent: ol.gstPercent,
       reason: rl.reason,
       batchNumber: rl.batchNumber ?? ol.batchAllocations?.[0]?.batchNumber,
-      deliveryId: order.deliveryId!,
+      deliveryId: order.deliveryId,
       invoiceId: order.invoiceId,
     });
   }
@@ -477,6 +595,7 @@ export async function submitReturn(params: {
     lines,
     evidenceFileIds: params.evidenceFileIds ?? [],
     submittedBy: params.actor.id,
+    idempotencyKey: params.idempotencyKey,
     statusHistory: [{ from: 'Draft', to: 'Submitted', at: ts, actorId: params.actor.id }],
     createdAt: ts,
     updatedAt: ts,
@@ -484,6 +603,46 @@ export async function submitReturn(params: {
   await db.returns.add(ret);
   await notifyBusinessUsers(order.stockistId, 'N-034', { returnNo: ret.returnNo }, { type: 'Return', id: ret.id });
   return ok(ret);
+}
+
+export async function cancelReturn(params: {
+  actor: User;
+  pharmacy: Business;
+  returnId: string;
+  reason?: string;
+}): Promise<Result<ReturnRequest>> {
+  const maint = await assertNotMaintenance('Return cancellation');
+  if (maint) return maint;
+  const perm = assertCan(params.actor, params.pharmacy, 'return.raise');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Return was not cancelled.');
+  const ret = await db.returns.get(params.returnId);
+  if (!ret || ret.pharmacyId !== params.pharmacy.id) {
+    return fail('NotFound', 'RET_MISSING', 'Return not found.', 'Return was not cancelled.');
+  }
+  const t = machines.return(ret.status, 'Cancelled');
+  if (!t.ok) return fail('StateConflict', 'RET_BAD_STATE', t.reason!, 'Return was not cancelled.');
+  const ts = new Date().toISOString();
+  const reason = params.reason?.trim() || 'Cancelled by pharmacy';
+  await db.returns.update(ret.id, {
+    status: 'Cancelled',
+    updatedAt: ts,
+    statusHistory: [
+      ...ret.statusHistory,
+      { from: ret.status, to: 'Cancelled', at: ts, actorId: params.actor.id, reason },
+    ],
+  });
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.pharmacy.id,
+    entityType: 'Return',
+    entityId: ret.id,
+    action: 'return.cancel',
+    reason,
+    after: { status: 'Cancelled', returnNo: ret.returnNo },
+  });
+  await notifyBusinessUsers(ret.stockistId, 'N-318', { returnNo: ret.returnNo }, { type: 'Return', id: ret.id });
+  return ok((await db.returns.get(ret.id))!);
 }
 
 export async function reviewReturn(params: {
@@ -495,38 +654,69 @@ export async function reviewReturn(params: {
   reason?: string;
   disposition?: string;
 }): Promise<Result<ReturnRequest>> {
+  const maint = await assertNotMaintenance('Return review');
+  if (maint) return maint;
   const perm = assertCan(params.actor, params.stockist, 'return.approve');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Return decision was not saved.');
   const ret = await db.returns.get(params.returnId);
   if (!ret || ret.stockistId !== params.stockist.id) {
     return fail('NotFound', 'RET_MISSING', 'Return not found.', 'Return decision was not saved.');
   }
-  const t = machines.return(ret.status === 'Submitted' ? 'UnderReview' : ret.status, params.decision);
-  // Allow Submitted -> UnderReview -> decision, or Submitted -> decision via intermediate
-  let from = ret.status;
-  if (from === 'Submitted') {
-    from = 'UnderReview';
-    await db.returns.update(ret.id, {
-      status: 'UnderReview',
-      statusHistory: [...ret.statusHistory, { from: 'Submitted', to: 'UnderReview', at: new Date().toISOString(), actorId: params.actor.id }],
-    });
-  }
-  const t2 = machines.return(from === 'UnderReview' ? 'UnderReview' : ret.status, params.decision);
-  if (!t2.ok && !t.ok) {
-    const check = machines.return('UnderReview', params.decision);
-    if (!check.ok) return fail('StateConflict', 'RET_BAD_STATE', check.reason!, 'Return decision was not saved.');
+  if (!['Submitted', 'UnderReview'].includes(ret.status)) {
+    return fail(
+      'StateConflict',
+      'RET_BAD_STATE',
+      `Cannot decide a return in status ${ret.status}.`,
+      'Return decision was not saved.',
+    );
   }
   if (params.decision === 'Rejected' && !params.reason?.trim()) {
     return fail('Validation', 'RET_REASON', 'Rejection reason is required.', 'Return decision was not saved.');
   }
 
+  let approvedSum = 0;
+  if (params.decision !== 'Rejected') {
+    for (const l of ret.lines) {
+      const raw = params.approvedQtys?.[l.productId] ?? l.qty;
+      if (!Number.isFinite(raw) || !Number.isInteger(raw) || raw < 0 || raw > l.qty) {
+        return fail(
+          'Validation',
+          'RET_APPROVED_QTY',
+          `Approved qty for ${l.productName} must be an integer between 0 and ${l.qty}.`,
+          'Return decision was not saved.',
+        );
+      }
+      approvedSum += raw;
+    }
+    if (approvedSum <= 0) {
+      return fail(
+        'Validation',
+        'RET_ZERO_APPROVE',
+        'Approve at least one unit, or reject the return with a reason.',
+        'Return decision was not saved.',
+      );
+    }
+  }
+
+  const decisionCheck = machines.return('UnderReview', params.decision);
+  if (!decisionCheck.ok) {
+    return fail('StateConflict', 'RET_BAD_STATE', decisionCheck.reason!, 'Return decision was not saved.');
+  }
+
   const ts = new Date().toISOString();
+  let history = ret.statusHistory;
+  if (ret.status === 'Submitted') {
+    const bump = machines.return('Submitted', 'UnderReview');
+    if (!bump.ok) return fail('StateConflict', 'RET_BAD_STATE', bump.reason!, 'Return decision was not saved.');
+    history = [...history, { from: 'Submitted', to: 'UnderReview', at: ts, actorId: params.actor.id }];
+  }
+
   const lines = ret.lines.map((l) => ({
     ...l,
     approvedQty:
       params.decision === 'Rejected'
         ? 0
-        : (params.approvedQtys?.[l.productId] ?? (params.decision === 'Approved' ? l.qty : l.approvedQty ?? l.qty)),
+        : (params.approvedQtys?.[l.productId] ?? l.qty),
   }));
 
   await db.returns.update(ret.id, {
@@ -536,7 +726,7 @@ export async function reviewReturn(params: {
     disposition: params.disposition,
     updatedAt: ts,
     statusHistory: [
-      ...(await db.returns.get(ret.id))!.statusHistory,
+      ...history,
       { from: 'UnderReview', to: params.decision, at: ts, actorId: params.actor.id, reason: params.reason },
     ],
   });
@@ -563,9 +753,16 @@ export async function issueCreditNote(params: {
   actor: User;
   stockist: Business;
   returnId: string;
+  idempotencyKey?: string;
 }): Promise<Result<CreditNote>> {
+  const maint = await assertNotMaintenance('Credit note issue');
+  if (maint) return maint;
   const perm = assertCan(params.actor, params.stockist, 'credit.issue');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Credit note was not issued.');
+  if (params.idempotencyKey) {
+    const existing = await db.creditNotes.filter((c) => c.idempotencyKey === params.idempotencyKey).first();
+    if (existing) return ok(existing);
+  }
   const ret = await db.returns.get(params.returnId);
   if (!ret || ret.stockistId !== params.stockist.id) {
     return fail('NotFound', 'RET_MISSING', 'Return not found.', 'Credit note was not issued.');
@@ -574,16 +771,20 @@ export async function issueCreditNote(params: {
     return fail('BusinessRule', 'CN_STATE', 'Return must be approved before credit note.', 'Credit note was not issued.');
   }
   if (ret.creditNoteId) {
+    const existingCn = await db.creditNotes.get(ret.creditNoteId);
+    if (existingCn) return ok(existingCn);
     return fail('Duplicate', 'CN_EXISTS', 'Credit note already issued.', 'A second credit note was not created.', {
       existingId: ret.creditNoteId,
     });
   }
 
+  const order = await db.orders.get(ret.orderId);
   let amount = 0;
   for (const l of ret.lines) {
     const qty = l.approvedQty ?? 0;
+    const orderLine = order?.lines.find((ol) => ol.productId === l.productId);
     const product = await db.products.get(l.productId);
-    const gst = product?.gstPercent ?? 12;
+    const gst = l.gstPercent ?? orderLine?.gstPercent ?? product?.gstPercent ?? 12;
     amount += returnLineValue(qty, l.unitPrice, gst).lineTotal;
   }
   amount = roundMoney(amount);
@@ -604,12 +805,21 @@ export async function issueCreditNote(params: {
     issuedAt: ts,
     expiresAt: await creditNoteExpiresAt(ts),
     issuedBy: params.actor.id,
+    idempotencyKey: params.idempotencyKey,
     createdAt: ts,
     updatedAt: ts,
   };
   await db.transaction('rw', db.creditNotes, db.returns, async () => {
     await db.creditNotes.add(cn);
-    await db.returns.update(ret.id, { creditNoteId: cn.id, status: 'Closed', updatedAt: ts });
+    await db.returns.update(ret.id, {
+      creditNoteId: cn.id,
+      status: 'Closed',
+      updatedAt: ts,
+      statusHistory: [
+        ...ret.statusHistory,
+        { from: ret.status, to: 'Closed', at: ts, actorId: params.actor.id },
+      ],
+    });
   });
   await writeAudit({
     actorId: params.actor.id,
@@ -635,6 +845,8 @@ export async function issueGoodwillCreditNote(params: {
   amount: number;
   reason: string;
 }): Promise<Result<CreditNote>> {
+  const maint = await assertNotMaintenance('Credit note issue');
+  if (maint) return maint;
   const perm = assertCan(params.actor, params.stockist, 'credit.issue');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Credit note was not issued.');
   if (!params.reason.trim()) {
@@ -696,6 +908,8 @@ export async function issueAdvanceCreditNote(params: {
   paymentId: string;
   amount: number;
 }): Promise<Result<CreditNote>> {
+  const maint = await assertNotMaintenance('Advance credit issue');
+  if (maint) return maint;
   const perm = assertCan(params.actor, params.stockist, 'credit.issue');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Advance credit was not issued.');
   const payment = await db.payments.get(params.paymentId);
@@ -704,6 +918,14 @@ export async function issueAdvanceCreditNote(params: {
   }
   if (payment.recordedBy !== 'Stockist') {
     return fail('BusinessRule', 'CN_ADV_FLOW', 'Advance credit only for stockist-recorded payments.', 'Advance credit was not issued.');
+  }
+  if (payment.status !== 'Approved') {
+    return fail(
+      'BusinessRule',
+      'CN_ADV_STATE',
+      'Advance credit can only be issued after the payment is approved.',
+      'Advance credit was not issued.',
+    );
   }
   const allocated = roundMoney(payment.allocations.reduce((s, a) => s + a.amount, 0));
   const surplus = roundMoney(payment.amount - allocated);
@@ -759,6 +981,8 @@ export async function applyCreditNote(params: {
   invoiceId: string;
   amount: number;
 }): Promise<Result<CreditNote>> {
+  const maint = await assertNotMaintenance('Credit application');
+  if (maint) return maint;
   const perm = assertCan(params.actor, params.business, 'credit.apply');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Credit was not applied.');
   const cn = await db.creditNotes.get(params.creditNoteId);
@@ -773,8 +997,12 @@ export async function applyCreditNote(params: {
   if (!inv || inv.pharmacyId !== cn.pharmacyId || inv.stockistId !== cn.stockistId) {
     return fail('NotFound', 'CN_INV', 'Invoice not found.', 'Credit was not applied.');
   }
+  if (inv.status === 'Void' || inv.status === 'Paid') {
+    return fail('BusinessRule', 'CN_INV_STATE', `Invoice ${inv.invoiceNo} is not open for credit.`, 'Credit was not applied.');
+  }
   const rem = remainingCredit(cn);
-  const out = invoiceOutstanding(inv);
+  // Respect amounts already claimed on open (not yet approved) payments.
+  const out = await effectiveInvoiceOutstanding(inv);
   const check = applyCredit(rem, out, params.amount);
   if (!check.ok) return fail('Validation', 'CN_APPLY', check.reason!, 'Credit was not applied.');
 
@@ -822,6 +1050,8 @@ export async function voidInvoice(params: {
   invoiceId: string;
   reason: string;
 }): Promise<Result<import("../domain/entities/types").Invoice>> {
+  const maint = await assertNotMaintenance('Invoice void');
+  if (maint) return maint;
   const perm = assertCan(params.actor, params.stockist, "invoice.void");
   if (!perm.allow) return fail("Permission", "PERM_DENIED", perm.reason!, "Invoice was not voided.");
   if (!params.reason.trim()) return fail("Validation", "INV_VOID_REASON", "Void reason is required.", "Invoice was not voided.");
@@ -834,6 +1064,24 @@ export async function voidInvoice(params: {
   }
   if (inv.paidAmount > 0 || inv.creditApplied > 0) {
     return fail("BusinessRule", "INV_VOID_SETTLED", "Cannot void an invoice with payments or credit applied.", "Invoice was not voided.");
+  }
+  const openClaim = await db.payments
+    .where('pharmacyId')
+    .equals(inv.pharmacyId)
+    .filter(
+      (p) =>
+        p.stockistId === inv.stockistId &&
+        OPEN_PAYMENT_STATUSES.includes(p.status) &&
+        p.allocations.some((a) => a.invoiceId === inv.id),
+    )
+    .first();
+  if (openClaim) {
+    return fail(
+      'BusinessRule',
+      'INV_VOID_OPEN_PAY',
+      `Cannot void while payment ${openClaim.paymentNo} still allocates to this invoice.`,
+      'Invoice was not voided.',
+    );
   }
   const t = machines.invoice(inv.status, "Void");
   if (!t.ok) return fail("StateConflict", "INV_BAD_STATE", t.reason!, "Invoice was not voided.");
@@ -866,6 +1114,8 @@ export async function recordGoodsReceived(params: {
   returnId: string;
   disposition: "Restock" | "Quarantine" | "Destroy";
 }): Promise<Result<ReturnRequest>> {
+  const maint = await assertNotMaintenance('Goods receipt');
+  if (maint) return maint;
   const perm = assertCan(params.actor, params.stockist, "return.approve");
   if (!perm.allow) return fail("Permission", "PERM_DENIED", perm.reason!, "Goods receipt was not recorded.");
   const ret = await db.returns.get(params.returnId);
@@ -880,16 +1130,17 @@ export async function recordGoodsReceived(params: {
     if (qty <= 0) continue;
     const product = await db.products.get(line.productId);
     if (!product) continue;
-    let batch = line.batchNumber
-      ? (await db.batches.where('productId').equals(line.productId).filter((b) => b.stockistId === params.stockist.id && b.batchNumber === line.batchNumber).first())
-      : undefined;
+    const retBatchNo = `RET-${ret.returnNo.slice(-4)}-${line.productId.slice(-4)}`;
     if (params.disposition === "Restock") {
+      let batch = line.batchNumber
+        ? (await db.batches.where('productId').equals(line.productId).filter((b) => b.stockistId === params.stockist.id && b.batchNumber === line.batchNumber).first())
+        : undefined;
       if (!batch) {
         batch = {
           id: newId(),
           productId: line.productId,
           stockistId: params.stockist.id,
-          batchNumber: line.batchNumber || `RET-${ret.returnNo.slice(-4)}`,
+          batchNumber: line.batchNumber || retBatchNo,
           expiryDate: new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10),
           onHand: 0,
           reserved: 0,
@@ -917,22 +1168,42 @@ export async function recordGoodsReceived(params: {
         at: ts,
       });
     } else if (params.disposition === "Quarantine") {
-      if (batch) {
-        await db.batches.update(batch.id, { status: "Quarantined", updatedAt: ts });
+      // Dedicated quarantined return batch — never flip an unrelated Available batch.
+      let qBatch = await db.batches
+        .where('productId')
+        .equals(line.productId)
+        .filter((b) => b.stockistId === params.stockist.id && b.batchNumber === retBatchNo)
+        .first();
+      if (!qBatch) {
+        qBatch = {
+          id: newId(),
+          productId: line.productId,
+          stockistId: params.stockist.id,
+          batchNumber: retBatchNo,
+          expiryDate: new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10),
+          onHand: 0,
+          reserved: 0,
+          status: "Quarantined",
+          createdAt: ts,
+          updatedAt: ts,
+        };
+        await db.batches.add(qBatch);
       }
+      const prev = qBatch.onHand;
+      await db.batches.update(qBatch.id, { onHand: prev + qty, status: "Quarantined", updatedAt: ts });
       await db.inventoryMovements.add({
         id: newId(),
         businessId: params.stockist.id,
         productId: line.productId,
-        batchId: batch?.id,
+        batchId: qBatch.id,
         type: "Quarantine",
         qty,
         reason: `Return ${ret.returnNo} quarantine`,
         sourceDocType: "Return",
         sourceDocId: ret.id,
         actorId: params.actor.id,
-        prevQty: batch?.onHand ?? 0,
-        newQty: batch?.onHand ?? 0,
+        prevQty: prev,
+        newQty: prev + qty,
         at: ts,
       });
     } else {
@@ -940,15 +1211,15 @@ export async function recordGoodsReceived(params: {
         id: newId(),
         businessId: params.stockist.id,
         productId: line.productId,
-        batchId: batch?.id,
-        type: "Expiry",
+        batchId: undefined,
+        type: "Destroy",
         qty,
         reason: `Return ${ret.returnNo} destroy`,
         sourceDocType: "Return",
         sourceDocId: ret.id,
         actorId: params.actor.id,
-        prevQty: batch?.onHand ?? 0,
-        newQty: batch?.onHand ?? 0,
+        prevQty: 0,
+        newQty: 0,
         at: ts,
       });
     }

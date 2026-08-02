@@ -1,17 +1,38 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { returnLineValue } from '../../domain/calc';
 import { db } from '../../data/db';
 import { FileLink } from './FileUpload';
 import { EmptyState, Money, PageHeader, StatusBadge } from './primitives';
+
+export function returnRequestedValue(lines: { qty: number; unitPrice: number }[]): number {
+  return lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
+}
+
+export function returnApprovedValue(
+  lines: { qty: number; approvedQty?: number; unitPrice: number; gstPercent?: number }[],
+): number {
+  return lines.reduce((s, l) => {
+    const qty = l.approvedQty ?? l.qty;
+    const gst = l.gstPercent ?? 0;
+    if (l.approvedQty != null || l.gstPercent != null) {
+      return s + returnLineValue(qty, l.unitPrice, gst).lineTotal;
+    }
+    return s + qty * l.unitPrice;
+  }, 0);
+}
 
 export function ReturnDetail({
   returnNo,
   portal,
   listPath,
+  actions,
 }: {
   returnNo: string;
   portal: 'pharmacy' | 'stockist' | 'admin';
   listPath: string;
+  actions?: ReactNode;
 }) {
   const decoded = decodeURIComponent(returnNo);
   const ret = useLiveQuery(
@@ -25,6 +46,10 @@ export function ReturnDetail({
     () => (ret?.creditNoteId ? db.creditNotes.get(ret.creditNoteId) : undefined),
     [ret?.creditNoteId],
   );
+  const invoiceId = ret?.lines.find((l) => l.invoiceId)?.invoiceId ?? order?.invoiceId;
+  const deliveryId = ret?.lines.find((l) => l.deliveryId)?.deliveryId ?? order?.deliveryId;
+  const invoice = useLiveQuery(() => (invoiceId ? db.invoices.get(invoiceId) : undefined), [invoiceId]);
+  const delivery = useLiveQuery(() => (deliveryId ? db.deliveries.get(deliveryId) : undefined), [deliveryId]);
 
   if (ret === undefined) {
     return (
@@ -61,15 +86,36 @@ export function ReturnDetail({
         ? `/${portal}/orders/${encodeURIComponent(order.orderNo)}`
         : `/${portal}/orders`;
 
+  const invoicePath =
+    portal === 'pharmacy' && invoice
+      ? `/pharmacy/invoices/${encodeURIComponent(invoice.invoiceNo)}`
+      : portal === 'stockist' && invoice
+        ? `/stockist/invoices/${encodeURIComponent(invoice.invoiceNo)}`
+        : undefined;
+
+  const deliveryPath =
+    portal === 'pharmacy' && delivery
+      ? `/pharmacy/delivery`
+      : portal === 'stockist' && delivery
+        ? `/stockist/delivery`
+        : undefined;
+
+  const hasApproved = ret.lines.some((l) => l.approvedQty != null);
+  const requestedValue = returnRequestedValue(ret.lines);
+  const approvedEst = returnApprovedValue(ret.lines);
+
   return (
     <div className="stack">
       <PageHeader
         title={ret.returnNo}
         subtitle={`${pharmacy?.name ?? 'Pharmacy'} → ${stockist?.name ?? 'Stockist'}`}
         actions={
-          <Link className="btn btn-secondary btn-sm" to={listPath}>
-            Back to returns
-          </Link>
+          <div className="row" style={{ gap: 8 }}>
+            {actions}
+            <Link className="btn btn-secondary btn-sm" to={listPath}>
+              Back to returns
+            </Link>
+          </div>
         }
       />
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -81,6 +127,22 @@ export function ReturnDetail({
               {' · order '}
               <Link to={orderPath}>{order.orderNo}</Link>
             </>
+          ) : null}
+          {invoice && invoicePath ? (
+            <>
+              {' · invoice '}
+              <Link to={invoicePath}>{invoice.invoiceNo}</Link>
+            </>
+          ) : invoice ? (
+            <> · invoice {invoice.invoiceNo}</>
+          ) : null}
+          {delivery && deliveryPath ? (
+            <>
+              {' · '}
+              <Link to={deliveryPath}>{delivery.deliveryNo ?? 'Delivery'}</Link>
+            </>
+          ) : delivery ? (
+            <> · {delivery.deliveryNo ?? 'Delivery'}</>
           ) : null}
         </span>
       </div>
@@ -105,6 +167,23 @@ export function ReturnDetail({
           · <Money value={credit.amount} />
         </div>
       ) : null}
+      <div className="muted" style={{ fontSize: 13 }}>
+        Requested value (ex-GST): <Money value={requestedValue} />
+        {hasApproved || credit ? (
+          <>
+            {' · '}
+            {credit ? (
+              <>
+                Credit issued: <Money value={credit.amount} />
+              </>
+            ) : (
+              <>
+                Approved est. (incl. GST): <Money value={approvedEst} />
+              </>
+            )}
+          </>
+        ) : null}
+      </div>
 
       <div className="card card-pad">
         <strong>Lines</strong>
@@ -117,22 +196,32 @@ export function ReturnDetail({
                 <th>Approved</th>
                 <th>Reason</th>
                 <th>Batch</th>
-                <th>Value</th>
+                <th>Requested value</th>
+                <th>Approved value</th>
               </tr>
             </thead>
             <tbody>
-              {ret.lines.map((l, i) => (
-                <tr key={`${l.productId}-${i}`}>
-                  <td>{l.productName}</td>
-                  <td>{l.qty}</td>
-                  <td>{l.approvedQty ?? '—'}</td>
-                  <td>{l.reason}</td>
-                  <td className="muted">{l.batchNumber ?? '—'}</td>
-                  <td>
-                    <Money value={l.qty * l.unitPrice} />
-                  </td>
-                </tr>
-              ))}
+              {ret.lines.map((l, i) => {
+                const qty = l.approvedQty ?? l.qty;
+                const gst = l.gstPercent ?? 0;
+                const approvedLine =
+                  l.approvedQty != null
+                    ? returnLineValue(qty, l.unitPrice, gst).lineTotal
+                    : undefined;
+                return (
+                  <tr key={`${l.productId}-${i}`}>
+                    <td>{l.productName}</td>
+                    <td>{l.qty}</td>
+                    <td>{l.approvedQty ?? '—'}</td>
+                    <td>{l.reason}</td>
+                    <td className="muted">{l.batchNumber ?? '—'}</td>
+                    <td>
+                      <Money value={l.qty * l.unitPrice} />
+                    </td>
+                    <td>{approvedLine != null ? <Money value={approvedLine} /> : '—'}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

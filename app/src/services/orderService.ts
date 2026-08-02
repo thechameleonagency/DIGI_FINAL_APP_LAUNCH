@@ -1,5 +1,5 @@
 import type { Address, Business, Order, OrderLine, User } from '../domain/entities/types';
-import { calcOrderLine, calcOrderTotals } from '../domain/calc';
+import { calcOrderLine, calcOrderTotals, pairOutstanding } from '../domain/calc';
 import { fail, ok, type Result } from '../domain/errors/types';
 import { machines } from '../domain/machines/transitions';
 import { makeIdempotencyKey } from '../domain/utils/idempotency';
@@ -36,6 +36,13 @@ export async function placeOrder(params: {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Order was not created.');
 
+  if (params.pharmacy.accountStatus === 'Suspended') {
+    return fail('BusinessRule', 'ORD_PHARM_SUSP', 'Pharmacy is suspended.', 'Order was not created.');
+  }
+  if (params.pharmacy.verificationStatus !== 'Approved' || params.pharmacy.accountStatus !== 'Active') {
+    return fail('BusinessRule', 'ORD_PHARM_GATE', 'Pharmacy is not available for ordering.', 'Order was not created.');
+  }
+
   const platform = await db.platformSettings.get('platform');
   if (platform?.maintenanceMode) {
     return fail(
@@ -61,6 +68,10 @@ export async function placeOrder(params: {
   const stockist = await db.businesses.get(params.stockistId);
   if (!stockist || stockist.accountStatus === 'Suspended' || stockist.verificationStatus !== 'Approved') {
     return fail('BusinessRule', 'ORD_STOCKIST_GATE', 'Stockist is not available for ordering.', 'Order was not created.');
+  }
+  const cat = await db.catalogues.where('stockistId').equals(params.stockistId).first();
+  if (!cat || cat.status !== 'Active') {
+    return fail('BusinessRule', 'ORD_CAT', 'Stockist catalogue is not available for ordering.', 'Order was not created.');
   }
 
   const cart = await db.carts.where({ pharmacyId: params.pharmacy.id, stockistId: params.stockistId }).first();
@@ -110,6 +121,18 @@ export async function placeOrder(params: {
   }
 
   const totals = calcOrderTotals(lines);
+  if (conn.creditLimit != null && Number.isFinite(conn.creditLimit)) {
+    const invoices = await db.invoices.where('pharmacyId').equals(params.pharmacy.id).toArray();
+    const outstanding = pairOutstanding(invoices, params.pharmacy.id, params.stockistId);
+    if (outstanding + totals.grandTotal > conn.creditLimit) {
+      return fail(
+        'BusinessRule',
+        'ORD_CREDIT_LIMIT',
+        'This order would exceed your credit limit with this stockist.',
+        'Order was not created.',
+      );
+    }
+  }
   const ts = new Date().toISOString();
   const order: Order = {
     id: newId(),
@@ -189,6 +212,14 @@ export async function recordManualOrder(params: {
   }
 
   const settings = await db.platformSettings.get('platform');
+  if (settings?.maintenanceMode) {
+    return fail(
+      'BusinessRule',
+      'ORD_MAINTENANCE',
+      'Platform maintenance is on — new orders are paused. Try again after the banner clears.',
+      'Manual order was not created.',
+    );
+  }
   let pharmacyId = params.pharmacyId ?? '';
   let connectionId = '';
   let deliveryAddress: Address | undefined;
@@ -290,6 +321,21 @@ export async function recordManualOrder(params: {
   }
 
   const totals = calcOrderTotals(lines);
+  if (!connectionId.startsWith('offline-')) {
+    const creditConn = await db.connections.get(connectionId);
+    if (creditConn?.creditLimit != null && Number.isFinite(creditConn.creditLimit)) {
+      const invoices = await db.invoices.where('pharmacyId').equals(pharmacyId).toArray();
+      const outstanding = pairOutstanding(invoices, pharmacyId, params.stockist.id);
+      if (outstanding + totals.grandTotal > creditConn.creditLimit) {
+        return fail(
+          'BusinessRule',
+          'ORD_CREDIT_LIMIT',
+          'This order would exceed the pharmacy credit limit with this stockist.',
+          'Manual order was not created.',
+        );
+      }
+    }
+  }
   const ts = new Date().toISOString();
   const order: Order = {
     id: newId(),
@@ -349,13 +395,39 @@ export async function acceptOrder(params: {
     return fail('NotFound', 'ORD_MISSING', 'Order not found.', 'Order was not accepted.');
   }
   const conn = await db.connections.get(order.connectionId);
-  if (!conn || conn.status !== 'Active') {
+  const isOfflineManaged =
+    !!order.managedPharmacyId &&
+    (order.connectionId.startsWith('offline-') || !conn);
+  if (!isOfflineManaged && (!conn || conn.status !== 'Active')) {
     return fail('BusinessRule', 'ORD_CONN_INACTIVE', 'Connection is not active; cannot accept new work.', 'Order was not accepted.');
   }
 
+  // Soft credit-limit gate for Active platform connections
+  if (conn?.creditLimit != null && Number.isFinite(conn.creditLimit)) {
+    const invoices = await db.invoices.where('pharmacyId').equals(order.pharmacyId).toArray();
+    const outstanding = pairOutstanding(invoices, order.pharmacyId, order.stockistId);
+    if (outstanding + order.grandTotal > conn.creditLimit) {
+      return fail(
+        'BusinessRule',
+        'ORD_CREDIT_LIMIT',
+        `Credit limit exceeded (outstanding + order exceeds limit ${conn.creditLimit}).`,
+        'Order was not accepted.',
+      );
+    }
+  }
+
   let partial = false;
+  for (const l of order.lines) {
+    if (params.acceptedQtys && l.id in params.acceptedQtys) {
+      const aq = Number(params.acceptedQtys[l.id]);
+      if (!Number.isFinite(aq) || aq < 0) {
+        return fail('Validation', 'ORD_ACCEPT_NAN', 'Accepted quantities must be valid numbers.', 'Order was not accepted.');
+      }
+    }
+  }
   const lines = order.lines.map((l) => {
-    const aq = params.acceptedQtys?.[l.id] ?? l.qty;
+    const raw = params.acceptedQtys?.[l.id];
+    const aq = raw == null ? l.qty : Number(raw);
     if (aq < l.qty) partial = true;
     return { ...l, acceptedQty: Math.max(0, Math.min(aq, l.qty)) };
   });
@@ -470,6 +542,9 @@ export async function cancelOrder(params: {
 }): Promise<Result<Order>> {
   const perm = assertCan(params.actor, params.business, 'order.cancel');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Order was not cancelled.');
+  if (!params.reason.trim()) {
+    return fail('Validation', 'ORD_REASON', 'Cancellation reason is required.', 'Order was not cancelled.');
+  }
   const order = await db.orders.get(params.orderId);
   if (!order) return fail('NotFound', 'ORD_MISSING', 'Order not found.', 'Order was not cancelled.');
   if (order.pharmacyId !== params.business.id && order.stockistId !== params.business.id) {
@@ -528,10 +603,7 @@ export async function editOrderLines(params: {
   const perm = assertCan(params.actor, params.business, action);
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Order lines were not updated.');
   if (!['Pending', 'Accepted', 'PartiallyAccepted'].includes(order.status)) {
-    return fail('StateConflict', 'ORD_LOCKED', 'Lines are locked after pack ? adjust via returns after delivery.', 'Order lines were not updated.');
-  }
-  if (order.status === 'Allocated') {
-    return fail('StateConflict', 'ORD_ALLOCATED', 'Cancel allocation before editing lines, or cancel the order.', 'Order lines were not updated.');
+    return fail('StateConflict', 'ORD_LOCKED', 'Lines are locked after allocation — adjust via returns after delivery.', 'Order lines were not updated.');
   }
   const ts = new Date().toISOString();
   const lines = order.lines.map((l) => {
@@ -549,6 +621,21 @@ export async function editOrderLines(params: {
   }).filter((l) => (params.qtys[l.id] ?? l.qty) >= 1);
   if (!lines.length) return fail('Validation', 'ORD_EMPTY', 'Order must keep at least one line.', 'Order lines were not updated.');
   const totals = calcOrderTotals(lines);
+  if (totals.grandTotal > order.grandTotal && !order.connectionId.startsWith('offline-')) {
+    const conn = await db.connections.get(order.connectionId);
+    if (conn?.creditLimit != null && Number.isFinite(conn.creditLimit)) {
+      const invoices = await db.invoices.where('pharmacyId').equals(order.pharmacyId).toArray();
+      const outstanding = pairOutstanding(invoices, order.pharmacyId, order.stockistId);
+      if (outstanding + totals.grandTotal > conn.creditLimit) {
+        return fail(
+          'BusinessRule',
+          'ORD_CREDIT_LIMIT',
+          'Updated totals would exceed the credit limit for this connection.',
+          'Order lines were not updated.',
+        );
+      }
+    }
+  }
   await db.orders.update(order.id, {
     lines,
     subtotal: totals.subtotal,

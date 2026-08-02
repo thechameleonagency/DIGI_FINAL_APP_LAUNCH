@@ -64,10 +64,25 @@ export async function createManagedPharmacy(params: {
       gst: row.gst,
       managedPharmacyId: row.id,
     });
-    if (inv.ok && inv.data.invite) {
-      row = { ...row, inviteId: inv.data.invite.id, updatedAt: new Date().toISOString() };
-      await db.managedPharmacies.put(row);
+    if (!inv.ok) {
+      await db.managedPharmacies.delete(row.id);
+      return fail(inv.category, inv.code, inv.message, 'Pharmacy was not created.');
     }
+    if (inv.data.existingPharmacyId) {
+      await db.managedPharmacies.delete(row.id);
+      return fail(
+        'Duplicate',
+        'MP_INVITE_EXISTS',
+        'A pharmacy with this phone/GST is already on the platform — connect them instead of inviting again.',
+        'Pharmacy was not created.',
+      );
+    }
+    if (!inv.data.invite) {
+      await db.managedPharmacies.delete(row.id);
+      return fail('BusinessRule', 'MP_INVITE', 'Invite could not be created.', 'Pharmacy was not created.');
+    }
+    row = { ...row, inviteId: inv.data.invite.id, updatedAt: new Date().toISOString() };
+    await db.managedPharmacies.put(row);
   }
   await writeAudit({
     actorId: params.actor.id,
@@ -81,11 +96,26 @@ export async function createManagedPharmacy(params: {
   return ok(row);
 }
 
+const MANAGED_PATCH_KEYS = [
+  'name',
+  'phone',
+  'email',
+  'gst',
+  'drugLicense',
+  'address',
+  'city',
+  'state',
+  'pincode',
+  'creditLimit',
+  'creditDays',
+  'note',
+] as const satisfies readonly (keyof ManagedPharmacy)[];
+
 export async function updateManagedPharmacy(params: {
   actor: User;
   stockist: Business;
   id: string;
-  patch: Partial<ManagedPharmacy>;
+  patch: Partial<Pick<ManagedPharmacy, (typeof MANAGED_PATCH_KEYS)[number]>>;
 }): Promise<Result<ManagedPharmacy>> {
   const perm = assertCan(params.actor, params.stockist, 'partner.invite');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Pharmacy was not updated.');
@@ -93,19 +123,30 @@ export async function updateManagedPharmacy(params: {
   if (!row || row.stockistId !== params.stockist.id) {
     return fail('NotFound', 'MP_MISSING', 'Managed pharmacy not found.', 'Pharmacy was not updated.');
   }
-  const next: ManagedPharmacy = {
-    ...row,
-    ...params.patch,
-    id: row.id,
-    stockistId: row.stockistId,
-    updatedAt: new Date().toISOString(),
-  };
+  const next: ManagedPharmacy = { ...row, updatedAt: new Date().toISOString() };
+  for (const key of MANAGED_PATCH_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(params.patch, key)) {
+      const value = params.patch[key];
+      if (value !== undefined) {
+        Object.assign(next, { [key]: value });
+      }
+    }
+  }
   // Explicit clears: empty/undefined note or limit means remove the field.
   if ('note' in params.patch && !params.patch.note?.trim()) {
     delete next.note;
   }
   if ('creditLimit' in params.patch && (params.patch.creditLimit == null || Number.isNaN(params.patch.creditLimit))) {
     delete next.creditLimit;
+  }
+  if ('creditDays' in params.patch && (params.patch.creditDays == null || Number.isNaN(params.patch.creditDays))) {
+    delete next.creditDays;
+  }
+  if ('name' in params.patch && !params.patch.name?.trim()) {
+    return fail('Validation', 'MP_REQ', 'Name is required.', 'Pharmacy was not updated.');
+  }
+  if ('phone' in params.patch && !params.patch.phone?.trim()) {
+    return fail('Validation', 'MP_REQ', 'Phone is required.', 'Pharmacy was not updated.');
   }
   await db.managedPharmacies.put(next);
   return ok(next);
@@ -116,6 +157,8 @@ export async function inviteManagedPharmacy(params: {
   stockist: Business;
   id: string;
 }): Promise<Result<{ managed: ManagedPharmacy; shareText?: string; shareUrl?: string }>> {
+  const perm = assertCan(params.actor, params.stockist, 'partner.invite');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Invite was not sent.');
   const row = await db.managedPharmacies.get(params.id);
   if (!row || row.stockistId !== params.stockist.id) {
     return fail('NotFound', 'MP_MISSING', 'Managed pharmacy not found.', 'Invite was not sent.');

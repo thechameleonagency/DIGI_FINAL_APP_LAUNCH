@@ -69,4 +69,21 @@ describe('state machines', () => {
   it('forbids chat-style payment approve from draft', () => {
     expect(canTransition('payment', 'Draft', 'Approved').ok).toBe(false);
   });
+
+  it('product Active→Inactive and Discontinued→Active; Discontinued→Inactive forbidden', () => {
+    expect(canTransition('product', 'Active', 'Inactive').ok).toBe(true);
+    expect(canTransition('product', 'Discontinued', 'Active').ok).toBe(true);
+    expect(canTransition('product', 'Discontinued', 'Inactive').ok).toBe(false);
+  });
+
+  it('catalogue Active↔Maintenance↔Inactive', () => {
+    expect(canTransition('catalogue', 'Active', 'Maintenance').ok).toBe(true);
+    expect(canTransition('catalogue', 'Maintenance', 'Active').ok).toBe(true);
+    expect(canTransition('catalogue', 'Inactive', 'Active').ok).toBe(true);
+  });
+
+  it('batch Available→Expired; Expired is terminal', () => {
+    expect(canTransition('batch', 'Available', 'Expired').ok).toBe(true);
+    expect(canTransition('batch', 'Expired', 'Available').ok).toBe(false);
+  });
 });

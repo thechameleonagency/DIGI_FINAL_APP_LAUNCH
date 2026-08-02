@@ -6,7 +6,7 @@ import { transferStock } from './inventoryService';
 describe('transferStock (CF-33)', () => {
   beforeEach(async () => {
     await clearDb();
-    const owner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Owner' });
+    const owner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: owner.id });
     await db.catalogues.put({
       id: 'cat-st',
@@ -40,7 +40,7 @@ describe('transferStock (CF-33)', () => {
       batchId: 'batch-1',
       fromLocation: 'Main Warehouse',
       toLocation: 'Branch Depot',
-      qty: 40,
+      qty: 90,
     });
     expect(res.ok).toBe(true);
     const batch = await db.batches.get('batch-1');
@@ -51,6 +51,21 @@ describe('transferStock (CF-33)', () => {
     expect(movs.some((m) => m.type === 'TransferIn')).toBe(true);
     const pair = movs[0]?.sourceDocId;
     expect(movs.every((m) => m.sourceDocId === pair)).toBe(true);
+  });
+
+  it('blocks partial qty because location transfer moves the whole batch', async () => {
+    const actor = (await db.users.get('u-st'))!;
+    const stockist = (await db.businesses.get('biz-st'))!;
+    const res = await transferStock({
+      actor,
+      stockist,
+      batchId: 'batch-1',
+      fromLocation: 'Main Warehouse',
+      toLocation: 'Branch Depot',
+      qty: 40,
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe('XFER_PARTIAL');
   });
 
   it('blocks qty above un-reserved on-hand (E-CF-33a)', async () => {
@@ -65,6 +80,6 @@ describe('transferStock (CF-33)', () => {
       qty: 95,
     });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.code).toBe('XFER_OVER');
+    if (!res.ok) expect(res.code).toBe('XFER_PARTIAL');
   });
 });

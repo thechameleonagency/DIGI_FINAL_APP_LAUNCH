@@ -54,11 +54,13 @@ export function StockistOrderDetail() {
       [order?.pharmacyId, business.id],
     ) ?? [];
   const staff = useLiveQuery(
-    () => db.users.where('businessId').equals(business.id).filter((u) => u.role === 'DeliveryBoy').toArray(),
+    () => db.users.where('businessId').equals(business.id).filter((u) => u.role === 'DeliveryStaff').toArray(),
     [business.id],
   ) ?? [];
   const routes =
     useLiveQuery(() => db.stockistRoutes.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const settings = useLiveQuery(() => db.platformSettings.get('platform'));
+  const billAhead = !!settings?.billAheadAllowed;
   const [rejectOpen, setRejectOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [creditWarn, setCreditWarn] = useState<'accept' | 'invoice' | null>(null);
@@ -186,24 +188,10 @@ export function StockistOrderDetail() {
       <ConfirmDialog
         open={!!creditWarn}
         title="Credit limit exceeded"
-        body={`Outstanding ${formatINR(outstanding)} + order ${formatINR(order.grandTotal)} exceeds limit ${formatINR(creditLimit ?? 0)}. Continue anyway?`}
-        confirmLabel="Continue"
+        body={`Outstanding ${formatINR(outstanding)} + order ${formatINR(order.grandTotal)} exceeds limit ${formatINR(creditLimit ?? 0)}. Raise the credit limit or collect payment before continuing.`}
+        confirmLabel="OK"
         onClose={() => setCreditWarn(null)}
         onConfirm={async () => {
-          if (creditWarn === 'accept') {
-            await act(
-              () =>
-                acceptOrder({
-                  actor: user,
-                  stockist: business,
-                  orderId: order.id,
-                  acceptedQtys: Object.keys(acceptedQtys).length ? acceptedQtys : undefined,
-                }),
-              'Order accepted',
-            );
-          } else if (creditWarn === 'invoice') {
-            await act(() => issueInvoice({ actor: user, stockist: business, orderId: order.id }), 'Invoice issued');
-          }
           setCreditWarn(null);
         }}
       />
@@ -337,7 +325,11 @@ export function StockistOrderDetail() {
             </Button>
           </>
         ) : null}
-        {canInvoice && order.status === 'Packed' && !order.invoiceId ? (
+        {canInvoice &&
+        !order.invoiceId &&
+        (order.status === 'Packed' ||
+          (billAhead &&
+            !['Cancelled', 'Rejected', 'Draft', 'Pending'].includes(order.status))) ? (
           <Button
             onClick={() => {
               if (wouldExceed) setCreditWarn('invoice');
@@ -350,7 +342,7 @@ export function StockistOrderDetail() {
         {canDispatch && order.status === 'Packed' && order.invoiceId ? (
           <>
             <Select value={assignee} onChange={(e) => setAssignee(e.target.value)} style={{ maxWidth: 200 }}>
-              <option value="">Assign delivery boy…</option>
+              <option value="">Assign delivery staff…</option>
               {staff.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}

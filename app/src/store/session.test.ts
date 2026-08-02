@@ -23,18 +23,16 @@ describe('role preview (CF-34)', () => {
     });
   });
 
-  it('trims UI can() to preview role while assertCan stays Owner', async () => {
-    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+  it('trims UI can() to preview DeliveryStaff while assertCan stays Pharmacist', async () => {
+    const owner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Pharmacist' });
     const biz = await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: owner.id });
-    // Avoid setSession (needs sessionStorage); hydrate store directly.
     useSession.setState({ user: owner, business: biz, rolePreview: null });
     expect(useSession.getState().can('sale.record')).toBe(true);
 
-    useSession.getState().setRolePreview('Accountant');
+    useSession.getState().setRolePreview('DeliveryStaff');
     expect(useSession.getState().can('sale.record')).toBe(false);
     expect(useSession.getState().can('sale.view')).toBe(true);
-    // Mutations still authorised as real Owner
     expect(assertCan(owner, biz, 'sale.record').allow).toBe(true);
-    expect(useSession.getState().user?.role).toBe('Owner');
+    expect(useSession.getState().user?.role).toBe('Pharmacist');
   });
 });

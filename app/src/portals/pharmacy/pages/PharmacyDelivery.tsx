@@ -25,7 +25,10 @@ export function PharmacyDelivery() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
-  const canManage = useCan('sale.record');
+  const canRecord = useCan('sale.record');
+  const canRoutes = useCan('route.manage');
+  const canManage = canRecord || canRoutes;
+  const isDeliveryStaff = user.role === 'DeliveryStaff';
   const [tab, setTab] = useState<Tab>('board');
 
   const { items: areas, loading: areasLoading } = useLiveArray(
@@ -40,13 +43,19 @@ export function PharmacyDelivery() {
     useLiveQuery(() => db.customerSales.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const staff =
     useLiveQuery(
-      () => db.users.where('businessId').equals(business.id).filter((u) => u.status === 'Active').toArray(),
+      () =>
+        db.users
+          .where('businessId')
+          .equals(business.id)
+          .filter((u) => u.role === 'DeliveryStaff' && u.status === 'Active')
+          .toArray(),
       [business.id],
     ) ?? [];
 
+  // DeliveryStaff: assigned board only (never unassigned / other riders' routes).
   const visibleRoutes = useMemo(() => {
-    if (user.role === 'DeliveryBoy') {
-      return routes.filter((r) => !r.assigneeUserId || r.assigneeUserId === user.id);
+    if (user.role === 'DeliveryStaff') {
+      return routes.filter((r) => r.assigneeUserId === user.id);
     }
     return routes;
   }, [routes, user]);
@@ -77,11 +86,17 @@ export function PharmacyDelivery() {
     <div className="stack">
       <PageHeader
         title="Customer delivery"
-        subtitle="Areas, routes, and home-delivery stops — logistics only (sale totals unchanged)"
+        subtitle={
+          isDeliveryStaff
+            ? 'Your assigned home-delivery stops — customer address only (no B2B or sale totals)'
+            : 'Areas, routes, and home-delivery stops — logistics only (sale totals unchanged)'
+        }
         actions={
-          <Link className="btn btn-secondary btn-sm" to="/pharmacy/sales">
-            Sales
-          </Link>
+          canRecord ? (
+            <Link className="btn btn-secondary btn-sm" to="/pharmacy/sales">
+              Sales
+            </Link>
+          ) : null
         }
       />
 
@@ -89,11 +104,15 @@ export function PharmacyDelivery() {
         ariaLabel="Delivery views"
         value={tab}
         onChange={setTab}
-        items={[
-          { id: 'board', label: 'Route board' },
-          { id: 'routes', label: 'Routes' },
-          { id: 'areas', label: 'Areas' },
-        ]}
+        items={
+          isDeliveryStaff
+            ? [{ id: 'board', label: 'Route board' }]
+            : [
+                { id: 'board', label: 'Route board' },
+                { id: 'routes', label: 'Routes' },
+                { id: 'areas', label: 'Areas' },
+              ]
+        }
       />
 
       {tab === 'areas' ? (
@@ -252,7 +271,12 @@ export function PharmacyDelivery() {
               {unassigned.slice(0, 12).map((s) => (
                 <div key={s.id} className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
                   <div style={{ flex: 1, minWidth: 160, fontSize: 13 }}>
-                    <Link to={`/pharmacy/sales/${s.saleNo}`}>{s.saleNo}</Link> · {s.customerName}
+                    {canRecord ? (
+                      <Link to={`/pharmacy/sales/${s.saleNo}`}>{s.saleNo}</Link>
+                    ) : (
+                      <span>{s.saleNo}</span>
+                    )}{' '}
+                    · {s.customerName}
                     {s.address ? <div className="muted">{s.address}</div> : null}
                   </div>
                   <Field label="Route">
@@ -305,7 +329,14 @@ export function PharmacyDelivery() {
           {routesLoading ? (
             <LoadingState label="Loading board…" />
           ) : !visibleRoutes.length ? (
-            <EmptyState title="No route board yet" description="Create areas and routes, then assign sales." />
+            <EmptyState
+              title={isDeliveryStaff ? 'No routes assigned to you' : 'No route board yet'}
+              description={
+                isDeliveryStaff
+                  ? 'Ask the Pharmacist to assign a customer delivery route to you.'
+                  : 'Create areas and routes, then assign home-delivery sales.'
+              }
+            />
           ) : (
             visibleRoutes.map((r) => {
               const pending = [...r.stops].filter((s) => s.status === 'Pending').sort((a, b) => a.seq - b.seq);
@@ -330,7 +361,11 @@ export function PharmacyDelivery() {
                             </strong>
                             <div className="muted" style={{ fontSize: 12 }}>
                               {sale.phone ?? 'No phone'} ·{' '}
-                              <Link to={`/pharmacy/sales/${sale.saleNo}`}>{sale.saleNo}</Link>
+                              {canRecord ? (
+                                <Link to={`/pharmacy/sales/${sale.saleNo}`}>{sale.saleNo}</Link>
+                              ) : (
+                                sale.saleNo
+                              )}
                             </div>
                           </div>
                           <StatusBadge status="Pending" />

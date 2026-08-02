@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { DEMO_OTP } from '../src/domain/utils/crypto';
-import { fieldInput, login, signOut } from './helpers';
+import { fieldInput } from './helpers';
 
 /** Valid GSTIN: 2 + 5 letters + 4 digits + letter + alnum + Z + alnum */
 function gstin(letterCode: string, stamp: string) {
@@ -39,9 +39,12 @@ async function fillPharmacyWizard(
     gst: string;
     dl: string;
     pan: string;
+    city: string;
+    pincode: string;
     address: string;
   },
 ) {
+  await page.goto('/auth/register/pharmacy');
   await expect(page.getByText(/Register Pharmacy/i)).toBeVisible({ timeout: 30_000 });
   await (await fieldInput(page, 'Owner name')).fill(opts.owner);
   await (await fieldInput(page, 'Email')).fill(opts.email);
@@ -49,36 +52,26 @@ async function fillPharmacyWizard(
   await verifyPhone(page);
   await (await fieldInput(page, 'Password')).fill('Pharmacy@2026');
   await page.getByRole('button', { name: 'Continue' }).click();
-
   await (await fieldInput(page, 'Business name')).fill(opts.business);
   await (await fieldInput(page, 'GSTIN')).fill(opts.gst);
   await (await fieldInput(page, 'Drug license number')).fill(opts.dl);
   await (await fieldInput(page, 'PAN')).fill(opts.pan);
   await page.locator('label', { hasText: 'State' }).locator('..').locator('select').selectOption('Maharashtra');
-  await (await fieldInput(page, 'City')).fill('Pune');
-  await (await fieldInput(page, 'Pincode')).fill('411001');
+  await (await fieldInput(page, 'City')).fill(opts.city);
+  await (await fieldInput(page, 'Pincode')).fill(opts.pincode);
   await (await fieldInput(page, 'Address')).fill(opts.address);
   await page.getByRole('button', { name: 'Continue' }).click();
-
-  await uploadRequiredPharmacyDocs(page, opts.phone.slice(-6));
-  await page.getByRole('button', { name: 'Continue' }).click();
-
-  // Bank optional for pharmacy
-  await page.getByRole('button', { name: 'Continue' }).click();
-
-  await page.getByLabel('I agree to the Terms of Service').check();
-  await page.getByLabel('I agree to the Privacy Policy').check();
-  await page.getByRole('button', { name: /Submit for verification/i }).click();
+  const stamp = opts.email.replace(/\D/g, '').slice(-6) || '000001';
+  await uploadRequiredPharmacyDocs(page, stamp);
+  await page.getByRole('button', { name: /Submit|Register/i }).click();
 }
 
-test.describe('Registration, verification, forgot password', () => {
-  test('register → pending → admin approve → portal; dup GST/email blocked; forgot-password OTP', async ({ page }) => {
-    const stamp = Date.now().toString().slice(-8);
+test.describe('Registration on empty workspace', () => {
+  test('pharmacy can register to pending; duplicates blocked', async ({ page }) => {
+    const stamp = String(Date.now()).slice(-8);
     const email = `e2e.pharm.${stamp}@example.in`;
-    const gst = gstin('EZEAA', stamp);
-    const pan = `EZEAA${stamp.slice(0, 4)}F`;
+    const gst = gstin('E2EPH', stamp);
 
-    await page.goto('/auth/register/pharmacy');
     await fillPharmacyWizard(page, {
       owner: 'E2E Owner',
       email,
@@ -86,7 +79,9 @@ test.describe('Registration, verification, forgot password', () => {
       business: `E2E Chemists ${stamp}`,
       gst,
       dl: `MH-E2E-${stamp}`,
-      pan,
+      pan: `E2EZZ${stamp.slice(0, 4)}F`,
+      city: 'Pune',
+      pincode: '411001',
       address: '1 Test Road',
     });
     await expect(page).toHaveURL(/\/auth\/pending/, { timeout: 15_000 });
@@ -123,35 +118,5 @@ test.describe('Registration, verification, forgot password', () => {
     await (await fieldInput(page, 'Password')).fill('Pharmacy@2026');
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByText(/Email already registered/i)).toBeVisible({ timeout: 10_000 });
-
-    // Admin reviews then approves (Submitted → UnderReview → Approved) on detail page
-    await login(page, 'admin@digiswasthya.in', 'Admin@2026');
-    await page.goto('/admin/verifications');
-    await expect(page.getByRole('link', { name: new RegExp(`E2E Chemists ${stamp}`, 'i') })).toBeVisible({
-      timeout: 15_000,
-    });
-    await page.getByRole('link', { name: new RegExp(`E2E Chemists ${stamp}`, 'i') }).click();
-    await expect(page).toHaveURL(/\/admin\/verifications\//, { timeout: 10_000 });
-    await expect(page.getByText(/Submitted documents/i)).toBeVisible();
-    await page.getByRole('button', { name: 'Start review' }).click();
-    await expect(page.getByText(/Marked under review/i).first()).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Approve' }).click();
-    await expect(page.getByText(/Approved/i).first()).toBeVisible({ timeout: 10_000 });
-    await signOut(page);
-
-    // Newly approved pharmacy reaches portal
-    await login(page, email, 'Pharmacy@2026');
-    await expect(page).toHaveURL(/\/pharmacy/, { timeout: 15_000 });
-    await signOut(page);
-
-    // Forgot password OTP
-    await page.goto('/auth/forgot');
-    await (await fieldInput(page, 'Email')).fill('neha@careplus.pune.in');
-    await (await fieldInput(page, 'OTP')).fill(DEMO_OTP);
-    await (await fieldInput(page, 'New password')).fill('Pharmacy@2026');
-    await page.getByRole('button', { name: 'Update password' }).click();
-    await expect(page).toHaveURL(/\/auth\/login/, { timeout: 10_000 });
-    await login(page, 'neha@careplus.pune.in', 'Pharmacy@2026');
-    await expect(page).toHaveURL(/\/pharmacy/, { timeout: 15_000 });
   });
 });

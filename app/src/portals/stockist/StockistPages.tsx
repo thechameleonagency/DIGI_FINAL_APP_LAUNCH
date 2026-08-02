@@ -8,7 +8,6 @@ export { StockistProcurement } from './pages/StockistProcurement';
 export { StockistPriceHistory } from './pages/StockistPriceHistory';
 export { StockistBatchOrdering } from './pages/StockistBatchOrdering';
 export { StockistOrderDetail } from './pages/StockistOrderDetail';
-export { StockistConnections } from './pages/StockistConnections';
 export { StockistPharmaciesHub } from './pages/StockistPharmaciesHub';
 export { StockistManagedPharmacyDetail } from './pages/StockistManagedPharmacyDetail';
 export { StockistPharmacyDetail } from './pages/StockistPharmacyDetail';

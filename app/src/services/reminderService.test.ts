@@ -6,9 +6,9 @@ import { sendPaymentReminder } from './reminderService';
 describe('sendPaymentReminder (CF-14)', () => {
   beforeEach(async () => {
     await clearDb();
-    const phOwner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Owner' });
+    const phOwner = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Stockist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: phOwner.id });
-    const stOwner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Owner' });
+    const stOwner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: stOwner.id });
     const ts = new Date().toISOString();
     await db.invoices.add({

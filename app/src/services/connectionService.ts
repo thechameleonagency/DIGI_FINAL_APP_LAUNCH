@@ -97,18 +97,39 @@ export async function respondConnection(params: {
   if (params.decision === 'Rejected' && !params.reason?.trim()) {
     return fail('Validation', 'CONN_REASON', 'Rejection reason is required.', 'Connection response was not saved.');
   }
+  const pharmacy = await db.businesses.get(conn.pharmacyId);
+  if (!pharmacy || pharmacy.type !== 'Pharmacy') {
+    return fail('NotFound', 'CONN_PHARM', 'Pharmacy not found.', 'Connection response was not saved.');
+  }
+  const creditDays = params.creditDays ?? params.stockist.creditDaysDefault ?? 30;
+  const creditLimit = params.creditLimit;
+  if (params.decision === 'Active') {
+    if (pharmacy.accountStatus !== 'Active' || pharmacy.verificationStatus !== 'Approved') {
+      return fail(
+        'BusinessRule',
+        'CONN_PHARM_GATE',
+        'Pharmacy must be active and verified before approving the connection.',
+        'Connection response was not saved.',
+      );
+    }
+    if (!Number.isFinite(creditDays) || creditDays < 0 || !Number.isInteger(creditDays)) {
+      return fail('Validation', 'CONN_TERMS_DAYS', 'Credit days must be a whole number of zero or greater.', 'Connection response was not saved.');
+    }
+    if (creditLimit != null && (!Number.isFinite(creditLimit) || creditLimit <= 0)) {
+      return fail('Validation', 'CONN_TERMS_LIMIT', 'Credit limit must be greater than zero.', 'Connection response was not saved.');
+    }
+  }
   const ts = new Date().toISOString();
   await db.connections.update(conn.id, {
     status: params.decision,
     respondedAt: ts,
     updatedAt: ts,
     rejectReason: params.reason,
-    creditDays: params.creditDays ?? params.stockist.creditDaysDefault ?? 30,
-    creditLimit: params.creditLimit,
+    creditDays: params.decision === 'Active' ? creditDays : conn.creditDays,
+    creditLimit: params.decision === 'Active' ? creditLimit : conn.creditLimit,
     statusHistory: [...conn.statusHistory, { from: conn.status, to: params.decision, at: ts, actorId: params.actor.id, reason: params.reason }],
   });
   const updated = (await db.connections.get(conn.id))!;
-  const pharmacy = (await db.businesses.get(conn.pharmacyId))!;
   if (params.decision === 'Active') {
     await notifyBusinessUsers(pharmacy.id, 'N-011', { pharmacy: pharmacy.name, stockist: params.stockist.name }, { type: 'Connection', id: conn.id });
     const { markPartnerInvitesConnected } = await import('./partnerInviteService');
@@ -285,13 +306,19 @@ export async function unblockConnection(params: {
   }
   const t = machines.connection(conn.status, 'Active');
   if (!t.ok) return fail('StateConflict', 'CONN_BAD_STATE', t.reason!, 'Connection was not unblocked.');
+  const pharmacy = await db.businesses.get(conn.pharmacyId);
   const ts = new Date().toISOString();
   await db.connections.update(conn.id, {
     status: 'Active',
     updatedAt: ts,
     statusHistory: [...conn.statusHistory, { from: conn.status, to: 'Active', at: ts, actorId: params.actor.id }],
   });
-  await notifyBusinessUsers(conn.pharmacyId, 'N-011', { pharmacy: '', stockist: params.stockist.name }, { type: 'Connection', id: conn.id });
+  await notifyBusinessUsers(
+    conn.pharmacyId,
+    'N-011',
+    { pharmacy: pharmacy?.name ?? '', stockist: params.stockist.name },
+    { type: 'Connection', id: conn.id },
+  );
   await writeAudit({
     actorId: params.actor.id,
     actorName: params.actor.name,

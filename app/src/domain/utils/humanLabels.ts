@@ -23,6 +23,12 @@ const ACTION_LABELS: Partial<Record<Action, string>> = {
   'delivery.assign': 'Assign deliveries',
   'delivery.update': 'Update deliveries',
   'staff.manage': 'Manage staff',
+  'support.manage': 'Manage support',
+  'verification.review': 'Review verifications',
+  'business.suspend': 'Suspend businesses',
+  'announcement.manage': 'Manage announcements',
+  'audit.export': 'Export audit',
+  'counterfeit.review': 'Review counterfeit reports',
 };
 
 const CATEGORY_LABELS: Record<string, string> = {

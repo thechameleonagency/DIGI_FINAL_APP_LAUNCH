@@ -1,6 +1,6 @@
 import type { Address, Business, BusinessType, User, VerificationDocKind, VerificationDocument } from '../domain/entities/types';
 import { fail, ok, type Result } from '../domain/errors/types';
-import { can } from '../domain/permissions';
+import { can, normalizeRoleForBusiness } from '../domain/permissions';
 import { DEMO_OTP, hashPassword, randomSalt, verifyPassword } from '../domain/utils/crypto';
 import { newId } from '../domain/utils/ids';
 import {
@@ -17,6 +17,7 @@ import {
   normalizePhone,
 } from '../domain/utils/validation';
 import { db } from '../data/db';
+import { defaultPlatformSettings } from '../data/seed';
 import { writeAudit } from './audit';
 import { storeFile } from './fileService';
 import { emitNotification, notifyBusinessUsers } from './notifications';
@@ -27,6 +28,132 @@ export type RegistrationDocInput = {
   licenseNumber?: string;
   file: { name: string; mime: string; size: number; dataUrl: string };
 };
+
+/** Platform staff roles — SuperAdmin / SupportManager only. */
+export function isPlatformStaffRole(role: string): boolean {
+  return role === 'SuperAdmin' || role === 'SupportManager';
+}
+
+/** True when no platform staff exist yet (first-boot SuperAdmin setup is allowed). */
+export async function needsFirstSuperAdmin(): Promise<boolean> {
+  const count = await db.users.filter((u) => isPlatformStaffRole(u.role)).count();
+  return count === 0;
+}
+
+/**
+ * One-time empty-state bootstrap: create Platform business + first SuperAdmin.
+ * Does not seed demo data and does not open a session — caller must sign in.
+ */
+export async function createFirstSuperAdmin(input: {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+}): Promise<Result<{ user: User; business: Business }>> {
+  if (!(await needsFirstSuperAdmin())) {
+    return fail(
+      'BusinessRule',
+      'AUTH_PLATFORM_EXISTS',
+      'A platform admin already exists. Sign in or ask an existing SuperAdmin to invite SupportManager staff.',
+      'First SuperAdmin was not created.',
+    );
+  }
+  if (!input.name.trim()) {
+    return fail('Validation', 'AUTH_REQUIRED', 'Name is required.', 'First SuperAdmin was not created.');
+  }
+  if (!isEmail(input.email)) {
+    return fail('Validation', 'AUTH_EMAIL_BAD', 'Enter a valid email address.', 'First SuperAdmin was not created.', {
+      fields: { email: 'Invalid email' },
+    });
+  }
+  if (!isPhone(input.phone)) {
+    return fail('Validation', 'AUTH_PHONE_BAD', 'Enter a valid 10-digit Indian mobile number.', 'First SuperAdmin was not created.', {
+      fields: { phone: 'Invalid phone' },
+    });
+  }
+  if (input.password.length < 6) {
+    return fail('Validation', 'AUTH_WEAK_PASSWORD', 'Password must be at least 6 characters.', 'First SuperAdmin was not created.', {
+      fields: { password: 'Min 6 characters' },
+    });
+  }
+
+  const phone = normalizePhone(input.phone);
+  const email = input.email.trim().toLowerCase();
+  const emailExists = await db.users.filter((u) => u.email.toLowerCase() === email).count();
+  if (emailExists) {
+    return fail('Duplicate', 'AUTH_EMAIL_DUP', 'An account with this email already exists.', 'First SuperAdmin was not created.');
+  }
+  const phoneExists = await db.users.filter((u) => normalizePhone(u.phone) === phone).count();
+  if (phoneExists) {
+    return fail('Duplicate', 'AUTH_PHONE_DUP', 'An account with this phone already exists.', 'First SuperAdmin was not created.');
+  }
+
+  const ts = new Date().toISOString();
+  const salt = randomSalt();
+  const passwordHash = await hashPassword(input.password, salt);
+
+  const existingPlatform = await db.businesses.filter((b) => b.type === 'Platform').first();
+  const businessId = existingPlatform?.id ?? newId();
+  const userId = newId();
+
+  const business: Business = existingPlatform
+    ? {
+        ...existingPlatform,
+        ownerUserId: existingPlatform.ownerUserId || userId,
+        updatedAt: ts,
+      }
+    : {
+        id: businessId,
+        type: 'Platform',
+        name: 'DigiSwasthya Platform',
+        phone,
+        email,
+        city: 'Pune',
+        state: 'Maharashtra',
+        pincode: '411001',
+        address: 'Platform operations',
+        accountStatus: 'Active',
+        verificationStatus: 'Approved',
+        ownerUserId: userId,
+        createdAt: ts,
+        updatedAt: ts,
+      };
+
+  const user: User = {
+    id: userId,
+    businessId,
+    name: input.name.trim(),
+    email,
+    phone,
+    role: 'SuperAdmin',
+    status: 'Active',
+    passwordSalt: salt,
+    passwordHash,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+
+  await db.transaction('rw', db.businesses, db.users, db.platformSettings, async () => {
+    const settings = await db.platformSettings.get('platform');
+    if (!settings) {
+      await db.platformSettings.put(defaultPlatformSettings());
+    }
+    await db.businesses.put(business);
+    await db.users.add(user);
+  });
+
+  await writeAudit({
+    actorId: user.id,
+    actorName: user.name,
+    businessId,
+    entityType: 'User',
+    entityId: user.id,
+    action: 'auth.firstSuperAdmin.create',
+    after: { email: user.email, role: user.role },
+  });
+
+  return ok({ user, business });
+}
 
 export async function login(emailOrPhone: string, password: string): Promise<Result<{ user: User; business: Business }>> {
   const key = emailOrPhone.trim().toLowerCase();
@@ -196,7 +323,7 @@ export async function registerBusiness(input: {
     state: input.state.trim(),
     pincode: input.pincode.trim(),
     address: input.address.trim(),
-    accountStatus: 'Active',
+    accountStatus: 'PendingActivation',
     verificationStatus: 'Submitted',
     ownerUserId: userId,
     upiId: input.upiId?.trim() || undefined,
@@ -215,7 +342,7 @@ export async function registerBusiness(input: {
     name: input.ownerName.trim(),
     email: input.email.trim().toLowerCase(),
     phone,
-    role: 'Owner',
+    role: input.type === 'Stockist' ? 'Stockist' : 'Pharmacist',
     status: 'Active',
     passwordSalt: salt,
     passwordHash,
@@ -267,7 +394,7 @@ export async function registerBusiness(input: {
     vars: { businessName: business.name },
   });
 
-  const admins = await db.users.filter((u) => ['Admin', 'SuperAdmin', 'SupportAgent'].includes(u.role)).toArray();
+  const admins = await db.users.filter((u) => ['SuperAdmin', 'SupportManager'].includes(u.role)).toArray();
   for (const a of admins) {
     await emitNotification({
       userId: a.id,
@@ -359,7 +486,7 @@ export async function getInvitePreview(
 export function assertCan(user: User, business: Business, action: Parameters<typeof can>[0]) {
   return can(action, {
     businessType: business.type as BusinessType,
-    role: user.role,
+    role: normalizeRoleForBusiness(user.role, business.type as BusinessType),
     accountStatus: business.accountStatus,
     verificationStatus: business.verificationStatus,
     overrides: user.permissionOverrides,
@@ -425,8 +552,22 @@ export async function inviteStaff(params: {
 }): Promise<Result<User>> {
   const perm = assertCan(params.actor, params.business, 'staff.manage');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Staff was not invited.');
-  if (params.role === 'Owner') {
-    return fail('Permission', 'STAFF_OWNER_INVITE', 'Cannot invite as Owner. Transfer ownership instead.', 'Staff was not invited.');
+  if (params.role === 'Pharmacist' || params.role === 'Stockist' || params.role === 'SuperAdmin') {
+    return fail(
+      'Permission',
+      'STAFF_PRIMARY_INVITE',
+      'Cannot invite as the primary business role. Invite DeliveryStaff (or SupportManager on platform) instead.',
+      'Staff was not invited.',
+    );
+  }
+  if (params.business.type === 'Pharmacy' && params.role !== 'DeliveryStaff') {
+    return fail('Validation', 'STAFF_ROLE', 'Pharmacy staff invites are DeliveryStaff only.', 'Staff was not invited.');
+  }
+  if (params.business.type === 'Stockist' && params.role !== 'DeliveryStaff') {
+    return fail('Validation', 'STAFF_ROLE', 'Stockist staff invites are DeliveryStaff only.', 'Staff was not invited.');
+  }
+  if (params.business.type === 'Platform' && params.role !== 'SupportManager') {
+    return fail('Validation', 'STAFF_ROLE', 'Platform invites are SupportManager only.', 'Staff was not invited.');
   }
   if (!params.name.trim() || !params.email.trim() || !params.phone.trim()) {
     return fail('Validation', 'STAFF_FIELDS', 'Name, email, and phone are required.', 'Staff was not invited.');

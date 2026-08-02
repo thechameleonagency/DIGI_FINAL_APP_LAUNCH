@@ -6,6 +6,7 @@ import { lowStock, productAvailableSellable } from '../../../domain/calc';
 import { formatINR } from '../../../domain/utils/money';
 import { setCartLine } from '../../../services/catalogueService';
 import { requestConnection } from '../../../services/connectionService';
+import { isFavouritePinned } from '../../../services/favouriteService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
@@ -41,7 +42,7 @@ export function PharmacyMarketplace({ embedded = false }: { embedded?: boolean }
   const connections = useLiveQuery(() => db.connections.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const favourites =
     useLiveQuery(() => db.favourites.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
-  const favIds = new Set(favourites.map((f) => f.stockistId));
+  const favIds = new Set(favourites.filter(isFavouritePinned).map((f) => f.stockistId));
   const catalogues = useLiveQuery(() => db.catalogues.toArray()) ?? [];
   const products = useLiveQuery(() => db.products.filter((p) => p.status === 'Active').toArray()) ?? [];
   const stockistIdsKey = useMemo(

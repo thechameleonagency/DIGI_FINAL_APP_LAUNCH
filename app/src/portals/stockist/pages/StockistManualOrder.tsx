@@ -50,6 +50,11 @@ export function StockistManualOrder() {
       [business.id],
     ) ?? [];
   const batches = useLiveQuery(() => db.batches.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const catalogue = useLiveQuery(
+    () => db.catalogues.where('stockistId').equals(business.id).first(),
+    [business.id],
+  );
+  const settings = useLiveQuery(() => db.platformSettings.get('platform'));
 
   const [target, setTarget] = useState(managedParam ? `m:${managedParam}` : '');
   const [pickProductId, setPickProductId] = useState('');
@@ -68,6 +73,8 @@ export function StockistManualOrder() {
   );
 
   const hasTargets = activePharmacies.length > 0 || managedList.length > 0;
+  const catalogueBlocked = !catalogue || catalogue.status !== 'Active';
+  const maintenanceOn = !!settings?.maintenanceMode;
 
   const sellable: QuickOrderSeller[] = useMemo(
     () =>
@@ -170,8 +177,23 @@ export function StockistManualOrder() {
             </Link>
           }
         />
+      ) : catalogueBlocked ? (
+        <EmptyState
+          title="Catalogue not Active"
+          description="Activate your catalogue before recording manual orders. Maintenance or Inactive catalogues cannot accept new lines."
+          action={
+            <Link className="btn btn-primary" to="/stockist/catalogue">
+              Open catalogue
+            </Link>
+          }
+        />
       ) : (
         <div className="card card-pad stack">
+          {maintenanceOn ? (
+            <div className="banner-strip warning" style={{ fontSize: 13 }}>
+              Platform maintenance is on — new orders are paused until the banner clears.
+            </div>
+          ) : null}
           <Field label="Pharmacy">
             <Select value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">Select…</option>
@@ -324,7 +346,7 @@ export function StockistManualOrder() {
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <strong>Est. subtotal {formatINR(total)}</strong>
             <Button
-              disabled={busy || !target || !lines.length}
+              disabled={busy || !target || !lines.length || maintenanceOn}
               onClick={() =>
                 void run(async () => {
                   const managedPharmacyId = target.startsWith('m:') ? target.slice(2) : undefined;

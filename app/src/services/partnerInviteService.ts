@@ -125,6 +125,17 @@ export async function withdrawPartnerInvite(params: {
   }
   const next = { ...invite, status: 'Withdrawn' as const };
   await db.partnerInvites.put(next);
+  if (invite.managedPharmacyId) {
+    const managed = await db.managedPharmacies.get(invite.managedPharmacyId);
+    if (managed && managed.stockistId === params.stockist.id && managed.status === 'Invited') {
+      await db.managedPharmacies.put({
+        ...managed,
+        status: 'OfflineOnly',
+        inviteId: undefined,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
   await writeAudit({
     actorId: params.actor.id,
     actorName: params.actor.name,
@@ -159,12 +170,15 @@ export async function matchPartnerInvitesOnRegistration(params: {
         inviteId: invite.id,
         pharmacyBusinessId: params.pharmacyId,
       });
-      // Auto Active connection for invite-from-managed flow
+      // Auto Active connection for invite-from-managed flow (never override Blocked).
       const existing = await db.connections
         .where({ pharmacyId: params.pharmacyId, stockistId: invite.stockistId })
         .first();
+      const managed = await db.managedPharmacies.get(invite.managedPharmacyId);
+      const creditDays = managed?.creditDays ?? 30;
+      const creditLimit = managed?.creditLimit ?? 100000;
+      const ts = new Date().toISOString();
       if (!existing) {
-        const ts = new Date().toISOString();
         await db.connections.add({
           id: newId(),
           pharmacyId: params.pharmacyId,
@@ -172,14 +186,35 @@ export async function matchPartnerInvitesOnRegistration(params: {
           status: 'Active',
           requestedAt: ts,
           respondedAt: ts,
-          creditDays: 30,
-          creditLimit: 100000,
-          statusHistory: [{ from: 'Draft', to: 'Active', at: ts, actorId: 'system' }],
+          creditDays,
+          creditLimit,
+          statusHistory: [{ from: 'Active', to: 'Active', at: ts, actorId: 'system' }],
           createdAt: ts,
           updatedAt: ts,
         });
-        await markPartnerInvitesConnected({ pharmacyId: params.pharmacyId, stockistId: invite.stockistId });
+      } else if (existing.status === 'Blocked') {
+        // Stockist explicitly blocked — keep Blocked; managed is Linked for history only.
+      } else if (existing.status !== 'Active') {
+        // Reactivate Disconnected / Rejected / Cancelled / Requested with managed credit terms.
+        await db.connections.put({
+          ...existing,
+          status: 'Active',
+          respondedAt: ts,
+          creditDays: managed?.creditDays ?? existing.creditDays ?? creditDays,
+          creditLimit: managed?.creditLimit ?? existing.creditLimit ?? creditLimit,
+          updatedAt: ts,
+          statusHistory: [
+            ...existing.statusHistory,
+            { from: existing.status, to: 'Active', at: ts, actorId: 'system' },
+          ],
+        });
       }
+    }
+    const conn = await db.connections
+      .where({ pharmacyId: params.pharmacyId, stockistId: invite.stockistId })
+      .first();
+    if (conn?.status === 'Active') {
+      await markPartnerInvitesConnected({ pharmacyId: params.pharmacyId, stockistId: invite.stockistId });
     }
     await notifyBusinessUsers(
       invite.stockistId,

@@ -31,7 +31,7 @@ export function AdminSupport() {
   const { items: tickets, loading: ticketsLoading } = useLiveArray(() => db.supportTickets.toArray());
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
   const users = useLiveQuery(() => db.users.toArray()) ?? [];
-  const agents = users.filter((u) => ['Admin', 'SuperAdmin', 'SupportAgent'].includes(u.role) && u.status === 'Active');
+  const agents = users.filter((u) => ['SuperAdmin', 'SupportManager'].includes(u.role) && u.status === 'Active');
   const statusFromUrl = searchParams.get('status') ?? undefined;
 
   const rows = useMemo(

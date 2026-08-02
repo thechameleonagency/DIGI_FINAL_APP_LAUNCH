@@ -45,75 +45,113 @@ export type Action =
   | 'read.own'
   | 'read.platform'
   | 'sale.record'
+  /** Delivery-board / read context only — never gates POS; use sale.record for /pharmacy/sales. */
   | 'sale.view';
 
+/** Pharmacy: Pharmacist = full business ops; DeliveryStaff = customer delivery only. */
 const pharmacyMatrix: Record<OperationalRole, Action[]> = {
-  Owner: [
-    'trade.create', 'order.place', 'order.cancel', 'payment.submit', 'return.raise', 'credit.apply',
-    'connection.request', 'staff.manage', 'verification.submit', 'inventory.adjust', 'read.own', 'support.manage',
-    'sale.record', 'sale.view', 'counterfeit.report',
+  Pharmacist: [
+    'trade.create',
+    'order.place',
+    'order.cancel',
+    'payment.submit',
+    'return.raise',
+    'credit.apply',
+    'connection.request',
+    'staff.manage',
+    'verification.submit',
+    'inventory.adjust',
+    'read.own',
+    'support.manage',
+    'sale.record',
+    'sale.view',
+    'counterfeit.report',
+    'delivery.assign',
+    'delivery.update',
+    'route.manage',
   ],
-  Manager: [
-    'trade.create', 'order.place', 'order.cancel', 'payment.submit', 'return.raise', 'credit.apply',
-    'connection.request', 'staff.manage', 'verification.submit', 'inventory.adjust', 'read.own', 'support.manage',
-    'sale.record', 'sale.view', 'counterfeit.report',
-  ],
-  Staff: [
-    'order.place', 'order.cancel', 'return.raise', 'connection.request', 'inventory.adjust', 'read.own', 'support.manage',
-    'sale.record', 'sale.view', 'counterfeit.report',
-  ],
-  Accountant: ['payment.submit', 'credit.apply', 'read.own', 'support.manage', 'sale.view'],
-  DeliveryBoy: ['delivery.update', 'read.own', 'sale.view'],
-  SupportAgent: [],
-  Admin: [],
+  // support.manage kept so DeliveryStaff can open Support tickets about deliveries (help channel).
+  // Partner Messages are gated separately via trade actions (order.place), not this flag.
+  DeliveryStaff: ['delivery.update', 'read.own', 'sale.view', 'support.manage'], // sale.view = delivery context only; POS uses sale.record
+  Stockist: [],
+  SupportManager: [],
   SuperAdmin: [],
 };
 
+/** Stockist role = full distributor ops; DeliveryStaff = B2B delivery execute only. */
 const stockistMatrix: Record<OperationalRole, Action[]> = {
-  Owner: [
-    'trade.create', 'order.recordManual', 'order.accept', 'order.reject', 'order.cancel', 'order.allocate', 'order.pack',
-    'invoice.issue', 'invoice.void', 'payment.approve', 'payment.reject', 'payment.recordOffline', 'reminder.send',
-    'return.approve', 'credit.issue', 'credit.apply', 'delivery.assign', 'delivery.update', 'catalogue.manage',
-    'inventory.adjust', 'connection.respond', 'partner.invite', 'supplier.manage', 'po.manage', 'route.manage',
-    'staff.manage', 'verification.submit', 'read.own', 'support.manage', 'counterfeit.report',
+  Stockist: [
+    'trade.create',
+    'order.recordManual',
+    'order.accept',
+    'order.reject',
+    'order.cancel',
+    'order.allocate',
+    'order.pack',
+    'invoice.issue',
+    'invoice.void',
+    'payment.approve',
+    'payment.reject',
+    'payment.recordOffline',
+    'reminder.send',
+    'return.approve',
+    'credit.issue',
+    'credit.apply',
+    'delivery.assign',
+    'delivery.update',
+    'catalogue.manage',
+    'inventory.adjust',
+    'connection.respond',
+    'partner.invite',
+    'supplier.manage',
+    'po.manage',
+    'route.manage',
+    'staff.manage',
+    'verification.submit',
+    'read.own',
+    'support.manage',
+    'counterfeit.report',
   ],
-  Manager: [
-    'trade.create', 'order.recordManual', 'order.accept', 'order.reject', 'order.cancel', 'order.allocate', 'order.pack',
-    'invoice.issue', 'payment.approve', 'payment.reject', 'payment.recordOffline', 'reminder.send', 'return.approve',
-    'credit.issue', 'credit.apply', 'delivery.assign', 'delivery.update', 'catalogue.manage', 'inventory.adjust',
-    'connection.respond', 'partner.invite', 'supplier.manage', 'po.manage', 'route.manage', 'staff.manage',
-    'verification.submit', 'read.own', 'support.manage', 'counterfeit.report',
-  ],
-  Staff: [
-    'order.accept', 'order.reject', 'order.allocate', 'order.pack', 'delivery.assign', 'delivery.update',
-    'catalogue.manage', 'inventory.adjust', 'read.own', 'support.manage', 'counterfeit.report',
-  ],
-  Accountant: [
-    'invoice.issue', 'payment.approve', 'payment.reject', 'payment.recordOffline', 'reminder.send', 'credit.issue',
-    'credit.apply', 'read.own', 'support.manage',
-  ],
-  DeliveryBoy: ['delivery.update', 'read.own'],
-  SupportAgent: [],
-  Admin: [],
+  // support.manage kept so DeliveryStaff can open Support tickets about deliveries (help channel).
+  // Partner Messages are gated separately via trade actions (order.accept), not this flag.
+  DeliveryStaff: ['delivery.update', 'read.own', 'support.manage'],
+  Pharmacist: [],
+  SupportManager: [],
   SuperAdmin: [],
 };
 
+/**
+ * Platform: SupportManager + SuperAdmin only.
+ * Split: SupportManager may staff.manage (invite SupportManagers) but not settings.manage / plan.manage / impersonate.
+ * SuperAdmin alone owns platform settings, plans, and view-as.
+ */
 const adminMatrix: Record<OperationalRole, Action[]> = {
-  SupportAgent: ['support.manage', 'read.platform'],
-  Admin: [
-    'verification.review', 'business.suspend', 'support.manage', 'announcement.manage',
-    'read.platform', 'audit.export', 'staff.manage', 'counterfeit.review',
+  SupportManager: [
+    'verification.review',
+    'business.suspend',
+    'support.manage',
+    'announcement.manage',
+    'read.platform',
+    'audit.export',
+    'staff.manage',
+    'counterfeit.review',
   ],
   SuperAdmin: [
-    'verification.review', 'business.suspend', 'support.manage', 'announcement.manage',
-    'settings.manage', 'plan.manage', 'read.platform', 'audit.export', 'staff.manage', 'counterfeit.review',
+    'verification.review',
+    'business.suspend',
+    'support.manage',
+    'announcement.manage',
+    'settings.manage',
+    'plan.manage',
+    'read.platform',
+    'audit.export',
+    'staff.manage',
+    'counterfeit.review',
     'impersonate',
   ],
-  Owner: [],
-  Manager: [],
-  Staff: [],
-  Accountant: [],
-  DeliveryBoy: [],
+  Pharmacist: [],
+  Stockist: [],
+  DeliveryStaff: [],
 };
 
 export interface PermissionContext {
@@ -146,9 +184,35 @@ export function can(action: Action, ctx: PermissionContext): { allow: boolean; r
   }
 
   const tradeActions: Action[] = [
-    'order.place', 'order.recordManual', 'order.accept', 'connection.request', 'connection.respond', 'catalogue.manage',
-    'invoice.issue', 'payment.submit', 'payment.approve', 'payment.recordOffline', 'return.raise', 'return.approve',
+    'order.place',
+    'order.recordManual',
+    'order.accept',
+    'order.reject',
+    'order.cancel',
+    'order.allocate',
+    'order.pack',
+    'connection.request',
+    'connection.respond',
+    'catalogue.manage',
+    'invoice.issue',
+    'invoice.void',
+    'payment.submit',
+    'payment.approve',
+    'payment.reject',
+    'payment.recordOffline',
+    'return.raise',
+    'return.approve',
     'partner.invite',
+    'delivery.assign',
+    'delivery.update',
+    'inventory.adjust',
+    'credit.issue',
+    'credit.apply',
+    'sale.record',
+    'supplier.manage',
+    'po.manage',
+    'reminder.send',
+    'route.manage',
   ];
   if (
     tradeActions.includes(action) &&
@@ -178,4 +242,43 @@ export function portalFor(type: BusinessType): 'pharmacy' | 'stockist' | 'admin'
   if (type === 'Pharmacy') return 'pharmacy';
   if (type === 'Stockist') return 'stockist';
   return 'admin';
+}
+
+/** Map legacy seed/session roles onto the simplified matrix. */
+export function normalizeOperationalRole(role: string): OperationalRole {
+  switch (role) {
+    case 'Pharmacist':
+    case 'Stockist':
+    case 'DeliveryStaff':
+    case 'SupportManager':
+    case 'SuperAdmin':
+      return role;
+    case 'Owner':
+    case 'Manager':
+    case 'Staff':
+    case 'Accountant':
+      return 'Pharmacist';
+    case 'DeliveryBoy':
+      return 'DeliveryStaff';
+    case 'SupportAgent':
+    case 'Admin':
+      return 'SupportManager';
+    case 'CompanyOwner':
+      return 'Stockist';
+    default:
+      return 'Pharmacist';
+  }
+}
+
+export function normalizeRoleForBusiness(role: string, businessType: BusinessType): OperationalRole {
+  if (role === 'DeliveryStaff' || role === 'DeliveryBoy') return 'DeliveryStaff';
+  if (businessType === 'Platform') {
+    if (role === 'SuperAdmin') return 'SuperAdmin';
+    return 'SupportManager';
+  }
+  if (businessType === 'Stockist') {
+    if (role === 'DeliveryStaff' || role === 'DeliveryBoy') return 'DeliveryStaff';
+    return 'Stockist';
+  }
+  return 'Pharmacist';
 }
