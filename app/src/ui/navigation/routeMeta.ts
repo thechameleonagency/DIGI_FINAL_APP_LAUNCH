@@ -40,6 +40,7 @@ const MODULE_LABELS: Record<string, string> = {
   analytics: 'Analytics',
   orders: 'Orders',
   payments: 'Payments',
+  trade: 'Trade',
   plans: 'Plans',
   returns: 'Returns',
   support: 'Support',
@@ -63,13 +64,13 @@ const MODULE_LABELS: Record<string, string> = {
   wishlist: 'Wishlist',
   'smart-order': 'Smart order',
   history: 'History',
-  'quick-order': 'Quick order',
+  'quick-order': 'Smart order',
   sales: 'Sales',
   delivery: 'Delivery',
   invoices: 'Invoices',
   inventory: 'Inventory',
-  expiry: 'Expiry',
-  connections: 'Connections',
+  expiry: 'Near expiry',
+  connections: 'Circle',
   stockists: 'Stockists',
   ledger: 'Ledger',
   activity: 'Activity',
@@ -79,16 +80,71 @@ const MODULE_LABELS: Record<string, string> = {
   'delivery-preferences': 'Delivery preferences',
   more: 'Settings & data',
   'batch-ordering': 'Batch ordering',
-  pharmacies: 'Pharmacies',
+  pharmacies: 'Circle',
   managed: 'Managed',
   invites: 'Invites',
   catalogue: 'Catalogue',
+  products: 'Products',
+  settlements: 'Settlements',
+  suppliers: 'Offline suppliers',
   'price-history': 'Price history',
   movements: 'Movements',
   'bulk-bill': 'Bulk bill',
   procurement: 'Procurement',
   'credit-notes': 'Credit notes',
   'manual-order': 'Manual order',
+};
+
+/** Hub tab labels for breadcrumb last segment when `?tab=` is present. */
+const HUB_TAB_LABELS: Record<string, Record<string, string>> = {
+  '/pharmacy/payments': {
+    Outstanding: 'Outstanding',
+    History: 'History',
+    Credits: 'Credits',
+    Invoices: 'Invoices',
+  },
+  '/pharmacy/orders': {
+    Orders: 'Orders',
+    Recurring: 'Recurring',
+  },
+  '/stockist/payments': {
+    Payments: 'Payments',
+    Invoices: 'Invoices',
+    Settlements: 'Settlements',
+    'Credit notes': 'Credit notes',
+    CreditNotes: 'Credit notes',
+  },
+  '/stockist/products': {
+    products: 'Products',
+    batches: 'Batches',
+    price: 'Price',
+    import: 'Import',
+    schemes: 'Schemes',
+  },
+  '/stockist/orders': {
+    Inbox: 'Inbox',
+    Plan: 'Plan',
+    Manual: 'Manual',
+  },
+  '/stockist/pharmacies': {
+    Circle: 'Circle',
+    Platform: 'Platform',
+    Invited: 'Invited',
+    Offline: 'Offline',
+  },
+  '/stockist/delivery': {
+    Board: 'Board',
+    Routes: 'Routes',
+    Dates: 'Dates',
+    Fees: 'Fees',
+    PINs: 'PINs',
+    Holidays: 'Holidays',
+  },
+  '/admin/trade': {
+    Orders: 'Orders',
+    Payments: 'Payments',
+    Returns: 'Returns',
+  },
 };
 
 const DETAIL_ROUTES: RouteDef[] = [
@@ -112,7 +168,7 @@ const DETAIL_ROUTES: RouteDef[] = [
     pattern: '/admin/orders/:orderNo',
     crumbs: (p) => [
       home('admin'),
-      { label: 'Orders', to: '/admin/orders' },
+      { label: 'Trade', to: '/admin/trade' },
       { label: decode(p.orderNo) },
     ],
   },
@@ -120,7 +176,7 @@ const DETAIL_ROUTES: RouteDef[] = [
     pattern: '/admin/payments/:paymentNo',
     crumbs: (p) => [
       home('admin'),
-      { label: 'Payments', to: '/admin/payments' },
+      { label: 'Trade', to: '/admin/trade?tab=Payments' },
       { label: decode(p.paymentNo) },
     ],
   },
@@ -128,7 +184,7 @@ const DETAIL_ROUTES: RouteDef[] = [
     pattern: '/admin/returns/:returnNo',
     crumbs: (p) => [
       home('admin'),
-      { label: 'Returns', to: '/admin/returns' },
+      { label: 'Trade', to: '/admin/trade?tab=Returns' },
       { label: decode(p.returnNo) },
     ],
   },
@@ -160,7 +216,7 @@ const DETAIL_ROUTES: RouteDef[] = [
     pattern: '/pharmacy/invoices/:invoiceNo',
     crumbs: (p) => [
       home('pharmacy'),
-      { label: 'Invoices', to: '/pharmacy/invoices' },
+      { label: 'Payments', to: '/pharmacy/payments?tab=Invoices' },
       { label: decode(p.invoiceNo) },
     ],
   },
@@ -193,7 +249,7 @@ const DETAIL_ROUTES: RouteDef[] = [
     pattern: '/pharmacy/stockists/:stockistId',
     crumbs: (p) => [
       home('pharmacy'),
-      { label: 'Connections', to: '/pharmacy/connections' },
+      { label: 'Circle', to: '/pharmacy/connections' },
       { label: decode(p.stockistId).slice(0, 12) },
     ],
   },
@@ -201,7 +257,7 @@ const DETAIL_ROUTES: RouteDef[] = [
     pattern: '/pharmacy/ledger/:stockistId',
     crumbs: (p) => [
       home('pharmacy'),
-      { label: 'Connections', to: '/pharmacy/connections' },
+      { label: 'Circle', to: '/pharmacy/connections' },
       { label: 'Ledger' },
       { label: decode(p.stockistId).slice(0, 12) },
     ],
@@ -242,7 +298,7 @@ const DETAIL_ROUTES: RouteDef[] = [
     pattern: '/stockist/invoices/:invoiceNo',
     crumbs: (p) => [
       home('stockist'),
-      { label: 'Payments', to: '/stockist/payments' },
+      { label: 'Payments', to: '/stockist/payments?tab=Invoices' },
       { label: decode(p.invoiceNo) },
     ],
   },
@@ -258,7 +314,7 @@ const DETAIL_ROUTES: RouteDef[] = [
     pattern: '/stockist/pharmacies/managed/:managedId',
     crumbs: (p) => [
       home('stockist'),
-      { label: 'Pharmacies', to: '/stockist/pharmacies' },
+      { label: 'Circle', to: '/stockist/pharmacies' },
       { label: 'Managed' },
       { label: decode(p.managedId).slice(0, 12) },
     ],
@@ -267,7 +323,7 @@ const DETAIL_ROUTES: RouteDef[] = [
     pattern: '/stockist/pharmacies/:pharmacyId',
     crumbs: (p) => [
       home('stockist'),
-      { label: 'Pharmacies', to: '/stockist/pharmacies' },
+      { label: 'Circle', to: '/stockist/pharmacies' },
       { label: decode(p.pharmacyId).slice(0, 12) },
     ],
   },
@@ -303,8 +359,25 @@ function staticCrumbs(pathname: string, portal: Portal): Crumb[] | null {
   return crumbs;
 }
 
+function applyHubTabCrumb(crumbs: Crumb[], pathname: string, search: string): Crumb[] {
+  if (!search || !crumbs.length) return crumbs;
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const tab = params.get('tab');
+  if (!tab) return crumbs;
+  const tabMap = HUB_TAB_LABELS[pathname];
+  if (!tabMap) return crumbs;
+  const tabLabel = tabMap[tab];
+  if (!tabLabel) return crumbs;
+  const hub = crumbs[crumbs.length - 1];
+  const hubPath = pathname;
+  const next = crumbs.slice(0, -1);
+  next.push({ label: hub.label, to: hubPath });
+  next.push({ label: tabLabel });
+  return next;
+}
+
 /** Resolve breadcrumb trail for the current pathname within a portal. */
-export function resolveBreadcrumbs(pathname: string, portal: Portal): Crumb[] {
+export function resolveBreadcrumbs(pathname: string, portal: Portal, search = ''): Crumb[] {
   const path = pathname.split('?')[0] || pathname;
 
   for (const def of DETAIL_ROUTES) {
@@ -320,12 +393,18 @@ export function resolveBreadcrumbs(pathname: string, portal: Portal): Crumb[] {
     }
   }
 
-  return staticCrumbs(path, portal) ?? [home(portal)];
+  const base = staticCrumbs(path, portal) ?? [home(portal)];
+  const withTab = applyHubTabCrumb(base, path, search);
+  if (withTab.length) {
+    const last = withTab[withTab.length - 1];
+    withTab[withTab.length - 1] = { label: last.label };
+  }
+  return withTab;
 }
 
 /** Parent path for "Back" — previous crumb with a `to`, else portal home. */
-export function resolveParentPath(pathname: string, portal: Portal): string | null {
-  const crumbs = resolveBreadcrumbs(pathname, portal);
+export function resolveParentPath(pathname: string, portal: Portal, search = ''): string | null {
+  const crumbs = resolveBreadcrumbs(pathname, portal, search);
   if (crumbs.length <= 1) return null;
   for (let i = crumbs.length - 2; i >= 0; i--) {
     if (crumbs[i].to) return crumbs[i].to!;

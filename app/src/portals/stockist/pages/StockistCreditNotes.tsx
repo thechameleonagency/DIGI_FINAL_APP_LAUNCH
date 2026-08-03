@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
 import { applyCreditNote, issueGoodwillCreditNote } from '../../../services/paymentService';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, Modal, Money, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
-export function StockistCreditNotes() {
+/** Credit notes body — embeddable in Payments hub. */
+export function StockistCreditNotesPanel() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const notes = useLiveQuery(() => db.creditNotes.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
@@ -42,15 +43,11 @@ export function StockistCreditNotes() {
 
   return (
     <div className="stack">
-      <PageHeader
-        title="Credit notes"
-        subtitle="Return, Goodwill, and Advance sources"
-        actions={
-          <Button size="sm" onClick={() => setGwOpen(true)}>
-            Issue goodwill CN
-          </Button>
-        }
-      />
+      <div className="row" style={{ justifyContent: 'flex-end' }}>
+        <Button size="sm" onClick={() => setGwOpen(true)}>
+          Issue goodwill CN
+        </Button>
+      </div>
       <Modal
         open={gwOpen}
         title="Issue goodwill credit note"
@@ -262,4 +259,13 @@ export function StockistCreditNotes() {
       )}
     </div>
   );
+}
+
+/** Standalone route redirects into Payments hub. */
+export function StockistCreditNotes() {
+  const [params] = useSearchParams();
+  const next = new URLSearchParams(params);
+  next.set('tab', 'CreditNotes');
+  const qs = next.toString();
+  return <Navigate to={`/stockist/payments${qs ? `?${qs}` : ''}`} replace />;
 }

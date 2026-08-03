@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { localDayKey } from '../../../domain/utils/dateKeys';
 import { useUi } from '../../../store/ui';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { OrderDeliveriesPanel } from '../../../ui/components/OrderDeliveriesPanel';
 import { EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 
@@ -13,9 +14,11 @@ function dayKey(iso?: string): string {
   return localDayKey(iso);
 }
 
-export function AdminOrders() {
+export function AdminOrders({ embedded = false }: { embedded?: boolean }) {
   const { orderNo } = useParams();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('admin-orders');
+  const tableRef = useTableSectionRef();
   const navigate = useNavigate();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -99,13 +102,13 @@ export function AdminOrders() {
     if (!order) {
       return (
         <div className="stack">
-          <PageHeader title="Order detail" backTo="/admin/orders" backLabel="Back to orders" />
+          <PageHeader title="Order detail" backTo="/admin/trade?tab=Orders" backLabel="Back to trade" />
           <EmptyState
             title="Order not found"
             description="Return to the platform orders list."
             action={
-              <Link className="btn btn-primary" to="/admin/orders">
-                Back to orders
+              <Link className="btn btn-primary" to="/admin/trade?tab=Orders">
+                Back to trade
               </Link>
             }
           />
@@ -118,8 +121,8 @@ export function AdminOrders() {
         <PageHeader
           title={order.orderNo}
           subtitle={`${nameOf(order.pharmacyId)} → ${nameOf(order.stockistId)} · read-only`}
-          backTo="/admin/orders"
-          backLabel="Back to orders"
+          backTo="/admin/trade?tab=Orders"
+          backLabel="Back to trade"
         />
         <div className="row" style={{ gap: 8 }}>
           <StatusBadge status={order.status} />
@@ -183,7 +186,9 @@ export function AdminOrders() {
 
   return (
     <div className="stack">
-      <PageHeader title="Platform orders" subtitle="Read-only investigation — counterparty names + date filter" />
+      {!embedded ? (
+        <PageHeader title="Platform orders" subtitle="Read-only investigation — counterparty names + date filter" />
+      ) : null}
       <div className="row" style={{ alignItems: 'flex-end' }}>
         <Field label="From">
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -209,6 +214,9 @@ export function AdminOrders() {
       ) : (
         <>
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns}
             loading={ordersLoading}
             rows={list.pageRows}
@@ -217,7 +225,12 @@ export function AdminOrders() {
             onSort={list.toggleSort}
             onRowClick={(o) => navigate(`/admin/orders/${encodeURIComponent(o.orderNo)}`)}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

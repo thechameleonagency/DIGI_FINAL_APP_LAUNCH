@@ -7,6 +7,7 @@ import {
   fefoSort,
   invoiceOutstanding,
 } from '../domain/calc';
+import { estimateDeliveryFee } from '../domain/calc/deliveryCommerce';
 import { fail, ok, type Result } from '../domain/errors/types';
 import { machines } from '../domain/machines/transitions';
 import { localTodayKey } from '../domain/utils/dateKeys';
@@ -14,6 +15,7 @@ import { newId, nextNumber } from '../domain/utils/ids';
 import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
+import { estimateFeeForPair, getDeliveryRules, getDeliveryDates, getPinDeliverySettings } from './deliveryCommerceService';
 import { notifyBusinessUsers } from './notifications';
 import { nowIso } from '../domain/utils/clock';
 
@@ -254,6 +256,7 @@ export async function issueInvoice(params: {
     .filter((l) => (l.packedQty ?? l.allocatedQty ?? l.acceptedQty ?? 0) > 0)
     .map((l) => {
       const qty = l.packedQty ?? l.allocatedQty ?? l.acceptedQty ?? l.qty;
+      // Order-line scheme snapshot wins — do not re-pick schemes at invoice time.
       const calc = calcInvoiceLine({ qty, unitPrice: l.unitPrice, gstPercent: l.gstPercent });
       return {
         productId: l.productId,
@@ -265,32 +268,61 @@ export async function issueInvoice(params: {
         ...calc,
         batchNumber: l.batchAllocations?.[0]?.batchNumber,
         expiryDate: l.batchAllocations?.[0]?.expiryDate,
+        ...(l.schemeId
+          ? {
+              schemeId: l.schemeId,
+              schemeTitle: l.schemeTitle,
+              schemeDiscountAmount: l.schemeDiscountAmount,
+              unitPriceBeforeScheme: l.unitPriceBeforeScheme,
+            }
+          : {}),
       };
     });
   if (!billableLines.length) {
     return fail('Validation', 'INV_EMPTY', 'No billable quantities.', 'Invoice was not issued.');
   }
 
-  // CF-18: optional delivery fee at issue time (immutable thereafter — E-CF-18b)
-  const feeFlat = params.stockist.preferences?.deliveryFeeFlat ?? 0;
-  const feeFreeAbove = params.stockist.preferences?.deliveryFeeFreeAbove;
-  if (feeFlat > 0) {
-    const goodsSubtotal = billableLines.reduce((s, l) => s + l.lineSubtotal, 0);
-    const waive = feeFreeAbove != null && feeFreeAbove > 0 && goodsSubtotal >= feeFreeAbove;
-    if (!waive) {
-      const feeCalc = calcInvoiceLine({ qty: 1, unitPrice: feeFlat, gstPercent: 0 });
-      billableLines.push({
-        productId: 'delivery-fee',
-        productName: 'Delivery charge',
-        sku: 'DEL-FEE',
-        qty: 1,
-        unitPrice: feeFlat,
-        gstPercent: 0,
-        ...feeCalc,
-        batchNumber: undefined,
-        expiryDate: undefined,
-      });
-    }
+  // CF-18 / delivery commerce: fee from rules (or prefs fallback via getDeliveryRules)
+  const goodsSubtotal = billableLines.reduce((s, l) => s + l.lineSubtotal, 0);
+  const preferredDate = order.preferredDate ?? order.preferredDeliveryDate;
+  const pharmacy = await db.businesses.get(order.pharmacyId);
+  let fee = 0;
+  if (pharmacy) {
+    const estimated = await estimateFeeForPair({
+      stockist: params.stockist,
+      pharmacy,
+      goodsSubtotal,
+      preferredDate,
+    });
+    fee = estimated.fee;
+  } else {
+    const [rules, dates, pins] = await Promise.all([
+      getDeliveryRules(params.stockist.id),
+      getDeliveryDates(params.stockist.id),
+      getPinDeliverySettings(params.stockist.id),
+    ]);
+    fee = estimateDeliveryFee({
+      rules,
+      goodsSubtotal,
+      preferredDate,
+      deliveryDates: dates,
+      pinSettings: pins,
+      pharmacyPin: order.deliveryAddress?.pincode,
+    }).fee;
+  }
+  if (fee > 0) {
+    const feeCalc = calcInvoiceLine({ qty: 1, unitPrice: fee, gstPercent: 0 });
+    billableLines.push({
+      productId: 'delivery-fee',
+      productName: 'Delivery charge',
+      sku: 'DEL-FEE',
+      qty: 1,
+      unitPrice: fee,
+      gstPercent: 0,
+      ...feeCalc,
+      batchNumber: undefined,
+      expiryDate: undefined,
+    });
   }
 
   const totals = calcInvoiceTotals(billableLines, settings?.roundingMode ?? 'nearest');

@@ -1,11 +1,9 @@
 import {
-  BarChart3,
   Building2,
   ClipboardList,
   CreditCard,
   FileText,
   Home,
-  Layers,
   MessageSquare,
   Package,
   PenLine,
@@ -14,7 +12,7 @@ import {
   ShoppingBag,
   Truck,
 } from 'lucide-react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
 import { RequirePermission } from '../../app/guards';
 import { AnnouncementsArchivePage } from '../../ui/components/AnnouncementsArchivePage';
 import { AppearancePage } from '../../ui/components/AppearanceControls';
@@ -22,13 +20,11 @@ import { NotFoundPage } from '../../ui/components/NotFoundPage';
 import { AppShell } from '../../ui/layout/AppShell';
 import {
   StockistAnalytics,
-  StockistCatalogue,
   StockistProducts,
   StockistCreditNotes,
   StockistDelivery,
   StockistHome,
   StockistExpiry,
-  StockistInventory,
   StockistInvoiceDetail,
   StockistMovements,
   StockistMessages,
@@ -36,7 +32,6 @@ import {
   StockistOrderDetail,
   StockistOrders,
   StockistManualOrder,
-  StockistPartnerInvites,
   StockistBulkBill,
   StockistProcurement,
   StockistPriceHistory,
@@ -90,15 +85,11 @@ const nav = [
   },
   { to: '/stockist', label: 'Home', icon: Home, end: true, section: 'Trade' },
   { to: '/stockist/orders', label: 'Orders', icon: ClipboardList, section: 'Trade', requires: 'order.accept' as const },
-  { to: '/stockist/batch-ordering', label: 'Batch plan', icon: Layers, section: 'Trade', requires: 'order.allocate' as const },
   { to: '/stockist/pharmacies', label: 'Circle', icon: Building2, section: 'Trade', requires: 'connection.respond' as const },
   { to: '/stockist/products', label: 'Products', icon: Package, section: 'Stock', requires: 'catalogue.manage' as const },
   { to: '/stockist/delivery', label: 'Delivery', icon: Truck, section: 'Stock', requires: 'delivery.update' as const },
   { to: '/stockist/payments', label: 'Payments', icon: CreditCard, section: 'Money', requires: 'payment.approve' as const },
-  { to: '/stockist/settlements', label: 'Settlements', icon: FileText, section: 'Money', requires: 'payment.approve' as const },
   { to: '/stockist/returns', label: 'Returns', icon: RotateCcw, section: 'Money', requires: 'return.approve' as const },
-  { to: '/stockist/credit-notes', label: 'Credit notes', icon: FileText, section: 'Money', requires: 'credit.issue' as const },
-  { to: '/stockist/analytics', label: 'Analytics', icon: BarChart3, section: 'Workspace', requires: 'order.accept' as const },
   { to: '/stockist/messages', label: 'Messages', icon: MessageSquare, section: 'Workspace', requires: 'order.accept' as const },
   { to: '/stockist/settings', label: 'Settings & data', icon: Settings, sticky: true },
 ];
@@ -106,10 +97,20 @@ const nav = [
 const mobileNav = [
   { to: '/stockist', label: 'Home', icon: Home, end: true },
   { to: '/stockist/orders', label: 'Orders', icon: ClipboardList, requires: 'order.accept' as const },
-  { to: '/stockist/delivery', label: 'Delivery', icon: Truck, requires: 'delivery.update' as const },
+  { to: '/stockist/products', label: 'Products', icon: Package, requires: 'catalogue.manage' as const },
+  { to: '/stockist/pharmacies', label: 'Circle', icon: Building2, requires: 'connection.respond' as const },
   { to: '/stockist/payments', label: 'Pay', icon: CreditCard, requires: 'payment.approve' as const },
-  { to: '/stockist/settings', label: 'Settings', icon: Settings },
+  { to: '/stockist/settings', label: 'More', icon: Settings },
 ];
+
+/** Preserve query params when retiring catalogue/inventory routes into Products hub. */
+function RedirectToProducts({ tab }: { tab: 'products' | 'batches' }) {
+  const [params] = useSearchParams();
+  const next = new URLSearchParams(params);
+  next.set('tab', tab);
+  const qs = next.toString();
+  return <Navigate to={`/stockist/products${qs ? `?${qs}` : ''}`} replace />;
+}
 
 export function StockistApp() {
   return (
@@ -132,15 +133,15 @@ export function StockistApp() {
           <Route path="pharmacies/:pharmacyId" element={<StockistPharmacyDetail />} />
         </Route>
         <Route element={<RequirePermission action="partner.invite" />}>
-          <Route path="invites" element={<StockistPartnerInvites />} />
+          <Route path="invites" element={<Navigate to="/stockist/pharmacies?tab=Invited" replace />} />
         </Route>
         <Route element={<RequirePermission action="catalogue.manage" />}>
           <Route path="products" element={<StockistProducts />} />
-          <Route path="catalogue" element={<Navigate to="/stockist/products?tab=products" replace />} />
+          <Route path="catalogue" element={<RedirectToProducts tab="products" />} />
           <Route path="price-history" element={<StockistPriceHistory />} />
         </Route>
         <Route element={<RequirePermission action="inventory.adjust" />}>
-          <Route path="inventory" element={<Navigate to="/stockist/products?tab=batches" replace />} />
+          <Route path="inventory" element={<RedirectToProducts tab="batches" />} />
           <Route path="movements" element={<StockistMovements />} />
           <Route path="expiry" element={<StockistExpiry />} />
         </Route>

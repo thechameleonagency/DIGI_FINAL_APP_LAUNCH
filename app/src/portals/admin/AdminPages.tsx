@@ -6,6 +6,7 @@ export { AdminOrders } from './pages/AdminOrders';
 export { AdminPayments } from './pages/AdminPayments';
 export { AdminReturns } from './pages/AdminReturns';
 export { AdminReturnDetail } from './pages/AdminReturnDetail';
+export { AdminTrade } from './pages/AdminTrade';
 export { AdminAnalytics } from './pages/AdminAnalytics';
 export { AdminSupport } from './pages/AdminSupport';
 export { AdminAnnouncements } from './pages/AdminAnnouncements';

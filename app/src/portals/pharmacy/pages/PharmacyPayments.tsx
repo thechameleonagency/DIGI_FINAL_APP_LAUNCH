@@ -11,9 +11,11 @@ import { parseNumberInput } from '../../../domain/utils/validation';
 import { applyCreditNote, submitPayment } from '../../../services/paymentService';
 import { useUi } from '../../../store/ui';
 import { FileLink, FileUpload } from '../../../ui/components/FileUpload';
+import { ListPageChrome } from '../../../ui/components/ListPageChrome';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
-import { ListToolbar, PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
+import { ListToolbar, PaginationBar, usePagedRows, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { ShortcutHints } from '../../../ui/components/ShortcutHints';
 import {
   Button,
@@ -23,21 +25,30 @@ import {
   LoadingState,
   Modal,
   Money,
-  PageHeader,
   Select,
   StatusBadge,
   TabPanel,
-  Tabs,
 } from '../../../ui/components/primitives';
+import { PharmacyInvoicesPanel } from './PharmacyInvoices';
 import { useBiz } from './useBiz';
 
 const METHODS: Payment['method'][] = ['UPI', 'NEFT', 'RTGS', 'Cheque', 'Cash', 'Other'];
+type PayTab = 'Outstanding' | 'History' | 'Credits' | 'Invoices';
+
+function parsePayTab(raw: string | null, paymentFocus: string | null, credit: string | null): PayTab {
+  if (raw === 'Outstanding' || raw === 'History' || raw === 'Credits' || raw === 'Invoices') return raw;
+  if (credit) return 'Credits';
+  if (paymentFocus) return 'History';
+  return 'Outstanding';
+}
 
 export function PharmacyPayments() {
   const { business, user } = useBiz();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const { pushToast } = useUi();
   const { busy: submitting, run: runSubmit } = useBusyAction();
+  const { pageSize, setPageSize } = usePersistedPageSize('pharmacy-payments');
+  const tableRef = useTableSectionRef();
   const { items: invoices, loading: invoicesLoading } = useLiveArray(
     () => db.invoices.where('pharmacyId').equals(business.id).toArray(),
     [business.id],
@@ -57,11 +68,12 @@ export function PharmacyPayments() {
   const proofRequired = !!settings?.paymentProofMandatory;
   const initialStatus = params.get('status');
   const paymentFocus = params.get('payment');
-  const [tab, setTab] = useState<'Outstanding' | 'History' | 'Credits'>(() => {
-    if (params.get('tab') === 'Credits' || params.get('credit')) return 'Credits';
-    if (paymentFocus) return 'History';
-    return 'Outstanding';
-  });
+  const tab = parsePayTab(params.get('tab'), paymentFocus, params.get('credit'));
+  const setTab = (nextTab: PayTab) => {
+    const next = new URLSearchParams(params);
+    next.set('tab', nextTab);
+    setParams(next, { replace: true });
+  };
   const [highlightPayment, setHighlightPayment] = useState<string | null>(paymentFocus);
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [method, setMethod] = useState<Payment['method']>('UPI');
@@ -112,9 +124,9 @@ export function PharmacyPayments() {
         duePast: !!i.dueDate && localDayKey(i.dueDate) < today,
       }));
   }, [openInvoices, statusFilter, invoiceQuery, stockists]);
-  const invoiceList = usePagedRows(visibleInvoices, 7, `${statusFilter}|${invoiceQuery}`);
-  const paymentList = usePagedRows(payments);
-  const creditList = usePagedRows(credits);
+  const invoiceList = usePagedRows(visibleInvoices, pageSize, `${statusFilter}|${invoiceQuery}`);
+  const paymentList = usePagedRows(payments, pageSize);
+  const creditList = usePagedRows(credits, pageSize);
   const selectedEntries = Object.entries(selected).filter(([, amt]) => amt > 0);
   const selectedTotal = selectedEntries.reduce((s, [, amt]) => s + amt, 0);
   const selectedCount = selectedEntries.length;
@@ -127,17 +139,28 @@ export function PharmacyPayments() {
   }, [paymentFocus]);
 
   useEffect(() => {
+    if (params.get('credit')) setTab('Credits');
+  }, [params]);
+
+  useEffect(() => {
     if (tab !== 'Outstanding') return;
     window.setTimeout(() => searchRef.current?.focus(), 0);
   }, [tab]);
 
   return (
-    <div className="stack">
-      <PageHeader
-        title="Payments"
-        subtitle={`Outstanding ${formatINR(pharmacyOutstanding(invoices, business.id))}`}
-        actions={<ShortcutHints hints={[{ keys: 'Ctrl+I', label: 'Pay invoices' }]} />}
-      />
+    <ListPageChrome
+      title="Payments"
+      subtitle={`Outstanding ${formatINR(pharmacyOutstanding(invoices, business.id))}`}
+      actions={<ShortcutHints hints={[{ keys: 'Ctrl+I', label: 'Invoices tab' }]} />}
+      tabs={[
+        { id: 'Outstanding', label: 'Outstanding' },
+        { id: 'History', label: 'History' },
+        { id: 'Credits', label: 'Credits' },
+        { id: 'Invoices', label: 'Invoices' },
+      ]}
+      tab={tab}
+      onTab={(id) => setTab(id as PayTab)}
+    >
       {submitBanner ? (
         <div className="banner-strip success">
           {submitBanner}{' '}
@@ -146,16 +169,6 @@ export function PharmacyPayments() {
           </button>
         </div>
       ) : null}
-      <Tabs
-        ariaLabel="Payment views"
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: 'Outstanding', label: 'Outstanding' },
-          { id: 'History', label: 'History' },
-          { id: 'Credits', label: 'Credits' },
-        ]}
-      />
       <TabPanel id="Outstanding" active={tab === 'Outstanding'}>
           <ListToolbar
             query={invoiceQuery}
@@ -210,7 +223,7 @@ export function PharmacyPayments() {
                           <Link to={`/pharmacy/invoices/${i.invoiceNo}`}>{i.invoiceNo}</Link>
                         </td>
                         <td data-label="Stockist">
-                          <Link to={`/pharmacy/ledger/${i.stockistId}`}>{i.stockistLabel}</Link>
+                          <Link to={`/pharmacy/stockists/${i.stockistId}?tab=Ledger`}>{i.stockistLabel}</Link>
                         </td>
                         <td data-label="Due">
                           <span
@@ -285,7 +298,11 @@ export function PharmacyPayments() {
                 pageCount={invoiceList.pageCount}
                 total={invoiceList.total}
                 onPage={invoiceList.setPage}
-              />
+                pageSize={pageSize}
+                onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
             </>
           )}
           {!visibleInvoices.length && openInvoices.length ? (
@@ -505,7 +522,11 @@ export function PharmacyPayments() {
               pageCount={paymentList.pageCount}
               total={paymentList.total}
               onPage={paymentList.setPage}
-            />
+              pageSize={pageSize}
+              onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
           </>
         )}
       </TabPanel>
@@ -630,11 +651,18 @@ export function PharmacyPayments() {
                 pageCount={creditList.pageCount}
                 total={creditList.total}
                 onPage={creditList.setPage}
-              />
+                pageSize={pageSize}
+                onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
             </>
           )}
         </div>
       </TabPanel>
-    </div>
+      <TabPanel id="Invoices" active={tab === 'Invoices'}>
+        <PharmacyInvoicesPanel />
+      </TabPanel>
+    </ListPageChrome>
   );
 }

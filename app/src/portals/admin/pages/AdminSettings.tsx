@@ -285,7 +285,9 @@ export function AdminSettings() {
           {
             title: 'Finance',
             items: [
-              { to: '/admin/payments', title: 'Payments', description: 'Read-only payments monitor across counterparties' },
+              { to: '/admin/trade?tab=Payments', title: 'Payments', description: 'Read-only payments monitor across counterparties' },
+              { to: '/admin/trade?tab=Orders', title: 'Orders', description: 'Platform trade orders' },
+              { to: '/admin/trade?tab=Returns', title: 'Returns', description: 'Platform returns oversight' },
               { to: '/admin/reports', title: 'Reports', description: 'GMV and trade-commission exports' },
               { to: '/admin/plans', title: 'Premium plans', description: 'Upgrade requests and plan config' },
             ],

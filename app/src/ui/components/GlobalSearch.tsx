@@ -48,29 +48,31 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
       portal === 'pharmacy'
         ? [
             { group: 'Pages', label: 'Buy', to: '/pharmacy/buy' },
+            { group: 'Pages', label: 'Smart Order', to: '/pharmacy/smart-order' },
             { group: 'Pages', label: 'Orders', to: '/pharmacy/orders' },
             { group: 'Pages', label: 'Payments', to: '/pharmacy/payments' },
             { group: 'Pages', label: 'Returns', to: '/pharmacy/returns' },
-            { group: 'Pages', label: 'Connections', to: '/pharmacy/connections' },
+            { group: 'Pages', label: 'Circle', to: '/pharmacy/connections' },
             { group: 'Pages', label: 'Messages', to: '/pharmacy/messages' },
             { group: 'Pages', label: 'Support', to: '/pharmacy/support' },
           ]
         : portal === 'stockist'
           ? [
               { group: 'Pages', label: 'Orders', to: '/stockist/orders' },
-              { group: 'Pages', label: 'Catalogue', to: '/stockist/catalogue' },
+              { group: 'Pages', label: 'Products', to: '/stockist/products?tab=products' },
               { group: 'Pages', label: 'Payments', to: '/stockist/payments' },
               { group: 'Pages', label: 'Returns', to: '/stockist/returns' },
-              { group: 'Pages', label: 'Pharmacies', to: '/stockist/pharmacies' },
+              { group: 'Pages', label: 'Circle', to: '/stockist/pharmacies' },
               { group: 'Pages', label: 'Messages', to: '/stockist/messages' },
               { group: 'Pages', label: 'Delivery', to: '/stockist/delivery' },
             ]
           : [
               { group: 'Pages', label: 'Verifications', to: '/admin/verifications' },
               { group: 'Pages', label: 'Network', to: '/admin/network' },
-              { group: 'Pages', label: 'Orders', to: '/admin/orders' },
-              { group: 'Pages', label: 'Payments', to: '/admin/payments' },
-              { group: 'Pages', label: 'Returns', to: '/admin/returns' },
+              { group: 'Pages', label: 'Trade', to: '/admin/trade' },
+              { group: 'Pages', label: 'Orders', to: '/admin/trade?tab=Orders' },
+              { group: 'Pages', label: 'Payments', to: '/admin/trade?tab=Payments' },
+              { group: 'Pages', label: 'Returns', to: '/admin/trade?tab=Returns' },
               { group: 'Pages', label: 'Support', to: '/admin/support' },
               { group: 'Pages', label: 'Audit', to: '/admin/audit' },
             ];
@@ -105,7 +107,7 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
           sub: i.status,
           to:
             portal === 'admin'
-              ? `/admin/payments?invoice=${encodeURIComponent(i.invoiceNo)}`
+              ? `/admin/trade?tab=Payments&invoice=${encodeURIComponent(i.invoiceNo)}`
               : `/${portal}/invoices/${encodeURIComponent(i.invoiceNo)}`,
         });
       }
@@ -147,7 +149,12 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
     if (portal === 'stockist') {
       for (const p of products.filter((x) => x.stockistId === business.id)) {
         if (`${p.name} ${p.sku} ${p.brand}`.toLowerCase().includes(query)) {
-          out.push({ group: 'Products', label: p.name, sub: p.sku, to: '/stockist/catalogue' });
+          out.push({
+            group: 'Products',
+            label: p.name,
+            sub: p.sku,
+            to: `/stockist/products?tab=products&highlight=${p.id}`,
+          });
         }
       }
     }
@@ -170,7 +177,7 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
       for (const b of partners) {
         if (`${b.name} ${b.city}`.toLowerCase().includes(query)) {
           out.push({
-            group: 'Partners',
+            group: 'Circle',
             label: b.name,
             sub: b.city,
             to: portal === 'pharmacy' ? `/pharmacy/stockists/${b.id}` : `/stockist/pharmacies/${b.id}`,

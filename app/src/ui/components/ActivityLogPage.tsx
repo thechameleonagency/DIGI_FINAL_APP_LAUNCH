@@ -4,13 +4,16 @@ import { exportOwnActivityCsv, listOwnActivity } from '../../services/activityLo
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { useBusyAction } from '../hooks/useBusyAction';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from './ListToolkit';
+import { usePersistedPageSize } from '../hooks/usePersistedPageSize';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from './ListToolkit';
 import { Button, EmptyState, PageHeader } from './primitives';
 
 export function ActivityLogPage() {
   const { user, business } = useSession();
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
+  const { pageSize, setPageSize } = usePersistedPageSize('activity-log');
+  const tableRef = useTableSectionRef();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [rows, setRows] = useState<AuditLog[]>([]);
@@ -69,7 +72,8 @@ export function ActivityLogPage() {
     columns,
     searchKeys: [(r) => `${r.actorName} ${r.action} ${r.entityType} ${r.entityId} ${r.reason ?? ''}`],
     defaultSortKey: 'at',
-    pageSize: 7,
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   if (!user || !business) return null;
@@ -122,6 +126,9 @@ export function ActivityLogPage() {
       ) : (
         <>
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns}
             loading={busy && !rows.length}
             rows={list.pageRows}
@@ -129,7 +136,16 @@ export function ActivityLogPage() {
             sortDir={list.sortDir}
             onSort={list.toggleSort}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar
+            page={list.page}
+            pageCount={list.pageCount}
+            total={list.total}
+            onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

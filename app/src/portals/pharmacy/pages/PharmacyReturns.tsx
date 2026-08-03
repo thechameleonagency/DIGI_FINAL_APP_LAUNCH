@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { makeIdempotencyKey } from '../../../domain/utils/idempotency';
 import { cancelReturn, submitReturn } from '../../../services/paymentService';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { returnApprovedValue, returnRequestedValue } from '../../../ui/components/ReturnDetail';
 import { ReturnLinesForm, validateReturnLines } from '../../../ui/components/ReturnLinesForm';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
@@ -18,6 +19,8 @@ export function PharmacyReturns() {
   const { business, user } = useBiz();
   const navigate = useNavigate();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('pharmacy-returns');
+  const tableRef = useTableSectionRef();
   const { busy, run } = useBusyAction();
   const { items: returns, loading: returnsLoading } = useLiveArray(
     () => db.returns.where('pharmacyId').equals(business.id).toArray(),
@@ -129,6 +132,8 @@ export function PharmacyReturns() {
     filters: [{ key: 'status', label: 'Status', options: statusOpts }],
     defaultSortKey: 'createdAt',
     defaultSortDir: 'desc',
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   const resetForm = () => {
@@ -310,6 +315,9 @@ export function PharmacyReturns() {
             }}
           />
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns}
             loading={returnsLoading}
             rows={list.pageRows}
@@ -318,7 +326,12 @@ export function PharmacyReturns() {
             onSort={list.toggleSort}
             onRowClick={(r) => navigate(`/pharmacy/returns/${encodeURIComponent(r.returnNo)}`)}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
       <Link className="btn btn-secondary btn-sm" to="/pharmacy/orders">

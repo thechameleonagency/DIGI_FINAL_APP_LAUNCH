@@ -3,12 +3,15 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { expiryRiskBand } from '../../../domain/calc';
 import { formatINR } from '../../../domain/utils/money';
-import { PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
+import { PaginationBar, usePagedRows, useTableSectionRef } from '../../../ui/components/ListToolkit';
 import { Button, EmptyState, Kpi, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function StockistExpiry() {
   const { business } = useBiz();
+  const { pageSize, setPageSize } = usePersistedPageSize('stockist-expiry');
+  const tableRef = useTableSectionRef();
   const batches = useLiveQuery(() => db.batches.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const products = useLiveQuery(() => db.products.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const [band, setBand] = useState<'All' | 'Expired' | 'Critical' | 'Near' | 'Healthy'>('All');
@@ -31,7 +34,7 @@ export function StockistExpiry() {
     Healthy: enriched.filter((x) => x.bandName === 'Healthy'),
   };
   const filtered = band === 'All' ? enriched : enriched.filter((x) => x.bandName === band);
-  const list = usePagedRows(filtered, 7, band);
+  const list = usePagedRows(filtered, pageSize, band);
 
   const riskValue = [...tiles.Expired, ...tiles.Critical, ...tiles.Near].reduce((s, x) => s + x.value, 0);
 
@@ -55,7 +58,8 @@ export function StockistExpiry() {
         <EmptyState title="No batches in this band" description="Stock in products to track expiry." />
       ) : (
         <>
-          <div className="table-wrap queue-responsive">
+          <section className="table-section" ref={tableRef}>
+          <div className="table-wrap queue-responsive table-scroll table-sticky">
             <table className="data">
               <thead>
                 <tr>
@@ -85,7 +89,17 @@ export function StockistExpiry() {
               </tbody>
             </table>
           </div>
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          </section>
+          <PaginationBar
+            page={list.page}
+            pageCount={list.pageCount}
+            total={list.total}
+            onPage={list.setPage}
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

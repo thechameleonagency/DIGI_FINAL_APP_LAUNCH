@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import type { SupportTicket, TicketStatus } from '../../../domain/entities/types';
 import { db } from '../../../data/db';
 import { updateTicket } from '../../../services/supportService';
 import { useUi } from '../../../store/ui';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { Button, EmptyState, Field, PageHeader, Select, StatusBadge, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -25,6 +26,8 @@ export function AdminSupport() {
   const [searchParams] = useSearchParams();
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('admin-support');
+  const tableRef = useTableSectionRef();
   const navigate = useNavigate();
   const [reply, setReply] = useState('');
   const [pendingAssignee, setPendingAssignee] = useState<string | null>(null);
@@ -269,6 +272,9 @@ export function AdminSupport() {
             }}
           />
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns}
             loading={ticketsLoading}
             rows={list.pageRows}
@@ -277,7 +283,12 @@ export function AdminSupport() {
             onSort={list.toggleSort}
             onRowClick={(t) => navigate(`/admin/support/${t.id}`)}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

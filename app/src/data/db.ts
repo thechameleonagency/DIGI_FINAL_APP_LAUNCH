@@ -29,13 +29,16 @@ import type {
   PaymentIntent,
   PharmacyInventoryItem,
   PharmacyRoute,
+  PinDeliverySetting,
   PlatformFeeCharge,
   PlatformSettings,
   PriceChange,
   Product,
   PurchaseBill,
   PurchaseOrder,
+  RecurringOrder,
   ReturnRequest,
+  Scheme,
   SeedMeta,
   Settlement,
   SmartOrderRun,
@@ -48,6 +51,8 @@ import type {
   User,
   Verification,
   WishlistItem,
+  DeliveryDate,
+  DeliveryRule,
 } from '../domain/entities/types';
 
 export class DigiSwasthyaDB extends Dexie {
@@ -99,6 +104,11 @@ export class DigiSwasthyaDB extends Dexie {
   counterfeitAlerts!: Table<CounterfeitAlert, string>;
   managedSuppliers!: Table<ManagedSupplier, string>;
   managedSupplierBills!: Table<ManagedSupplierBill, string>;
+  deliveryDates!: Table<DeliveryDate, string>;
+  deliveryRules!: Table<DeliveryRule, string>;
+  pinDeliverySettings!: Table<PinDeliverySetting, string>;
+  schemes!: Table<Scheme, string>;
+  recurringOrders!: Table<RecurringOrder, string>;
 
   constructor() {
     super('DigiSwasthyaDB');
@@ -162,6 +172,13 @@ export class DigiSwasthyaDB extends Dexie {
       managedSupplierBills: 'id, pharmacyId, supplierId, billNo',
       products: 'id, stockistId, catalogueId, sku, category, brand, status, name, listedForSale, scheduleType',
       connections: 'id, pharmacyId, stockistId, status, inCircle, [pharmacyId+stockistId]',
+    });
+    this.version(5).stores({
+      deliveryDates: 'id, stockistId, date, active',
+      deliveryRules: 'id, stockistId, priority, active, ruleType',
+      pinDeliverySettings: 'id, stockistId, pinCode',
+      schemes: 'id, stockistId, active, startsOn, endsOn',
+      recurringOrders: 'id, pharmacyId, stockistId, active, nextRunDate',
     });
   }
 }

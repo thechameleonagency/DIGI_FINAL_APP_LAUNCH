@@ -1,4 +1,4 @@
-import type { Address, Order, Product } from '../../../domain/entities/types';
+import type { Address, Order, Product, RecurringOrder } from '../../../domain/entities/types';
 import { localTodayKey } from '../../../domain/utils/dateKeys';
 import { makeIdempotencyKey } from '../../../domain/utils/idempotency';
 import { db } from '../../db';
@@ -34,6 +34,7 @@ import {
   generateSmartOrderSuggestions,
 } from '../../../services/smartOrderService';
 import { nowIso } from '../../../domain/utils/clock';
+import { newId } from '../../../domain/utils/ids';
 import { assertOk } from '../assert';
 import { advanceBusinessDay, advanceDays } from '../chronology';
 import {
@@ -872,5 +873,28 @@ export async function seedOrderingFulfilPhase(): Promise<void> {
       seed,
       bulkPackedIds,
     });
+  }
+
+  // One due recurring order for pharmacyA ↔ stockistA (fill-cart demo; never auto-places).
+  {
+    const pharmacyA = pharmacyByKey('pharmacyA');
+    const productIds = getWorldCtx().productIdsByStockist.get(stockistA.business.id) ?? [];
+    const lineProduct = productIds[0];
+    if (lineProduct) {
+      const ts = nowIso();
+      const recurring: RecurringOrder = {
+        id: newId(),
+        pharmacyId: pharmacyA.business.id,
+        stockistId: stockistA.business.id,
+        cadence: 'Weekly',
+        nextRunDate: localTodayKey(),
+        lines: [{ productId: lineProduct, qty: 10 }],
+        active: true,
+        note: 'Seed weekly standing order',
+        createdAt: ts,
+        updatedAt: ts,
+      };
+      await db.recurringOrders.put(recurring);
+    }
   }
 }

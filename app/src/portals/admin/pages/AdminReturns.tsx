@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { localDayKey } from '../../../domain/utils/dateKeys';
 import { useUi } from '../../../store/ui';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 
 function dayKey(iso?: string): string {
@@ -13,8 +14,10 @@ function dayKey(iso?: string): string {
 }
 
 /** Platform returns oversight — read-only. */
-export function AdminReturns() {
+export function AdminReturns({ embedded = false }: { embedded?: boolean }) {
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('admin-returns');
+  const tableRef = useTableSectionRef();
   const navigate = useNavigate();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -91,7 +94,9 @@ export function AdminReturns() {
 
   return (
     <div className="stack">
-      <PageHeader title="Platform returns" subtitle="Read-only oversight across pharmacies and stockists" />
+      {!embedded ? (
+        <PageHeader title="Platform returns" subtitle="Read-only oversight across pharmacies and stockists" />
+      ) : null}
       <div className="row" style={{ alignItems: 'flex-end' }}>
         <Field label="From">
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -117,6 +122,9 @@ export function AdminReturns() {
       ) : (
         <>
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns}
             loading={returnsLoading}
             rows={list.pageRows}
@@ -125,7 +133,12 @@ export function AdminReturns() {
             onSort={list.toggleSort}
             onRowClick={(r) => navigate(`/admin/returns/${encodeURIComponent(r.returnNo)}`)}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

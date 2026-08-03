@@ -2,15 +2,18 @@ import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { useUi } from '../../../store/ui';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { EmptyState, PageHeader } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function StockistMovements() {
   const { business } = useBiz();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('stockist-movements');
+  const tableRef = useTableSectionRef();
   const [params] = useSearchParams();
   const productFilter = params.get('productId') ?? '';
   const movements =
@@ -60,6 +63,8 @@ export function StockistMovements() {
     ],
     defaultSortKey: 'at',
     defaultSortDir: 'desc',
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   return (
@@ -68,7 +73,7 @@ export function StockistMovements() {
         title="Movement history"
         subtitle="Stock in / out / adjustments"
         actions={
-          <Link className="btn btn-secondary btn-sm" to="/stockist/inventory">
+          <Link className="btn btn-secondary btn-sm" to="/stockist/products?tab=batches">
             Inventory
           </Link>
         }
@@ -96,8 +101,16 @@ export function StockistMovements() {
             }}
           />
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             loading={productsLoading} columns={columns} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

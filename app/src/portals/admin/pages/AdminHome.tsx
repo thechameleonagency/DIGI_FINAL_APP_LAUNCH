@@ -77,7 +77,7 @@ export function AdminHome() {
           <Link className="btn btn-secondary btn-sm" to="/admin/verifications">
             Approvals ({pendingVer.length})
           </Link>
-          <Link className="btn btn-secondary btn-sm" to="/admin/payments">
+          <Link className="btn btn-secondary btn-sm" to="/admin/trade?tab=Payments">
             Settlements
           </Link>
           <Link className="btn btn-secondary btn-sm" to="/admin/suspensions">
@@ -110,7 +110,7 @@ export function AdminHome() {
             icon: LifeBuoy,
           },
           {
-            to: '/admin/payments',
+            to: '/admin/trade?tab=Payments',
             title: 'Monitor payments',
             description: 'Track disputed or held settlements',
             icon: Wallet,
@@ -151,7 +151,7 @@ export function AdminHome() {
         <Link to="/admin/network" className="kpi-link">
           <Kpi label="Active connections" value={connections.length} />
         </Link>
-        <Link to="/admin/orders" className="kpi-link">
+        <Link to="/admin/trade?tab=Orders" className="kpi-link">
           <Kpi label="Platform GMV" value={<Money value={gmv} />} sub="Σ non-void issued invoices" />
         </Link>
       </div>
@@ -186,7 +186,7 @@ export function AdminHome() {
             <span className="muted"> — none</span>
           )}
         </div>
-        <Link className="btn btn-ghost btn-sm" to="/admin/payments">
+        <Link className="btn btn-ghost btn-sm" to="/admin/trade?tab=Payments">
           Open payments monitor
         </Link>
       </div>

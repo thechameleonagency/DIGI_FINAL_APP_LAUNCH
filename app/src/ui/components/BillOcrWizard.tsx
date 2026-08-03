@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react';
+import { marginFromSale, saleFromMargin } from '../../domain/calc/pricingMargin';
+import type { Business, User } from '../../domain/entities/types';
+import { formatINR } from '../../domain/utils/money';
 import type { OcrParsedLine } from '../../services/ocrService';
 import {
   confirmPharmacySupplierBillOcr,
@@ -6,12 +9,31 @@ import {
   matchOcrLinesToCatalogue,
   mockParseBillImage,
 } from '../../services/ocrService';
-import type { Business, User } from '../../domain/entities/types';
-import { formatINR } from '../../domain/utils/money';
+import { upsertProduct } from '../../services/catalogueService';
+import { db } from '../../data/db';
 import { useUi } from '../../store/ui';
-import { Button, Field, Input, PageHeader } from './primitives';
+import { Button, Field, Input, Modal, PageHeader } from './primitives';
 
 type Step = 'upload' | 'review' | 'done';
+
+type ReviewLine = OcrParsedLine & {
+  /** When false, cost/margin drive sale; flipping true after user edits Sale. */
+  marginLocked: boolean;
+  marginPct: number;
+};
+
+function toReviewLines(lines: OcrParsedLine[], defaultMargin: number): ReviewLine[] {
+  return lines.map((l) => {
+    const sale =
+      l.saleRate != null && l.saleRate > 0 ? l.saleRate : saleFromMargin(l.unitCost, defaultMargin);
+    return {
+      ...l,
+      saleRate: sale,
+      marginLocked: true,
+      marginPct: marginFromSale(l.unitCost, sale),
+    };
+  });
+}
 
 export function BillOcrWizard(props: {
   mode: 'stockist' | 'pharmacy-supplier';
@@ -26,7 +48,7 @@ export function BillOcrWizard(props: {
   const [step, setStep] = useState<Step>('upload');
   const [fileName, setFileName] = useState('');
   const [scanning, setScanning] = useState(false);
-  const [lines, setLines] = useState<OcrParsedLine[]>([]);
+  const [lines, setLines] = useState<ReviewLine[]>([]);
   const [billTotal, setBillTotal] = useState(0);
   const [margin, setMargin] = useState('12');
   const [keepExisting, setKeepExisting] = useState(true);
@@ -34,6 +56,10 @@ export function BillOcrWizard(props: {
   const [doneStats, setDoneStats] = useState<{ created?: number; updated?: number; stockValue?: number; lines?: number }>(
     {},
   );
+  const [saleRateModal, setSaleRateModal] = useState<{ id: string; name: string; ptr: number; mrp: number }[]>([]);
+  const [pendingCloseAfterRates, setPendingCloseAfterRates] = useState(false);
+
+  const defaultMargin = Number(margin) || 12;
 
   const runScan = async () => {
     if (!fileName) {
@@ -47,21 +73,92 @@ export function BillOcrWizard(props: {
     if (props.mode === 'stockist') {
       matched = await matchOcrLinesToCatalogue(props.business.id, parsed.lines);
     }
-    setLines(matched);
+    setLines(toReviewLines(matched, defaultMargin));
     setBillTotal(parsed.billTotal);
     setScanning(false);
     setStep('review');
+  };
+
+  const applyGlobalMargin = () => {
+    const m = defaultMargin;
+    setLines((prev) =>
+      prev.map((l) => {
+        const sale = saleFromMargin(l.unitCost, m);
+        return { ...l, marginPct: m, saleRate: sale, marginLocked: true };
+      }),
+    );
+  };
+
+  const updateLine = (key: string, patch: Partial<ReviewLine>, drive?: 'sale' | 'margin' | 'cost') => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.key !== key) return l;
+        const next = { ...l, ...patch };
+        if (drive === 'sale') {
+          const sale = Number(next.saleRate) || 0;
+          return {
+            ...next,
+            saleRate: sale,
+            marginLocked: false,
+            marginPct: marginFromSale(next.unitCost, sale),
+          };
+        }
+        if (drive === 'margin') {
+          const m = Number(next.marginPct) || 0;
+          const sale = saleFromMargin(next.unitCost, m);
+          return { ...next, marginPct: m, saleRate: sale, marginLocked: true };
+        }
+        if (drive === 'cost') {
+          const cost = Number(next.unitCost) || 0;
+          if (next.marginLocked) {
+            const sale = saleFromMargin(cost, next.marginPct);
+            return { ...next, unitCost: cost, saleRate: sale };
+          }
+          return {
+            ...next,
+            unitCost: cost,
+            marginPct: marginFromSale(cost, Number(next.saleRate) || 0),
+          };
+        }
+        return next;
+      }),
+    );
+  };
+
+  const finishDone = () => {
+    setStep('done');
+    props.onDone?.();
+  };
+
+  const openSaleRatesIfNeeded = async (productIds: string[]) => {
+    if (props.mode !== 'stockist') {
+      finishDone();
+      return;
+    }
+    const needs: { id: string; name: string; ptr: number; mrp: number }[] = [];
+    for (const id of productIds) {
+      const p = await db.products.get(id);
+      if (!p || p.ptr > 0) continue;
+      needs.push({ id: p.id, name: p.name, ptr: p.ptr, mrp: p.mrp });
+    }
+    if (needs.length) {
+      setSaleRateModal(needs);
+      setPendingCloseAfterRates(true);
+      return;
+    }
+    finishDone();
   };
 
   const confirm = async () => {
     setBusy(true);
     try {
       if (props.mode === 'stockist') {
+        const payload: OcrParsedLine[] = lines.map(({ marginLocked: _m, marginPct: _p, ...rest }) => rest);
         const res = await confirmStockistBillOcr({
           actor: props.actor,
           stockist: props.business,
-          lines,
-          marginPercent: Number(margin) || 12,
+          lines: payload,
+          marginPercent: defaultMargin,
           keepExistingRates: keepExisting,
           fileName,
         });
@@ -70,16 +167,18 @@ export function BillOcrWizard(props: {
           return;
         }
         setDoneStats(res.data);
+        await openSaleRatesIfNeeded(res.data.productIds);
       } else {
         if (!props.supplierId) {
           pushToast({ tone: 'error', title: 'Select a supplier first' });
           return;
         }
+        const payload: OcrParsedLine[] = lines.map(({ marginLocked: _m, marginPct: _p, ...rest }) => rest);
         const res = await confirmPharmacySupplierBillOcr({
           actor: props.actor,
           pharmacy: props.business,
           supplierId: props.supplierId,
-          lines,
+          lines: payload,
           fileName,
           billTotal,
         });
@@ -88,16 +187,48 @@ export function BillOcrWizard(props: {
           return;
         }
         setDoneStats({ lines: res.data.lines });
+        finishDone();
       }
-      setStep('done');
-      props.onDone?.();
     } finally {
       setBusy(false);
     }
   };
 
-  const updateLine = (key: string, patch: Partial<OcrParsedLine>) => {
-    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const saveSaleRates = async () => {
+    setBusy(true);
+    try {
+      for (const row of saleRateModal) {
+        const product = await db.products.get(row.id);
+        if (!product) continue;
+        const ptr = Number(row.ptr) || 0;
+        if (!(ptr > 0)) {
+          pushToast({ tone: 'error', title: 'Sale rate required', message: `${row.name} needs PTR > 0` });
+          return;
+        }
+        const mrp = Number(row.mrp) > 0 ? Number(row.mrp) : product.mrp;
+        if (ptr > mrp) {
+          pushToast({ tone: 'error', title: 'PTR exceeds MRP', message: row.name });
+          return;
+        }
+        const res = await upsertProduct({
+          actor: props.actor,
+          stockist: props.business,
+          productId: product.id,
+          product: { ...product, ptr, mrp },
+        });
+        if (!res.ok) {
+          pushToast({ tone: 'error', title: res.message });
+          return;
+        }
+      }
+      setSaleRateModal([]);
+      if (pendingCloseAfterRates) {
+        setPendingCloseAfterRates(false);
+        finishDone();
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -160,10 +291,13 @@ export function BillOcrWizard(props: {
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <span className="muted">Bill total (OCR): {formatINR(billTotal)}</span>
             {props.mode === 'stockist' ? (
-              <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
+              <div className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <Field label="Margin %">
                   <Input style={{ width: 80 }} value={margin} onChange={(e) => setMargin(e.target.value)} />
                 </Field>
+                <Button size="sm" variant="secondary" type="button" onClick={applyGlobalMargin}>
+                  Apply global margin
+                </Button>
                 <label className="row" style={{ gap: 6, fontSize: 13 }}>
                   <input type="checkbox" checked={keepExisting} onChange={(e) => setKeepExisting(e.target.checked)} />
                   Keep existing rates
@@ -172,12 +306,18 @@ export function BillOcrWizard(props: {
             ) : null}
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+            <table className="data" style={{ width: '100%', fontSize: 13 }}>
               <thead>
                 <tr>
                   <th>Product</th>
                   <th>Qty</th>
                   <th>Cost</th>
+                  {props.mode === 'stockist' ? (
+                    <>
+                      <th>Sale (PTR)</th>
+                      <th>Margin %</th>
+                    </>
+                  ) : null}
                   <th>MRP</th>
                   <th>Match</th>
                 </tr>
@@ -204,9 +344,35 @@ export function BillOcrWizard(props: {
                         type="number"
                         style={{ width: 88 }}
                         value={l.unitCost}
-                        onChange={(e) => updateLine(l.key, { unitCost: Number(e.target.value) || 0 })}
+                        onChange={(e) =>
+                          updateLine(l.key, { unitCost: Number(e.target.value) || 0 }, 'cost')
+                        }
                       />
                     </td>
+                    {props.mode === 'stockist' ? (
+                      <>
+                        <td>
+                          <Input
+                            type="number"
+                            style={{ width: 88 }}
+                            value={l.saleRate ?? ''}
+                            onChange={(e) =>
+                              updateLine(l.key, { saleRate: Number(e.target.value) || 0 }, 'sale')
+                            }
+                          />
+                        </td>
+                        <td>
+                          <Input
+                            type="number"
+                            style={{ width: 72 }}
+                            value={l.marginPct}
+                            onChange={(e) =>
+                              updateLine(l.key, { marginPct: Number(e.target.value) || 0 }, 'margin')
+                            }
+                          />
+                        </td>
+                      </>
+                    ) : null}
                     <td>
                       <Input
                         type="number"
@@ -258,6 +424,54 @@ export function BillOcrWizard(props: {
           </div>
         </div>
       ) : null}
+
+      <Modal
+        open={saleRateModal.length > 0}
+        title="Set sale rates"
+        onClose={() => {
+          /* Must set rates before closing after confirm */
+        }}
+        footer={
+          <Button disabled={busy} onClick={() => void saveSaleRates()}>
+            {busy ? 'Saving…' : 'Save sale rates'}
+          </Button>
+        }
+      >
+        <p className="muted" style={{ marginTop: 0 }}>
+          Some products have PTR ≤ 0. Set sale rates before finishing.
+        </p>
+        <div className="stack" style={{ gap: 8 }}>
+          {saleRateModal.map((row) => (
+            <div key={row.id} className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <Field label="Product">
+                <Input value={row.name} disabled />
+              </Field>
+              <Field label="Sale (PTR)">
+                <Input
+                  type="number"
+                  style={{ width: 100 }}
+                  value={row.ptr || ''}
+                  onChange={(e) => {
+                    const ptr = Number(e.target.value) || 0;
+                    setSaleRateModal((prev) => prev.map((r) => (r.id === row.id ? { ...r, ptr } : r)));
+                  }}
+                />
+              </Field>
+              <Field label="MRP">
+                <Input
+                  type="number"
+                  style={{ width: 100 }}
+                  value={row.mrp || ''}
+                  onChange={(e) => {
+                    const mrp = Number(e.target.value) || 0;
+                    setSaleRateModal((prev) => prev.map((r) => (r.id === row.id ? { ...r, mrp } : r)));
+                  }}
+                />
+              </Field>
+            </div>
+          ))}
+        </div>
+      </Modal>
     </div>
   );
 }

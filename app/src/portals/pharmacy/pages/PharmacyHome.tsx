@@ -186,11 +186,11 @@ export function PharmacyHome() {
           icon={Clock3}
           badge={near ? 'Move or return' : 'No near-expiry'}
           tone={toneForCount(near)}
-          to="/pharmacy/expiry"
-          linkLabel="Open expiry"
+          to="/pharmacy/inventory?filter=near-expiry"
+          linkLabel="Open near expiry"
         />
         <HomeMetricCard
-          title="Connections"
+          title="Circle"
           value={activeConn}
           icon={Store}
           badge={activeConn ? 'Active stockists' : 'Connect to buy'}

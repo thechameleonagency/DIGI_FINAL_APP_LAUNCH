@@ -192,7 +192,7 @@ export function StockistAnalytics() {
           <Kpi label="SKUs" value={inventory.skus} />
           <Kpi label="Batches" value={inventory.batches} />
           <Kpi label="Low stock SKUs" value={inventory.low} sub="See Inventory → Low stock" />
-          <Link className="btn btn-secondary btn-sm" to="/stockist/inventory?filter=low">
+          <Link className="btn btn-secondary btn-sm" to="/stockist/products?tab=batches&filter=low">
             Open low stock
           </Link>
         </div>

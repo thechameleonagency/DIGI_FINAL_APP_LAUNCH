@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import type { VerificationDocument } from '../../../domain/entities/types';
 import { db } from '../../../data/db';
 import { adminReviewVerification } from '../../../services/verificationService';
 import { useUi } from '../../../store/ui';
 import { FileLink } from '../../../ui/components/FileUpload';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { Button, EmptyState, Field, Input, PageHeader, StatusBadge, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -21,6 +22,8 @@ export function AdminVerifications() {
   const [searchParams] = useSearchParams();
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('admin-verifications');
+  const tableRef = useTableSectionRef();
   const navigate = useNavigate();
   const statusFromUrl = searchParams.get('status') ?? undefined;
   const { items: verifications, loading: verificationsLoading } = useLiveArray(() => db.verifications.toArray());
@@ -94,6 +97,8 @@ export function AdminVerifications() {
     defaultSortKey: 'days',
     defaultSortDir: 'desc',
     initialFilters: statusFromUrl ? { status: statusFromUrl } : undefined,
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   const detail = id ? verifications.find((v) => v.id === id) : undefined;
@@ -279,6 +284,9 @@ export function AdminVerifications() {
             }}
           />
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns}
             loading={verificationsLoading}
             rows={list.pageRows}
@@ -287,7 +295,12 @@ export function AdminVerifications() {
             onSort={list.toggleSort}
             onRowClick={(r) => navigate(`/admin/verifications/${r.id}`)}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

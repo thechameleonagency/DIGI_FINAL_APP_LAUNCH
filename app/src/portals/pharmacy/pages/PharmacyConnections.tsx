@@ -2,18 +2,21 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
 import { cancelConnectionRequest, disconnectConnection, requestConnection } from '../../../services/connectionService';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { Button, EmptyState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function PharmacyConnections() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('pharmacy-connections');
+  const tableRef = useTableSectionRef();
   const { items: connections, loading: connectionsLoading } = useLiveArray(
     () => db.connections.where('pharmacyId').equals(business.id).toArray(),
     [business.id],
@@ -79,7 +82,7 @@ export function PharmacyConnections() {
           <div className="row">
             {r.status === 'Active' ? (
               <>
-                <Link className="btn btn-ghost btn-sm" to={`/pharmacy/ledger/${r.stockistId}`}>
+                <Link className="btn btn-ghost btn-sm" to={`/pharmacy/stockists/${r.stockistId}?tab=Ledger`}>
                   Ledger
                 </Link>
                 <Link className="btn btn-ghost btn-sm" to={`/pharmacy/messages?with=${r.stockistId}`}>
@@ -139,13 +142,15 @@ export function PharmacyConnections() {
     ],
     defaultSortKey: 'stockistName',
     defaultSortDir: 'asc',
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   return (
     <div className="stack">
       <PageHeader
-        title="Connections"
-        subtitle="Per-pair orders, outstanding, last trade"
+        title="Circle"
+        subtitle="Connected stockists — orders, outstanding, last trade"
         actions={
           <Link className="btn btn-primary" to="/pharmacy/buy">
             Discover stockists
@@ -174,7 +179,7 @@ export function PharmacyConnections() {
       />
       {!connections.length ? (
         <EmptyState
-          title="No connections yet"
+          title="No Circle stockists yet"
           description="Find stockists and request a connection to start trading."
           action={
             <Link className="btn btn-primary" to="/pharmacy/buy">
@@ -206,8 +211,16 @@ export function PharmacyConnections() {
             }}
           />
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             loading={connectionsLoading} columns={columns} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
           {rows.some((r) => r.rejectReason) ? (
             <div className="card card-pad stack">
               <strong>Rejection reasons</strong>

@@ -12,9 +12,10 @@ import {
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileLink } from '../../../ui/components/FileUpload';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import {
   Button,
   EmptyState,
@@ -36,6 +37,8 @@ const STATUS_OPTS = ['Reported', 'Investigating', 'RecallIssued', 'Dismissed', '
 export function AdminCounterfeit() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('admin-counterfeit');
+  const tableRef = useTableSectionRef();
   const { busy, run } = useBusyAction();
   const { items: reports, loading } = useLiveArray(() => db.counterfeitReports.toArray());
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
@@ -102,6 +105,8 @@ export function AdminCounterfeit() {
     filters: [{ key: 'status', label: 'Status', options: STATUS_OPTS }],
     defaultSortKey: 'createdAt',
     defaultSortDir: 'desc',
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   const selected = selectedId ? rows.find((r) => r.id === selectedId) : undefined;
@@ -213,6 +218,9 @@ export function AdminCounterfeit() {
             }}
           />
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns}
             rows={list.pageRows}
             sortKey={list.sortKey}
@@ -225,7 +233,12 @@ export function AdminCounterfeit() {
               setDismissError(undefined);
             }}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
 

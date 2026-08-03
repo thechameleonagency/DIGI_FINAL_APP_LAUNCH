@@ -18,8 +18,9 @@ import {
   transferOwnership,
 } from '../../services/staffService';
 import { useUi } from '../../store/ui';
+import { usePersistedPageSize } from '../hooks/usePersistedPageSize';
 import { ConfirmDialog } from './ConfirmDialog';
-import { PaginationBar, usePagedRows } from './ListToolkit';
+import { PaginationBar, usePagedRows, useTableSectionRef } from './ListToolkit';
 import { RolePreviewControls } from './RolePreviewControls';
 import { Button, DeleteButton, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from './primitives';
 
@@ -114,11 +115,13 @@ export function StaffManager({
   } | null>(null);
   const overrideActions = overrideActionsFor(business);
   const demotedLabel = demotedRoleLabel(business);
+  const { pageSize, setPageSize } = usePersistedPageSize('staff-manager');
+  const tableRef = useTableSectionRef();
   const sortedStaff = useMemo(
     () => [...staff].sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email)),
     [staff],
   );
-  const list = usePagedRows(sortedStaff);
+  const list = usePagedRows(sortedStaff, pageSize);
   const overrideTarget = overrideUserId ? staff.find((s) => s.id === overrideUserId) : undefined;
   const transferTarget = transferTargetId ? staff.find((s) => s.id === transferTargetId) : undefined;
   const suspendTarget = suspendTargetId ? staff.find((s) => s.id === suspendTargetId) : undefined;
@@ -335,7 +338,8 @@ export function StaffManager({
         />
       ) : (
         <>
-          <div className="table-wrap queue-responsive">
+          <section className="table-section" ref={tableRef}>
+          <div className="table-wrap queue-responsive table-scroll table-sticky">
             <table className="data">
               <thead>
                 <tr>
@@ -509,7 +513,17 @@ export function StaffManager({
               </tbody>
             </table>
           </div>
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          </section>
+          <PaginationBar
+            page={list.page}
+            pageCount={list.pageCount}
+            total={list.total}
+            onPage={list.setPage}
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
       <Modal

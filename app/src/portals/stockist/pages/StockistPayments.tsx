@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { stockistReceivables } from '../../../domain/calc';
 import type { Payment } from '../../../domain/entities/types';
@@ -11,26 +12,45 @@ import { formatINR } from '../../../domain/utils/money';
 import { parseNumberInput } from '../../../domain/utils/validation';
 import { can } from '../../../domain/permissions';
 import { recordOfflinePayment, reviewPayment } from '../../../services/paymentService';
-import { sendPaymentReminder } from '../../../services/reminderService';
+import { sendBulkPaymentReminders, sendPaymentReminder } from '../../../services/reminderService';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileLink, FileUpload } from '../../../ui/components/FileUpload';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, LoadingState, Money, Modal, PageHeader, Select, StatusBadge, TabPanel, Tabs } from '../../../ui/components/primitives';
+import { ListPageChrome } from '../../../ui/components/ListPageChrome';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
+import { Button, EmptyState, Field, Input, LoadingState, Money, Modal, Select, StatusBadge, TabPanel } from '../../../ui/components/primitives';
+import { StockistCreditNotesPanel } from './StockistCreditNotes';
+import { StockistSettlementsPanel } from './StockistSettlements';
 import { useBiz } from './useBiz';
 
 const METHODS: Payment['method'][] = ['Cash', 'UPI', 'NEFT', 'Cheque', 'RTGS', 'Other'];
 
-type PayTab = 'Payments' | 'Invoices';
+type PayTab = 'Payments' | 'Invoices' | 'Settlements' | 'CreditNotes';
+
+function parsePayTab(raw: string | null, highlight: string, statusParam: string, paymentFocus: string | null): PayTab {
+  if (raw === 'Payments' || raw === 'Invoices' || raw === 'Settlements' || raw === 'CreditNotes') return raw;
+  if (highlight || statusParam) return 'Invoices';
+  if (paymentFocus) return 'Payments';
+  return 'Payments';
+}
 
 export function StockistPayments() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+  const { pageSize, setPageSize } = usePersistedPageSize('stockist-payments');
+  const tableRef = useTableSectionRef();
   const highlight = params.get('invoice') ?? '';
   const paymentFocus = params.get('payment');
   const statusParam = params.get('status') ?? '';
-  const [tab, setTab] = useState<PayTab>(() => (highlight || statusParam ? 'Invoices' : 'Payments'));
+  const tab = parsePayTab(params.get('tab'), highlight, statusParam, paymentFocus);
+  const setTab = (nextTab: PayTab) => {
+    const next = new URLSearchParams(params);
+    next.set('tab', nextTab);
+    setParams(next, { replace: true });
+  };
+  const [remindOpen, setRemindOpen] = useState(false);
+  const [remindBusy, setRemindBusy] = useState(false);
   const { items: payments, loading: paymentsLoading } = useLiveArray(
     () => db.payments.where('stockistId').equals(business.id).reverse().sortBy('createdAt'),
     [business.id],
@@ -56,11 +76,10 @@ export function StockistPayments() {
       setTab('Payments');
       setReviewId(match.id);
     }
+    // setTab is stable enough for focus deep-links
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentFocus, payments, paymentsLoading]);
 
-  useEffect(() => {
-    if (highlight || statusParam) setTab('Invoices');
-  }, [highlight, statusParam]);
   const [advancePrompt, setAdvancePrompt] = useState<{
     paymentId: string;
     paymentNo: string;
@@ -164,6 +183,7 @@ export function StockistPayments() {
     ],
     defaultSortKey: 'createdAt',
     defaultSortDir: 'desc',
+    pageSize,
   });
 
   const invColumns = useMemo(
@@ -273,21 +293,86 @@ export function StockistPayments() {
     defaultSortKey: 'invoiceNo',
     defaultSortDir: 'desc',
     initialFilters: statusParam ? { status: statusParam } : undefined,
+    pageSize,
   });
 
   return (
-    <div className="stack">
-      <PageHeader
-        title="Payments & invoices"
-        subtitle={`Receivables ${formatINR(stockistReceivables(invoices, business.id))}`}
-        actions={
-          canRecord ? (
+    <ListPageChrome
+      title="Payments & invoices"
+      subtitle={`Receivables ${formatINR(stockistReceivables(invoices, business.id))}`}
+      actions={
+        <div className="row">
+          <Button size="sm" variant="secondary" onClick={() => setRemindOpen(true)}>
+            Reminder wizard
+          </Button>
+          {canRecord ? (
             <Button size="sm" onClick={() => openRecord()}>
               Record payment
             </Button>
-          ) : undefined
+          ) : null}
+        </div>
+      }
+      tabs={[
+        { id: 'Payments', label: 'Payments', count: payments.length },
+        { id: 'Invoices', label: 'Invoices', count: invoices.length },
+        { id: 'Settlements', label: 'Settlements' },
+        { id: 'CreditNotes', label: 'Credit notes' },
+      ]}
+      tab={tab}
+      onTab={(id) => setTab(id as PayTab)}
+    >
+      <Modal
+        open={remindOpen}
+        title="Payment reminder wizard"
+        onClose={() => setRemindOpen(false)}
+        footer={
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setRemindOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={remindBusy}
+              onClick={async () => {
+                const due = invoices.filter((i) => i.outstanding > 0 && i.status !== 'Void' && i.status !== 'Paid');
+                if (!due.length) {
+                  pushToast({ tone: 'info', title: 'No open invoices' });
+                  return;
+                }
+                setRemindBusy(true);
+                const res = await sendBulkPaymentReminders({
+                  actor: user,
+                  stockist: business,
+                  invoiceIds: due.map((i) => i.id),
+                });
+                setRemindBusy(false);
+                if (!res.ok) {
+                  pushToast({ tone: 'error', title: res.message });
+                  return;
+                }
+                pushToast({
+                  tone: 'success',
+                  title: `Reminded ${res.data.sent.length}`,
+                  message: res.data.skipped.length ? `${res.data.skipped.length} skipped` : undefined,
+                });
+                setRemindOpen(false);
+              }}
+            >
+              Send all open
+            </Button>
+          </div>
         }
-      />
+      >
+        <p className="muted">
+          Sends one reminder per open invoice (throttled to once per day). Skips settled invoices
+          automatically.
+        </p>
+        <p>
+          Open invoices:{' '}
+          <strong>
+            {invoices.filter((i) => i.outstanding > 0 && i.status !== 'Void' && i.status !== 'Paid').length}
+          </strong>
+        </p>
+      </Modal>
       <Modal
         open={recordOpen}
         title="Record offline payment"
@@ -677,16 +762,6 @@ export function StockistPayments() {
         ) : null}
       </Modal>
 
-      <Tabs
-        ariaLabel="Payments and invoices"
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: 'Payments', label: `Payments (${payments.length})` },
-          { id: 'Invoices', label: `Invoices (${invoices.length})` },
-        ]}
-      />
-
       <TabPanel id="Payments" active={tab === 'Payments'}>
         <div className="stack">
           {paymentsLoading ? (
@@ -732,6 +807,9 @@ export function StockistPayments() {
               />
               <DataListTable
                 loading={paymentsLoading}
+                stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
                 columns={[
                   ...payColumns,
                   {
@@ -755,7 +833,11 @@ export function StockistPayments() {
                 pageCount={payList.pageCount}
                 total={payList.total}
                 onPage={payList.setPage}
-              />
+                pageSize={pageSize}
+                onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
             </>
           )}
         </div>
@@ -806,6 +888,9 @@ export function StockistPayments() {
               />
               <DataListTable
                 loading={invoicesLoading}
+                stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
                 columns={invColumns}
                 rows={invList.pageRows}
                 sortKey={invList.sortKey}
@@ -817,11 +902,23 @@ export function StockistPayments() {
                 pageCount={invList.pageCount}
                 total={invList.total}
                 onPage={invList.setPage}
-              />
+                pageSize={pageSize}
+                onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
             </>
           )}
         </div>
       </TabPanel>
-    </div>
+
+      <TabPanel id="Settlements" active={tab === 'Settlements'}>
+        <StockistSettlementsPanel />
+      </TabPanel>
+
+      <TabPanel id="CreditNotes" active={tab === 'CreditNotes'}>
+        <StockistCreditNotesPanel />
+      </TabPanel>
+    </ListPageChrome>
   );
 }

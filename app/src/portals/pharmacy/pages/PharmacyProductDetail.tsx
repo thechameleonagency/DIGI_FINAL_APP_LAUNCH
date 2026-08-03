@@ -6,7 +6,9 @@ import { productAvailableSellable } from '../../../domain/calc';
 import { addOrIncrementCartLine, toggleWishlist } from '../../../services/catalogueService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useUi } from '../../../store/ui';
+import { Sheet } from '../../../ui/components/Sheet';
 import { Button, EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
+import { PharmacyComparePanel } from './PharmacyComparePanel';
 import { useBiz } from './useBiz';
 
 export function PharmacyProductDetail() {
@@ -30,6 +32,7 @@ export function PharmacyProductDetail() {
     [product?.stockistId],
   );
   const [qty, setQty] = useState<number | ''>('');
+  const [compareOpen, setCompareOpen] = useState(false);
 
   if (!product) return <EmptyState title="Product not found" description="It may have been removed from the catalogue." />;
 
@@ -45,14 +48,24 @@ export function PharmacyProductDetail() {
       <PageHeader
         title={product.name}
         subtitle={`${product.brand} · ${product.sku} · ${stockist?.name ?? 'Stockist'}`}
-        backTo={`/pharmacy/buy/${product.stockistId}`}
-        backLabel="Back to catalogue"
+        backTo={stockist ? `/pharmacy/stockists/${stockist.id}` : '/pharmacy/buy'}
+        backLabel={stockist ? 'Back to stockist' : 'Back to Buy'}
         actions={
-          <Link className="btn btn-secondary btn-sm" to={`/pharmacy/compare?productId=${product.id}`}>
-            Compare prices
-          </Link>
+          <div className="row">
+            {stockist ? (
+              <Link className="btn btn-secondary btn-sm" to={`/pharmacy/stockists/${stockist.id}`}>
+                {stockist.name}
+              </Link>
+            ) : null}
+            <Button size="sm" variant="secondary" type="button" onClick={() => setCompareOpen(true)}>
+              Compare
+            </Button>
+          </div>
         }
       />
+      <Sheet open={compareOpen} title="Compare prices" onClose={() => setCompareOpen(false)} width={720}>
+        <PharmacyComparePanel productId={product.id} compact />
+      </Sheet>
       <div className="grid-2">
         <div className="card card-pad stack">
           <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -69,28 +82,44 @@ export function PharmacyProductDetail() {
           {product.scheduleType && product.scheduleType !== 'NONE' ? (
             <div className="banner-strip warning">Schedule {product.scheduleType} — prescription controls may apply.</div>
           ) : null}
-          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
-            <tbody>
-              <tr>
-                <td className="muted">HSN</td>
-                <td>{product.hsn || '—'}</td>
-                <td className="muted">Pack</td>
-                <td>{product.packSize}</td>
-              </tr>
-              <tr>
-                <td className="muted">Category</td>
-                <td>{product.category}</td>
-                <td className="muted">Class</td>
-                <td>{product.pricingClass}</td>
-              </tr>
-              <tr>
-                <td className="muted">MOQ</td>
-                <td>{product.moq}</td>
-                <td className="muted">Max</td>
-                <td>{product.maxQty ?? '—'}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="grid-2">
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                HSN
+              </div>
+              <div>{product.hsn || '—'}</div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Pack
+              </div>
+              <div>{product.packSize}</div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Category
+              </div>
+              <div>{product.category}</div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Class
+              </div>
+              <div>{product.pricingClass ?? '—'}</div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                MOQ
+              </div>
+              <div>{product.moq}</div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Max
+              </div>
+              <div>{product.maxQty ?? '—'}</div>
+            </div>
+          </div>
           <div className="row" style={{ gap: 24 }}>
             <div>
               <div className="muted" style={{ fontSize: 12 }}>
@@ -188,7 +217,7 @@ export function PharmacyProductDetail() {
       {batches.length > 0 ? (
         <div className="card card-pad stack">
           <strong>Batches</strong>
-          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+          <table className="data" style={{ width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
                 <th>Batch</th>
@@ -277,7 +306,7 @@ function MultiStockistPriceTable(props: {
   return (
     <div className="card card-pad stack">
       <strong>Prices across your stockists</strong>
-      <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+      <table className="data" style={{ width: '100%', fontSize: 13 }}>
         <thead>
           <tr>
             <th>Stockist</th>

@@ -2,11 +2,14 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { reorderFromOrder } from '../../../services/catalogueService';
 import { useUi } from '../../../store/ui';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, LoadingState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
+import { ListPageChrome } from '../../../ui/components/ListPageChrome';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
+import { Button, EmptyState, Field, Input, LoadingState, Money, StatusBadge, TabPanel } from '../../../ui/components/primitives';
+import { RecurringOrdersPanel } from './RecurringOrdersPanel';
 import { useBiz } from './useBiz';
 
 const ORDER_STATUSES = [
@@ -32,13 +35,28 @@ function paymentStatusFor(invoice: { status: string; outstanding: number } | und
   return invoice.status;
 }
 
+type OrdersTab = 'Orders' | 'Recurring';
+
+function parseOrdersTab(raw: string | null): OrdersTab {
+  if (raw === 'Orders' || raw === 'Recurring') return raw;
+  return 'Orders';
+}
+
 export function PharmacyOrders() {
   const { business, user } = useBiz();
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const awaiting = params.get('awaiting') === '1';
   const initialStatus = params.get('status') ?? '';
+  const tab = parseOrdersTab(params.get('tab'));
+  const setTab = (nextTab: OrdersTab) => {
+    const next = new URLSearchParams(params);
+    next.set('tab', nextTab);
+    setParams(next, { replace: true });
+  };
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('pharmacy-orders');
+  const tableRef = useTableSectionRef();
   const { items: orders, loading: ordersLoading } = useLiveArray(
     () => db.orders.where('pharmacyId').equals(business.id).toArray(),
     [business.id],
@@ -182,85 +200,122 @@ export function PharmacyOrders() {
     defaultSortKey: 'placedAt',
     defaultSortDir: 'desc',
     initialFilters: !awaiting && initialStatus ? { status: initialStatus } : undefined,
+    pageSize,
   });
 
   return (
-    <div className="stack">
-      <PageHeader
-        title="Orders"
-        subtitle={
-          awaiting
-            ? 'Packed / Dispatched — awaiting delivery'
-            : 'Search, filter by status/stockist/payment, date range, export'
-        }
-      />
-      <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
-        <Field label="From">
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-        </Field>
-        <Field label="To">
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-        </Field>
-      </div>
-      {ordersLoading ? (
-        <LoadingState label="Loading orders…" />
-      ) : !orders.length ? (
-        <EmptyState
-          title="No orders yet"
-          description="Place a purchase order from a connected stockist catalogue."
-          action={
-            <Link className="btn btn-primary" to="/pharmacy/buy">
-              Browse catalogue
+    <ListPageChrome
+      title="Orders"
+      subtitle={
+        awaiting
+          ? 'Packed / Dispatched — awaiting delivery'
+          : 'Search, filter by status/stockist/payment, date range, export'
+      }
+      tabs={[
+        { id: 'Orders', label: 'Orders', count: orders.length },
+        { id: 'Recurring', label: 'Recurring' },
+      ]}
+      tab={tab}
+      onTab={(id) => setTab(id as OrdersTab)}
+      actions={
+        tab === 'Orders' ? (
+          <div className="row">
+            <Link className="btn btn-secondary btn-sm" to="/pharmacy/orders?status=Delivered">
+              Awaiting GRN
             </Link>
-          }
-        />
-      ) : (
-        <>
-          <ListToolbar
-            query={list.query}
-            onQuery={list.setQuery}
-            placeholder="Search order / stockist / status / payment"
-            filters={[
-              {
-                key: 'status',
-                label: 'Status',
-                options: ORDER_STATUSES.map((s) => ({ value: s, label: s })),
-              },
-              {
-                key: 'stockistName',
-                label: 'Stockist',
-                options: [...new Set(rows.map((r) => r.stockistName))].map((s) => ({ value: s, label: s })),
-              },
-              {
-                key: 'paymentStatus',
-                label: 'Payment',
-                options: ['Unbilled', 'Issued', 'PartiallyPaid', 'Paid', 'Overdue', 'Void'].map((s) => ({
-                  value: s,
-                  label: s,
-                })),
-              },
-            ]}
-            filterValues={list.filterValues}
-            onFilter={list.setFilter}
-            onExport={() => {
-              const ok = list.doExport(`pharmacy-orders-${business.id}.csv`);
-              pushToast(ok ? { tone: 'success', title: 'Exported current filter set' } : { tone: 'error', title: 'Export denied' });
-            }}
+            <Link className="btn btn-secondary btn-sm" to="/pharmacy/smart-order">
+              Smart Order
+            </Link>
+          </div>
+        ) : null
+      }
+    >
+      <TabPanel id="Orders" active={tab === 'Orders'}>
+        <div className="stack">
+          <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
+            <Field label="From">
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            </Field>
+            <Field label="To">
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            </Field>
+          </div>
+          {ordersLoading ? (
+            <LoadingState label="Loading orders…" />
+          ) : !orders.length ? (
+            <EmptyState
+              title="No orders yet"
+              description="Place a purchase order from a connected stockist catalogue."
+              action={
+                <Link className="btn btn-primary" to="/pharmacy/buy">
+                  Browse catalogue
+                </Link>
+              }
+            />
+          ) : (
+            <>
+              <ListToolbar
+                query={list.query}
+                onQuery={list.setQuery}
+                placeholder="Search order / stockist / status / payment"
+                filters={[
+                  {
+                    key: 'status',
+                    label: 'Status',
+                    options: ORDER_STATUSES.map((s) => ({ value: s, label: s })),
+                  },
+                  {
+                    key: 'stockistName',
+                    label: 'Stockist',
+                    options: [...new Set(rows.map((r) => r.stockistName))].map((s) => ({ value: s, label: s })),
+                  },
+                  {
+                    key: 'paymentStatus',
+                    label: 'Payment',
+                    options: ['Unbilled', 'Issued', 'PartiallyPaid', 'Paid', 'Overdue', 'Void'].map((s) => ({
+                      value: s,
+                      label: s,
+                    })),
+                  },
+                ]}
+                filterValues={list.filterValues}
+                onFilter={list.setFilter}
+                onExport={() => {
+                  const ok = list.doExport(`pharmacy-orders-${business.id}.csv`);
+                  pushToast(ok ? { tone: 'success', title: 'Exported current filter set' } : { tone: 'error', title: 'Export denied' });
+                }}
+              />
+              <DataListTable
+                stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
+                columns={columns}
+                rows={list.pageRows}
+                sortKey={list.sortKey}
+                sortDir={list.sortDir}
+                onSort={list.toggleSort}
+                loading={ordersLoading}
+                emptyTitle="No orders match"
+                emptyDescription="Empty result is not an error — adjust filters or place an order."
+                onRowClick={(o) => navigate(`/pharmacy/orders/${o.orderNo}`)}
+              />
+              <PaginationBar
+                page={list.page}
+                pageCount={list.pageCount}
+                total={list.total}
+                onPage={list.setPage}
+                pageSize={pageSize}
+                onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
           />
-          <DataListTable
-            columns={columns}
-            rows={list.pageRows}
-            sortKey={list.sortKey}
-            sortDir={list.sortDir}
-            onSort={list.toggleSort}
-            loading={ordersLoading}
-            emptyTitle="No orders match"
-            emptyDescription="Empty result is not an error — adjust filters or place an order."
-            onRowClick={(o) => navigate(`/pharmacy/orders/${o.orderNo}`)}
-          />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
-        </>
-      )}
-    </div>
+            </>
+          )}
+        </div>
+      </TabPanel>
+      <TabPanel id="Recurring" active={tab === 'Recurring'}>
+        <RecurringOrdersPanel />
+      </TabPanel>
+    </ListPageChrome>
   );
 }

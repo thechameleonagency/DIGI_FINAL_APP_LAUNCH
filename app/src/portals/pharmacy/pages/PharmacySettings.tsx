@@ -30,7 +30,7 @@ export function PharmacySettings() {
           title: 'Ordering',
           items: [
             { to: '/pharmacy/smart-order', title: 'Smart Order', description: 'Text, bill photo, or inventory → best stockists' },
-            { to: '/pharmacy/quick-order', title: 'Quick Order', description: 'Paste a list and match products' },
+            { to: '/pharmacy/smart-order?mode=text', title: 'Paste list order', description: 'WhatsApp / text list into Smart Order' },
             { to: '/pharmacy/cart', title: 'Cart', description: 'Multi-stockist checkout' },
             { to: '/pharmacy/wishlist', title: 'Wishlist', description: 'Saved catalogue products' },
             { to: '/pharmacy/buy?mode=all', title: 'All sellers', description: 'Cross-stockist discovery' },
@@ -41,7 +41,8 @@ export function PharmacySettings() {
           title: 'Finance',
           items: [
             { to: '/pharmacy/payments', title: 'Payments / Razorpay', description: 'Pay invoices online or with proof' },
-            { to: '/pharmacy/invoices', title: 'Invoices', description: 'Purchase invoices' },
+            { to: '/pharmacy/payments?tab=Invoices', title: 'Invoices', description: 'Purchase invoices' },
+            { to: '/pharmacy/orders?tab=Recurring', title: 'Recurring orders', description: 'Standing lists that fill the cart' },
             { to: '/pharmacy/returns', title: 'Returns', description: 'B2B returns to stockists' },
           ],
         },
@@ -50,8 +51,8 @@ export function PharmacySettings() {
           items: [
             { to: '/pharmacy/inventory', title: 'Inventory', description: 'Pharmacy shelf stock' },
             { to: '/pharmacy/suppliers', title: 'Offline suppliers', description: 'Local wholesalers + bill OCR' },
-            { to: '/pharmacy/expiry', title: 'Expiry', description: 'Near-expiry batches' },
-            { to: '/pharmacy/connections', title: 'Circle / stockists', description: 'Platform stockist network' },
+            { to: '/pharmacy/inventory?filter=near-expiry', title: 'Near expiry', description: 'Batches expiring within 30 days' },
+            { to: '/pharmacy/connections', title: 'Circle', description: 'Connected stockists and credit status' },
           ],
         },
         {

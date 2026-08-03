@@ -263,7 +263,7 @@ export async function stockistAnalytics(stockistId: string, periodDays = 14): Pr
         label: 'Low stock SKUs',
         value: lowStock.length,
         format: 'number',
-        drill: lowStock.map((p) => ({ id: p.id, label: p.name, value: p.sku, href: '/stockist/inventory', meta: p.sku })),
+        drill: lowStock.map((p) => ({ id: p.id, label: p.name, value: p.sku, href: '/stockist/products?tab=batches', meta: p.sku })),
       },
     ],
   };
@@ -326,7 +326,7 @@ export async function platformAnalytics(): Promise<AnalyticsBundle> {
             id: i.id,
             label: i.invoiceNo,
             value: i.grandTotal,
-            href: '/admin/orders',
+            href: '/admin/trade?tab=Orders',
             meta: i.status,
           })),
       },

@@ -10,9 +10,9 @@ export function BreadcrumbBar({
   /** `inline` sits inside the topbar (MSS-style). */
   variant?: 'bar' | 'inline';
 }) {
-  const { pathname } = useLocation();
-  const crumbs = resolveBreadcrumbs(pathname, portal);
-  const parent = resolveParentPath(pathname, portal);
+  const { pathname, search } = useLocation();
+  const crumbs = resolveBreadcrumbs(pathname, portal, search);
+  const parent = resolveParentPath(pathname, portal, search);
   const current = crumbs[crumbs.length - 1];
 
   // Standalone bar: hide on portal home (single "Home" crumb)

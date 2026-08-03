@@ -106,7 +106,7 @@ export async function confirmStockistBillOcr(params: {
   marginPercent?: number;
   keepExistingRates?: boolean;
   fileName?: string;
-}): Promise<Result<{ created: number; updated: number; stockValue: number }>> {
+}): Promise<Result<{ created: number; updated: number; stockValue: number; productIds: string[] }>> {
   const perm = assertCan(params.actor, params.stockist, 'catalogue.manage');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Bill was not imported.');
   if (!params.lines.length) {
@@ -119,6 +119,7 @@ export async function confirmStockistBillOcr(params: {
   let created = 0;
   let updated = 0;
   let stockValue = 0;
+  const productIds: string[] = [];
   const margin = params.marginPercent ?? 12;
   const keep = params.keepExistingRates !== false;
   const ts = nowIso();
@@ -131,10 +132,13 @@ export async function confirmStockistBillOcr(params: {
       ? await db.products.get(line.matchedProductId)
       : undefined;
 
-    const saleRate =
-      keep && product
-        ? product.ptr
-        : roundMoney(line.saleRate ?? line.unitCost * (1 + margin / 100));
+    const saleRate = roundMoney(
+      line.saleRate != null
+        ? line.saleRate
+        : keep && product
+          ? product.ptr
+          : line.unitCost * (1 + margin / 100),
+    );
     const mrp = line.mrp ?? roundMoney(saleRate * 1.25);
 
     if (!product) {
@@ -164,24 +168,27 @@ export async function confirmStockistBillOcr(params: {
       created += 1;
     } else {
       if (!keep) {
-        await db.products.put({
+        product = {
           ...product,
           ptr: saleRate,
           mrp,
           purchaseRate: line.unitCost,
           listedForSale: product.listedForSale !== false,
           updatedAt: ts,
-        });
+        };
+        await db.products.put(product);
       } else {
-        await db.products.put({
+        product = {
           ...product,
           purchaseRate: line.unitCost,
           listedForSale: product.listedForSale !== false,
           updatedAt: ts,
-        });
+        };
+        await db.products.put(product);
       }
       updated += 1;
     }
+    productIds.push(product.id);
 
     const qty = Math.max(1, Math.floor(line.qty));
     stockValue = roundMoney(stockValue + qty * line.unitCost);
@@ -209,7 +216,7 @@ export async function confirmStockistBillOcr(params: {
     after: { created, updated, stockValue, fileName: params.fileName },
   });
 
-  return ok({ created, updated, stockValue });
+  return ok({ created, updated, stockValue, productIds });
 }
 
 /**

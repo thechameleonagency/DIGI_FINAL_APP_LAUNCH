@@ -3,16 +3,14 @@ import {
   Building2,
   ClipboardCheck,
   CreditCard,
-  FileText,
   Home,
   AlertTriangle,
   LifeBuoy,
   Megaphone,
-  PackageMinus,
   Settings,
   Users,
 } from 'lucide-react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
 import { RequirePermission } from '../../app/guards';
 import { AnnouncementsArchivePage } from '../../ui/components/AnnouncementsArchivePage';
 import { AppearancePage } from '../../ui/components/AppearanceControls';
@@ -34,8 +32,8 @@ import {
   AdminPlans,
   AdminReports,
   AdminHelp,
-  AdminReturns,
   AdminReturnDetail,
+  AdminTrade,
   AdminSettings,
   AdminStaff,
   AdminSupport,
@@ -46,9 +44,7 @@ import {
 const nav = [
   { to: '/admin', label: 'Home', icon: Home, end: true, section: 'Queues' },
   { to: '/admin/verifications', label: 'Verifications', icon: ClipboardCheck, section: 'Queues', requires: 'verification.review' as const },
-  { to: '/admin/orders', label: 'Orders', icon: FileText, section: 'Queues', requires: 'read.platform' as const },
-  { to: '/admin/payments', label: 'Payments', icon: Activity, section: 'Queues', requires: 'read.platform' as const },
-  { to: '/admin/returns', label: 'Returns', icon: PackageMinus, section: 'Queues', requires: 'read.platform' as const },
+  { to: '/admin/trade', label: 'Trade', icon: Activity, section: 'Queues', requires: 'read.platform' as const },
   { to: '/admin/support', label: 'Support', icon: LifeBuoy, section: 'Queues', requires: 'support.manage' as const },
   { to: '/admin/network', label: 'Network', icon: Building2, section: 'Governance', requires: 'read.platform' as const },
   { to: '/admin/plans', label: 'Plans', icon: CreditCard, section: 'Governance', requires: 'read.platform' as const },
@@ -67,6 +63,14 @@ const mobileNav = [
   { to: '/admin/settings', label: 'Settings', icon: Settings, requires: 'settings.manage' as const },
 ];
 
+function RedirectToTrade({ tab }: { tab: 'Orders' | 'Payments' | 'Returns' }) {
+  const [params] = useSearchParams();
+  const next = new URLSearchParams(params);
+  next.set('tab', tab);
+  const qs = next.toString();
+  return <Navigate to={`/admin/trade${qs ? `?${qs}` : ''}`} replace />;
+}
+
 export function AdminApp() {
   return (
     <Routes>
@@ -80,12 +84,13 @@ export function AdminApp() {
           <Route path="network" element={<AdminNetwork />} />
           <Route path="network/:id" element={<AdminBusinessDetail />} />
           <Route path="analytics" element={<AdminAnalytics />} />
-          <Route path="orders" element={<AdminOrders />} />
+          <Route path="trade" element={<AdminTrade />} />
+          <Route path="orders" element={<RedirectToTrade tab="Orders" />} />
           <Route path="orders/:orderNo" element={<AdminOrders />} />
-          <Route path="payments" element={<AdminPayments />} />
+          <Route path="payments" element={<RedirectToTrade tab="Payments" />} />
           <Route path="payments/:paymentNo" element={<AdminPayments />} />
           <Route path="plans" element={<AdminPlans />} />
-          <Route path="returns" element={<AdminReturns />} />
+          <Route path="returns" element={<RedirectToTrade tab="Returns" />} />
           <Route path="returns/:returnNo" element={<AdminReturnDetail />} />
         </Route>
         <Route element={<RequirePermission action="support.manage" />}>

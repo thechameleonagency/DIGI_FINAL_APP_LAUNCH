@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { formatINR } from '../../../domain/utils/money';
 import { mockParseBillImage } from '../../../services/ocrService';
 import { parseQuickOrderText } from '../../../services/quickOrderService';
@@ -24,12 +24,27 @@ export function PharmacySmartOrder() {
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<Mode>('text');
+  const [params, setParams] = useSearchParams();
+  const modeParam = params.get('mode');
+  const [mode, setMode] = useState<Mode>(
+    modeParam === 'bill' || modeParam === 'inventory' || modeParam === 'text' ? modeParam : 'text',
+  );
   const [text, setText] = useState('10 Dolo 650\n5 Augmentin 625\n8 Pantop 40');
   const [fileName, setFileName] = useState('');
   const [scopes, setScopes] = useState<SmartOrderScopeFlag[]>(['lowStock', 'frequent']);
   const [result, setResult] = useState<SmartRecommendResult | null>(null);
   const [picked, setPicked] = useState<'bestSingle' | 'cheapestSplit' | 'fastest'>('cheapestSplit');
+
+  useEffect(() => {
+    if (modeParam === 'bill' || modeParam === 'inventory' || modeParam === 'text') setMode(modeParam);
+  }, [modeParam]);
+
+  const selectMode = (m: Mode) => {
+    setMode(m);
+    const next = new URLSearchParams(params);
+    next.set('mode', m);
+    setParams(next, { replace: true });
+  };
 
   const runOptimizer = (demand: { key: string; name: string; qty: number; offlineUnitCost?: number }[], billTotal?: number) =>
     void run(async () => {
@@ -127,7 +142,7 @@ export function PharmacySmartOrder() {
             ['inventory', 'Inventory signals'],
           ] as const
         ).map(([id, label]) => (
-          <Button key={id} variant={mode === id ? 'primary' : 'secondary'} onClick={() => setMode(id)}>
+          <Button key={id} variant={mode === id ? 'primary' : 'secondary'} onClick={() => selectMode(id)}>
             {label}
           </Button>
         ))}
@@ -250,8 +265,8 @@ export function PharmacySmartOrder() {
         </div>
       ) : null}
 
-      <p className="muted" style={{ fontSize: 13 }}>
-        Prefer classic paste-only flow? <Link to="/pharmacy/quick-order">Quick Order</Link>
+      <p className="muted">
+        History: <Link to="/pharmacy/smart-order/history">re-apply past runs</Link>
       </p>
     </div>
   );

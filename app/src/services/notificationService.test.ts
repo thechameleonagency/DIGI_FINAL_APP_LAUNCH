@@ -54,7 +54,7 @@ describe('resolveNotificationLink', () => {
     ).toBe('/pharmacy/counterfeit');
     expect(
       resolveNotificationLink({ entityType: 'Batch', entityId: 'b1', code: 'N-313' }, 'stockist'),
-    ).toBe('/stockist/inventory');
+    ).toBe('/stockist/products?tab=batches');
     expect(
       resolveNotificationLink({ entityType: 'Batch', entityId: 'b1', code: 'N-313' }, 'pharmacy'),
     ).toBe('/pharmacy/counterfeit');

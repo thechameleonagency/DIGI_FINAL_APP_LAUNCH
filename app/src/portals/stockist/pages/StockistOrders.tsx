@@ -2,13 +2,17 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { acceptOrder } from '../../../services/orderService';
 import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, LoadingState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
+import { ListPageChrome } from '../../../ui/components/ListPageChrome';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
+import { Button, EmptyState, Field, Input, LoadingState, Money, StatusBadge, TabPanel } from '../../../ui/components/primitives';
+import { StockistBatchOrderingPanel } from './StockistBatchOrdering';
+import { StockistManualOrder } from './StockistManualOrder';
 import { useBiz } from './useBiz';
 
 const STATUS_OPTIONS = [
@@ -41,12 +45,27 @@ const INBOX_RANK: Record<string, number> = {
   Draft: 11,
 };
 
+type OrdersTab = 'Inbox' | 'Plan' | 'Manual';
+
+function parseOrdersTab(raw: string | null): OrdersTab {
+  if (raw === 'Inbox' || raw === 'Plan' || raw === 'Manual') return raw;
+  return 'Inbox';
+}
+
 export function StockistOrders() {
   const { business, user } = useBiz();
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const { pushToast } = useUi();
   const canAccept = useCan('order.accept');
+  const { pageSize, setPageSize } = usePersistedPageSize('stockist-orders');
+  const tableRef = useTableSectionRef();
+  const tab = parseOrdersTab(params.get('tab'));
+  const setTab = (nextTab: OrdersTab) => {
+    const next = new URLSearchParams(params);
+    next.set('tab', nextTab);
+    setParams(next, { replace: true });
+  };
   const { items: orders, loading: ordersLoading } = useLiveArray(
     () => db.orders.where('stockistId').equals(business.id).toArray(),
     [business.id],
@@ -185,10 +204,35 @@ export function StockistOrders() {
     defaultSortKey: 'inboxRank',
     defaultSortDir: 'asc',
     initialFilters: statusParam ? { status: statusParam } : undefined,
+    pageSize,
   });
 
   return (
-    <div className="stack">
+    <ListPageChrome
+      title="Orders"
+      subtitle="Inbox, batch plan, and manual entry"
+      tabs={[
+        { id: 'Inbox', label: 'Inbox', count: orders.length },
+        { id: 'Plan', label: 'Plan' },
+        { id: 'Manual', label: 'Manual' },
+      ]}
+      tab={tab}
+      onTab={(id) => setTab(id as OrdersTab)}
+      actions={
+        tab === 'Inbox' ? (
+          <div className="row" style={{ gap: 8 }}>
+            {canAccept && selectedPending.length ? (
+              <Button size="sm" onClick={() => setBulkAcceptOpen(true)} disabled={bulkBusy}>
+                Accept selected ({selectedPending.length})
+              </Button>
+            ) : null}
+            <Button size="sm" variant="secondary" onClick={() => setTab('Manual')}>
+              Manual order
+            </Button>
+          </div>
+        ) : null
+      }
+    >
       <ConfirmDialog
         open={bulkAcceptOpen}
         title={`Accept ${selectedPending.length} order${selectedPending.length === 1 ? '' : 's'}?`}
@@ -224,95 +268,104 @@ export function StockistOrders() {
           }
         }}
       />
-      <PageHeader
-        title="Orders inbox"
-        subtitle="Pending-first · search / filter / sort / export"
-        actions={
-          <div className="row" style={{ gap: 8 }}>
-            {canAccept && selectedPending.length ? (
-              <Button size="sm" onClick={() => setBulkAcceptOpen(true)} disabled={bulkBusy}>
-                Accept selected ({selectedPending.length})
-              </Button>
-            ) : null}
-            <Link className="btn btn-primary btn-sm" to="/stockist/manual-order">
-              Manual order
-            </Link>
+
+      <TabPanel id="Inbox" active={tab === 'Inbox'}>
+        <div className="stack">
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <Field label="From">
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            </Field>
+            <Field label="To">
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            </Field>
+            <Field label="Min amount">
+              <Input type="number" min={0} value={minAmount} onChange={(e) => setMinAmount(e.target.value)} style={{ width: 110 }} />
+            </Field>
+            <Field label="Max amount">
+              <Input type="number" min={0} value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} style={{ width: 110 }} />
+            </Field>
           </div>
-        }
-      />
-      <div className="row" style={{ flexWrap: 'wrap' }}>
-        <Field label="From">
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-        </Field>
-        <Field label="To">
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-        </Field>
-        <Field label="Min amount">
-          <Input type="number" min={0} value={minAmount} onChange={(e) => setMinAmount(e.target.value)} style={{ width: 110 }} />
-        </Field>
-        <Field label="Max amount">
-          <Input type="number" min={0} value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} style={{ width: 110 }} />
-        </Field>
-      </div>
-      {canAccept ? (
-        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() =>
-              setSelected(
-                Object.fromEntries(list.pageRows.filter((o) => o.status === 'Pending').map((o) => [o.id, true])),
-              )
-            }
-          >
-            Select pending on page
-          </Button>
-          <span className="muted" style={{ fontSize: 12 }}>
-            {selectedPending.length} pending selected
-          </span>
-        </div>
-      ) : null}
-      <ListToolbar
-        query={list.query}
-        onQuery={list.setQuery}
-        placeholder="Search order / pharmacy"
-        filters={[
-          {
-            key: 'status',
-            label: 'Status',
-            options: STATUS_OPTIONS.map((s) => ({ value: s, label: s })),
-          },
-          {
-            key: 'pharmacy',
-            label: 'Pharmacy',
-            options: pharmacyOptions,
-          },
-        ]}
-        filterValues={list.filterValues}
-        onFilter={list.setFilter}
-        onExport={() => {
-          list.doExport(`stockist-orders-${business.id}.csv`);
-          pushToast({ tone: 'success', title: 'Exported filtered orders' });
-        }}
-      />
-      {ordersLoading ? (
-        <LoadingState label="Loading orders…" />
-      ) : !orders.length ? (
-        <EmptyState title="No orders yet" description="Orders from connected pharmacies appear here." />
-      ) : (
-        <>
-          <DataListTable
-            columns={columns.filter((c) => c.key !== 'inboxRank')}
-            rows={list.pageRows}
-            sortKey={list.sortKey}
-            sortDir={list.sortDir}
-            onSort={list.toggleSort}
-            loading={ordersLoading}
-            onRowClick={(o) => navigate(`/stockist/orders/${o.orderNo}`)}
+          {canAccept ? (
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  setSelected(
+                    Object.fromEntries(list.pageRows.filter((o) => o.status === 'Pending').map((o) => [o.id, true])),
+                  )
+                }
+              >
+                Select pending on page
+              </Button>
+              <span className="muted" style={{ fontSize: 12 }}>
+                {selectedPending.length} pending selected
+              </span>
+            </div>
+          ) : null}
+          <ListToolbar
+            query={list.query}
+            onQuery={list.setQuery}
+            placeholder="Search order / pharmacy"
+            filters={[
+              {
+                key: 'status',
+                label: 'Status',
+                options: STATUS_OPTIONS.map((s) => ({ value: s, label: s })),
+              },
+              {
+                key: 'pharmacy',
+                label: 'Pharmacy',
+                options: pharmacyOptions,
+              },
+            ]}
+            filterValues={list.filterValues}
+            onFilter={list.setFilter}
+            onExport={() => {
+              list.doExport(`stockist-orders-${business.id}.csv`);
+              pushToast({ tone: 'success', title: 'Exported filtered orders' });
+            }}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
-        </>
-      )}
-    </div>
+          {ordersLoading ? (
+            <LoadingState label="Loading orders…" />
+          ) : !orders.length ? (
+            <EmptyState title="No orders yet" description="Orders from connected pharmacies appear here." />
+          ) : (
+            <>
+              <DataListTable
+                stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
+                columns={columns.filter((c) => c.key !== 'inboxRank')}
+                rows={list.pageRows}
+                sortKey={list.sortKey}
+                sortDir={list.sortDir}
+                onSort={list.toggleSort}
+                loading={ordersLoading}
+                onRowClick={(o) => navigate(`/stockist/orders/${o.orderNo}`)}
+              />
+              <PaginationBar
+                page={list.page}
+                pageCount={list.pageCount}
+                total={list.total}
+                onPage={list.setPage}
+                pageSize={pageSize}
+                onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
+            </>
+          )}
+        </div>
+      </TabPanel>
+
+      <TabPanel id="Plan" active={tab === 'Plan'}>
+        <StockistBatchOrderingPanel />
+      </TabPanel>
+
+      <TabPanel id="Manual" active={tab === 'Manual'}>
+        <StockistManualOrder embedded />
+      </TabPanel>
+    </ListPageChrome>
   );
 }

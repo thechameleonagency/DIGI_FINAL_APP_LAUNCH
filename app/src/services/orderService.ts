@@ -1,5 +1,6 @@
 import type { Address, Business, Order, OrderLine, User } from '../domain/entities/types';
 import { calcOrderLine, calcOrderTotals, pairOutstanding } from '../domain/calc';
+import { applySchemeToUnitPrice } from '../domain/calc/schemePricing';
 import { fail, ok, type Result } from '../domain/errors/types';
 import { machines } from '../domain/machines/transitions';
 import { makeIdempotencyKey } from '../domain/utils/idempotency';
@@ -7,6 +8,7 @@ import { newId, nextNumber } from '../domain/utils/ids';
 import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
+import { getSchemes, holidayGate } from './deliveryCommerceService';
 import { notifyBusinessUsers } from './notifications';
 import { calcInclusiveOrderLine, priceForOfflineManagedLine, priceForPlatformPharmacy } from './pricingService';
 import { nowIso } from '../domain/utils/clock';
@@ -83,6 +85,19 @@ export async function placeOrder(params: {
   if (!stockist || stockist.accountStatus === 'Suspended' || stockist.verificationStatus !== 'Approved') {
     return fail('BusinessRule', 'ORD_STOCKIST_GATE', 'Stockist is not available for ordering.', 'Order was not created.');
   }
+
+  const holiday = await holidayGate(stockist, params.preferredDate);
+  if (holiday.blocked) {
+    return fail(
+      'BusinessRule',
+      'ORD_HOLIDAY',
+      holiday.reason
+        ? `Stockist is closed on this date (${holiday.reason}) and is not accepting preorders.`
+        : 'Stockist is closed on this date and is not accepting preorders.',
+      'Order was not created.',
+    );
+  }
+
   const cat = await db.catalogues.where('stockistId').equals(params.stockistId).first();
   if (!cat || cat.status !== 'Active') {
     return fail('BusinessRule', 'ORD_CAT', 'Stockist catalogue is not available for ordering.', 'Order was not created.');
@@ -99,6 +114,7 @@ export async function placeOrder(params: {
     return fail('Validation', 'ORD_EMPTY', 'No selected cart lines to order.', 'Order was not created.');
   }
 
+  const schemes = await getSchemes(params.stockistId);
   const lines: OrderLine[] = [];
   for (const cl of cartLines) {
     const product = await db.products.get(cl.productId);
@@ -122,7 +138,16 @@ export async function placeOrder(params: {
     }
     const settings = await db.platformSettings.get('platform');
     const priced = priceForPlatformPharmacy(product, settings);
+    // Scheme discounts the pharmacy-visible inclusive unit; commission/bank snapshots stay from pre-scheme pricing class.
     const money = calcInclusiveOrderLine(priced, cl.qty, product.gstPercent);
+    const applied = applySchemeToUnitPrice({
+      unitPrice: money.unitPrice,
+      product,
+      schemes,
+    });
+    const lineMoney = applied.scheme
+      ? calcOrderLine({ qty: cl.qty, unitPrice: applied.unitPrice, gstPercent: product.gstPercent })
+      : { lineSubtotal: money.lineSubtotal, lineTax: money.lineTax, lineTotal: money.lineTotal };
     lines.push({
       id: newId(),
       productId: product.id,
@@ -130,7 +155,7 @@ export async function placeOrder(params: {
       sku: product.sku,
       packSize: product.packSize,
       qty: cl.qty,
-      unitPrice: money.unitPrice,
+      unitPrice: applied.unitPrice,
       basePtr: priced.basePtr,
       commissionAmount: money.commissionAmount,
       bankFeeAmount: money.bankFeeAmount,
@@ -138,9 +163,17 @@ export async function placeOrder(params: {
       commissionMode: priced.commissionMode,
       mrp: product.mrp,
       gstPercent: product.gstPercent,
-      lineSubtotal: money.lineSubtotal,
-      lineTax: money.lineTax,
-      lineTotal: money.lineTotal,
+      lineSubtotal: lineMoney.lineSubtotal,
+      lineTax: lineMoney.lineTax,
+      lineTotal: lineMoney.lineTotal,
+      ...(applied.scheme
+        ? {
+            schemeId: applied.scheme.id,
+            schemeTitle: applied.scheme.title,
+            schemeDiscountAmount: applied.schemeDiscountAmount,
+            unitPriceBeforeScheme: applied.unitPriceBeforeScheme,
+          }
+        : {}),
     });
   }
 

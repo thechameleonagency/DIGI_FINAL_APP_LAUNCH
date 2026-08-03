@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
@@ -12,6 +12,7 @@ import {
   issueInvoice,
   packOrder,
 } from '../../../services/fulfilmentService';
+import { ensureMessageThread } from '../../../services/supportService';
 import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
@@ -24,6 +25,7 @@ import { useBiz } from './useBiz';
 
 export function StockistOrderDetail() {
   const { orderNo } = useParams();
+  const navigate = useNavigate();
   const { business, user } = useBiz();
   const { pushToast, showSuccessSummary } = useUi();
   const canAccept = useCan('order.accept');
@@ -155,12 +157,35 @@ export function StockistOrderDetail() {
                 : []
             }
             extra={
-              <Link
-                className="btn btn-secondary btn-sm"
-                to={`/stockist/support?new=1&entityType=Order&entityId=${encodeURIComponent(order.id)}&entityNo=${encodeURIComponent(order.orderNo)}`}
-              >
-                Get help with this order
-              </Link>
+              <div className="row">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    const res = await ensureMessageThread({
+                      actor: user,
+                      business,
+                      counterpartBusinessId: order.pharmacyId,
+                      relatedEntityType: 'Order',
+                      relatedEntityId: order.orderNo,
+                    });
+                    if (!res.ok) {
+                      pushToast({ tone: 'error', title: res.message, message: res.businessImpact });
+                      return;
+                    }
+                    const draft = encodeURIComponent(`Regarding order ${order.orderNo}`);
+                    navigate(`/stockist/messages?thread=${res.data.id}&draft=${draft}`);
+                  }}
+                >
+                  Message about this order
+                </Button>
+                <Link
+                  className="btn btn-secondary btn-sm"
+                  to={`/stockist/support?new=1&entityType=Order&entityId=${encodeURIComponent(order.id)}&entityNo=${encodeURIComponent(order.orderNo)}`}
+                >
+                  Get help with this order
+                </Link>
+              </div>
             }
           />
         }

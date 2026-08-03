@@ -140,7 +140,10 @@ export interface Business {
   accountHolderName?: string;
   servicePins?: string[];
   creditDaysDefault?: number;
+  /** @deprecated Prefer holidayEntries; strings still accepted and normalized on read. */
   holidays?: string[];
+  /** Structured holidays with allowPreorder gate for placeOrder. */
+  holidayEntries?: HolidayEntry[];
   preferences?: {
     deliverySlots?: string[];
     instructions?: string;
@@ -150,10 +153,14 @@ export interface Business {
     deliveryFeeFreeAbove?: number;
     /** CF-23 Premium convenience — saved analytics period presets */
     reportPresets?: { id: string; name: string; periodDays: number }[];
+    dispatchLatitude?: number;
+    dispatchLongitude?: number;
   };
   plan?: 'Free' | 'Premium';
   locations?: { id: string; name: string; address?: string }[];
   deliveryAddresses?: Address[];
+  latitude?: number;
+  longitude?: number;
   createdAt: string;
   updatedAt: string;
   suspendedAt?: string;
@@ -161,6 +168,77 @@ export interface Business {
   suspendReason?: string;
   /** Admin-only note — never shown to the business */
   internalNotes?: string;
+}
+
+export interface HolidayEntry {
+  startDate: string;
+  endDate: string;
+  reason?: string;
+  allowPreorder: boolean;
+}
+
+export type DeliveryRuleType = 'order_amount' | 'flat_fee' | 'delivery_date' | 'distance';
+export type Weekday = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
+
+export interface DeliveryDate {
+  id: string;
+  stockistId: string;
+  date: string;
+  active: boolean;
+}
+
+export interface DeliveryRule {
+  id: string;
+  stockistId: string;
+  ruleType: DeliveryRuleType;
+  priority: number;
+  active: boolean;
+  minOrderAmount?: number;
+  flatFee?: number;
+  freeOnDeliveryDate?: boolean;
+  perKmCharge?: number;
+  baseDistanceKm?: number;
+}
+
+export interface PinDeliverySetting {
+  id: string;
+  stockistId: string;
+  pinCode: string;
+  deliveryDays: Weekday[];
+  deliveryCharge: number;
+  freeAbove?: number;
+  estimatedHours?: number;
+}
+
+export interface Scheme {
+  id: string;
+  stockistId: string;
+  title: string;
+  scope: 'product' | 'sku' | 'category';
+  productId?: string;
+  sku?: string;
+  category?: string;
+  discountType: 'percent' | 'flat';
+  discountValue: number;
+  startsOn: string;
+  endsOn: string;
+  active: boolean;
+  /** Locked non-stackable in this app. */
+  stackable: false;
+}
+
+export interface RecurringOrder {
+  id: string;
+  pharmacyId: string;
+  stockistId: string;
+  cadence: 'Weekly' | 'BiWeekly' | 'Monthly';
+  nextRunDate: string;
+  lines: { productId: string; qty: number }[];
+  active: boolean;
+  paymentMode?: OrderPaymentMode;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface User {
@@ -363,6 +441,10 @@ export interface OrderLine {
   lineTotal: number;
   discrepancyReason?: string;
   batchAllocations?: { batchId: string; batchNumber: string; qty: number; expiryDate: string }[];
+  schemeId?: string;
+  schemeTitle?: string;
+  schemeDiscountAmount?: number;
+  unitPriceBeforeScheme?: number;
 }
 
 export interface Order {
@@ -446,6 +528,10 @@ export interface InvoiceLine {
   lineTotal: number;
   batchNumber?: string;
   expiryDate?: string;
+  schemeId?: string;
+  schemeTitle?: string;
+  schemeDiscountAmount?: number;
+  unitPriceBeforeScheme?: number;
 }
 
 export interface Invoice {

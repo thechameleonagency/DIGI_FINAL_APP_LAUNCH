@@ -49,7 +49,7 @@ export function resolveNotificationLink(
     case 'CounterfeitReport':
       return `${base}/counterfeit`;
     case 'Batch':
-      if (portal === 'stockist') return `${base}/inventory`;
+      if (portal === 'stockist') return `${base}/products?tab=batches`;
       if (portal === 'pharmacy') return `${base}/counterfeit`;
       return `${base}/counterfeit`;
     default:

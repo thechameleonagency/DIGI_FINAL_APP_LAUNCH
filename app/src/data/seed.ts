@@ -14,7 +14,7 @@ export const SEED_VERSION = 7;
 export const EMPTY_STATE_VERSION = SEED_VERSION;
 
 /** Bump to force a one-time world re-seed after clear. */
-export const WORLD_SEED_VERSION = 3;
+export const WORLD_SEED_VERSION = 5;
 
 /** Default platform policy row — configuration only, not demo accounts or trade data. */
 export function defaultPlatformSettings(): PlatformSettings {

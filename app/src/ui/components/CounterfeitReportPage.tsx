@@ -5,8 +5,9 @@ import { fileCounterfeitReport } from '../../services/counterfeitService';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { useBusyAction } from '../hooks/useBusyAction';
+import { usePersistedPageSize } from '../hooks/usePersistedPageSize';
 import { FileUpload } from './FileUpload';
-import { PaginationBar, usePagedRows } from './ListToolkit';
+import { PaginationBar, usePagedRows, useTableSectionRef } from './ListToolkit';
 import { Button, EmptyState, Field, Modal, PageHeader, Select, StatusBadge, Textarea } from './primitives';
 
 const MAX_EVIDENCE = 3;
@@ -15,6 +16,8 @@ export function CounterfeitReportPage() {
   const { user, business, can } = useSession();
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
+  const { pageSize, setPageSize } = usePersistedPageSize('counterfeit-reports');
+  const tableRef = useTableSectionRef();
   const [description, setDescription] = useState('');
   const [productId, setProductId] = useState('');
   const [batchId, setBatchId] = useState('');
@@ -128,7 +131,7 @@ export function CounterfeitReportPage() {
   if (!user || !business) return null;
 
   const history = [...mine].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const list = usePagedRows(history);
+  const list = usePagedRows(history, pageSize);
 
   return (
     <div className="stack">
@@ -156,31 +159,42 @@ export function CounterfeitReportPage() {
         <EmptyState title="No reports yet" description="Your filed reports and their status appear here." />
       ) : (
         <>
-          <div className="table-wrap queue-responsive">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Report</th>
-                  <th>When</th>
-                  <th>Status</th>
-                  <th>Outcome</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.pageRows.map((r) => (
-                  <tr key={r.id}>
-                    <td data-label="Report">{r.reportNo ?? r.id.slice(0, 8)}</td>
-                    <td data-label="When">{new Date(r.createdAt).toLocaleString()}</td>
-                    <td data-label="Status">
-                      <StatusBadge status={r.status} />
-                    </td>
-                    <td data-label="Outcome">{r.decisionReason ?? r.outcome ?? '—'}</td>
+          <section className="table-section" ref={tableRef}>
+            <div className="table-wrap queue-responsive table-scroll table-sticky">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Report</th>
+                    <th>When</th>
+                    <th>Status</th>
+                    <th>Outcome</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+                </thead>
+                <tbody>
+                  {list.pageRows.map((r) => (
+                    <tr key={r.id}>
+                      <td data-label="Report">{r.reportNo ?? r.id.slice(0, 8)}</td>
+                      <td data-label="When">{new Date(r.createdAt).toLocaleString()}</td>
+                      <td data-label="Status">
+                        <StatusBadge status={r.status} />
+                      </td>
+                      <td data-label="Outcome">{r.decisionReason ?? r.outcome ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <PaginationBar
+            page={list.page}
+            pageCount={list.pageCount}
+            total={list.total}
+            onPage={list.setPage}
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
 

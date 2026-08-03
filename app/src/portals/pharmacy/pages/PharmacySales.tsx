@@ -19,9 +19,10 @@ import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { BarcodeScanField } from '../../../ui/components/BarcodeScanField';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { PrintDocument } from '../../../ui/components/PrintDocument';
 import {
   Button,
@@ -43,6 +44,8 @@ export function PharmacySales() {
   const navigate = useNavigate();
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('pharmacy-sales');
+  const tableRef = useTableSectionRef();
   const { busy, run } = useBusyAction();
   const canRecord = useCan('sale.record');
   const { items: sales, loading: salesLoading } = useLiveArray(
@@ -176,6 +179,8 @@ export function PharmacySales() {
     ],
     defaultSortKey: 'dateLabel',
     defaultSortDir: 'desc',
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   const resetForm = () => {
@@ -607,6 +612,9 @@ export function PharmacySales() {
             }}
           />
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             loading={salesLoading}
             columns={saleColumns}
             rows={saleList.pageRows}
@@ -620,6 +628,10 @@ export function PharmacySales() {
             pageCount={saleList.pageCount}
             total={saleList.total}
             onPage={saleList.setPage}
+            pageSize={saleList.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
           />
         </>
       )}

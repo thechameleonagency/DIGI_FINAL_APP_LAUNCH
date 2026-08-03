@@ -1,8 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
+import { normalizeHolidays } from '../../../domain/calc/deliveryCommerce';
+import type { DeliveryRule, DeliveryRuleType, HolidayEntry, PinDeliverySetting, Weekday } from '../../../domain/entities/types';
 import { localTodayKey } from '../../../domain/utils/dateKeys';
+import { formatINR } from '../../../domain/utils/money';
+import { updateBusiness } from '../../../services/businessService';
+import {
+  getDeliveryRules,
+  replaceDeliveryDates,
+  replaceDeliveryRules,
+  replacePinDeliverySettings,
+} from '../../../services/deliveryCommerceService';
 import {
   assignDelivery,
   returnFailedDeliveryToStockist,
@@ -11,6 +21,8 @@ import {
 import {
   deleteStockistRoute,
   mapsDeepLink,
+  mapsDirectionsLink,
+  optimizeStopOrder,
   scheduleDelivery,
   setRouteStops,
   upsertStockistRoute,
@@ -19,14 +31,26 @@ import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileLink, FileUpload } from '../../../ui/components/FileUpload';
-import { ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
+import { ListPageChrome } from '../../../ui/components/ListPageChrome';
+import { ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit';
 import { PharmacyDeliveryPrefs } from '../../../ui/components/PharmacyDeliveryPrefs';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
-import { Button, DeleteButton, EmptyState, Field, Input, LoadingState, Modal, PageHeader, Select, StatusBadge, Tabs } from '../../../ui/components/primitives';
+import { Button, DeleteButton, EmptyState, Field, Input, LoadingState, Modal, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
+
+const WEEKDAYS: Weekday[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const RULE_TYPES: DeliveryRuleType[] = ['order_amount', 'flat_fee', 'delivery_date', 'distance'];
+
+type DeliveryTab = 'Board' | 'Routes' | 'Execute' | 'Dates' | 'Fees' | 'PINs' | 'Holidays';
+
+type RuleDraft = Omit<DeliveryRule, 'id' | 'stockistId'> & { key: string };
+type PinDraft = Omit<PinDeliverySetting, 'id' | 'stockistId'> & { key: string };
 
 export function StockistDelivery() {
   const { business, user } = useBiz();
+  const { pageSize, setPageSize } = usePersistedPageSize('stockist-delivery');
+  const tableRef = useTableSectionRef();
   const { pushToast } = useUi();
   const canAssign = useCan('delivery.assign');
   const canRoutes = useCan('route.manage');
@@ -45,7 +69,7 @@ export function StockistDelivery() {
   const isBoy = user.role === 'DeliveryStaff';
   const visible = isBoy ? deliveries.filter((d) => d.assignedTo === user.id) : deliveries;
 
-  const [tab, setTab] = useState<'Board' | 'Routes' | 'Execute'>(isBoy ? 'Execute' : 'Board');
+  const [tab, setTab] = useState<DeliveryTab>(isBoy ? 'Execute' : 'Board');
   const [failId, setFailId] = useState<string | null>(null);
   const [deleteRouteId, setDeleteRouteId] = useState<string | null>(null);
   const [restockId, setRestockId] = useState<string | null>(null);
@@ -73,6 +97,67 @@ export function StockistDelivery() {
   const [stopPickRoute, setStopPickRoute] = useState('');
   const [selectedStops, setSelectedStops] = useState<string[]>([]);
   const [execRouteId, setExecRouteId] = useState('');
+
+  const liveDates =
+    useLiveQuery(() => db.deliveryDates.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
+  const livePins =
+    useLiveQuery(() => db.pinDeliverySettings.where('stockistId').equals(business.id).toArray(), [business.id]) ??
+    [];
+  const liveBiz = useLiveQuery(() => db.businesses.get(business.id), [business.id]) ?? business;
+
+  const [datesDraft, setDatesDraft] = useState('');
+  const [ruleDrafts, setRuleDrafts] = useState<RuleDraft[]>([]);
+  const [pinDrafts, setPinDrafts] = useState<PinDraft[]>([]);
+  const [holidayDrafts, setHolidayDrafts] = useState<HolidayEntry[]>([]);
+
+  useEffect(() => {
+    setDatesDraft(
+      liveDates
+        .slice()
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((d) => d.date)
+        .join(', '),
+    );
+  }, [liveDates]);
+
+  useEffect(() => {
+    void getDeliveryRules(business.id).then((rules) => {
+      setRuleDrafts(
+        rules.map((r, i) => ({
+          key: r.id || `r-${i}`,
+          ruleType: r.ruleType,
+          priority: r.priority,
+          active: r.active,
+          minOrderAmount: r.minOrderAmount,
+          flatFee: r.flatFee,
+          freeOnDeliveryDate: r.freeOnDeliveryDate,
+          perKmCharge: r.perKmCharge,
+          baseDistanceKm: r.baseDistanceKm,
+        })),
+      );
+    });
+  }, [business.id, liveBiz.preferences?.deliveryFeeFlat, liveBiz.preferences?.deliveryFeeFreeAbove]);
+
+  useEffect(() => {
+    const pins = liveBiz.servicePins?.length ? liveBiz.servicePins : [liveBiz.pincode].filter(Boolean);
+    setPinDrafts(
+      pins.map((pinCode) => {
+        const existing = livePins.find((p) => p.pinCode === pinCode);
+        return {
+          key: pinCode,
+          pinCode,
+          deliveryDays: existing?.deliveryDays?.length ? [...existing.deliveryDays] : (['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] as Weekday[]),
+          deliveryCharge: existing?.deliveryCharge ?? liveBiz.preferences?.deliveryFeeFlat ?? 0,
+          freeAbove: existing?.freeAbove ?? liveBiz.preferences?.deliveryFeeFreeAbove,
+          estimatedHours: existing?.estimatedHours ?? 24,
+        };
+      }),
+    );
+  }, [livePins, liveBiz.servicePins, liveBiz.pincode, liveBiz.preferences?.deliveryFeeFlat, liveBiz.preferences?.deliveryFeeFreeAbove]);
+
+  useEffect(() => {
+    setHolidayDrafts(normalizeHolidays(liveBiz.holidays, liveBiz.holidayEntries));
+  }, [liveBiz.holidays, liveBiz.holidayEntries]);
 
   const pharmacyName = (id: string) => pharmacies.find((p) => p.id === id)?.name ?? id.slice(0, 8);
   const orderNo = (orderId: string) => orders.find((o) => o.id === orderId)?.orderNo ?? orderId.slice(0, 8);
@@ -134,6 +219,8 @@ export function StockistDelivery() {
     ],
     defaultSortKey: 'createdAt',
     defaultSortDir: 'desc',
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   const partialDelivery = partialId ? deliveries.find((d) => d.id === partialId) : undefined;
@@ -171,26 +258,72 @@ export function StockistDelivery() {
     setRouteModalOpen(true);
   };
 
+  const stopMetaForIds = (deliveryIds: string[]) =>
+    deliveryIds.map((deliveryId) => {
+      const d = deliveries.find((x) => x.id === deliveryId);
+      const pharmacy = pharmacies.find((p) => p.id === d?.pharmacyId);
+      const order = orders.find((o) => o.id === d?.orderId);
+      return {
+        deliveryId,
+        latitude: pharmacy?.latitude,
+        longitude: pharmacy?.longitude,
+        pincode: order?.deliveryAddress?.pincode ?? pharmacy?.pincode,
+        address: order?.deliveryAddress
+          ? `${order.deliveryAddress.line1}, ${order.deliveryAddress.city} ${order.deliveryAddress.pincode}`
+          : pharmacy
+            ? `${pharmacy.address}, ${pharmacy.city}`
+            : '',
+      };
+    });
+
+  const optimizeRouteStops = async (routeId: string, deliveryIds: string[]) => {
+    const ordered = optimizeStopOrder({
+      origin: {
+        latitude: liveBiz.preferences?.dispatchLatitude ?? liveBiz.latitude,
+        longitude: liveBiz.preferences?.dispatchLongitude ?? liveBiz.longitude,
+      },
+      stops: stopMetaForIds(deliveryIds),
+    });
+    const res = await setRouteStops({
+      actor: user,
+      stockist: business,
+      routeId,
+      deliveryIds: ordered,
+    });
+    if (!res.ok) {
+      pushToast({ tone: 'error', title: res.message });
+      return;
+    }
+    const addrs = stopMetaForIds(ordered)
+      .map((s) => s.address)
+      .filter(Boolean);
+    pushToast({ tone: 'success', title: 'Stops optimized', message: `${ordered.length} stop(s)` });
+    if (addrs.length) window.open(mapsDirectionsLink(addrs), '_blank', 'noreferrer');
+  };
+
   return (
-    <div className="stack">
-      <PageHeader title={isBoy ? 'My delivery board' : 'Delivery'} subtitle="Board, routes, scheduling & route execution" />
-      <Tabs
-        ariaLabel="Delivery views"
-        value={tab}
-        onChange={setTab}
-        items={
-          isBoy
-            ? [
-                { id: 'Board' as const, label: 'Board' },
-                { id: 'Execute' as const, label: 'Execute' },
-              ]
-            : [
-                { id: 'Board' as const, label: 'Board' },
-                { id: 'Routes' as const, label: 'Routes' },
-                { id: 'Execute' as const, label: 'Execute' },
-              ]
-        }
-      />
+    <ListPageChrome
+      title={isBoy ? 'My delivery board' : 'Delivery'}
+      subtitle="Board, routes, dates, fees & route execution"
+      tabs={
+        isBoy
+          ? [
+              { id: 'Board', label: 'Board' },
+              { id: 'Execute', label: 'Execute' },
+            ]
+          : [
+              { id: 'Board', label: 'Board' },
+              { id: 'Routes', label: 'Routes' },
+              { id: 'Dates', label: 'Dates' },
+              { id: 'Fees', label: 'Fees' },
+              { id: 'PINs', label: 'PINs' },
+              { id: 'Holidays', label: 'Holidays' },
+              { id: 'Execute', label: 'Execute' },
+            ]
+      }
+      tab={tab}
+      onTab={(id) => setTab(id as DeliveryTab)}
+    >
       <ConfirmDialog
         open={!!failId}
         title="Mark delivery failed"
@@ -393,6 +526,55 @@ export function StockistDelivery() {
             >
               Assign stops
             </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!routes.length}
+              onClick={() => {
+                const payload = routes.map((r) => ({
+                  name: r.name,
+                  pins: r.pins,
+                  stopCount: r.stops.length,
+                }));
+                try {
+                  localStorage.setItem(`ds.routeTemplates.${business.id}`, JSON.stringify(payload));
+                  pushToast({ tone: 'success', title: 'Route templates saved', message: `${payload.length} route(s)` });
+                } catch {
+                  pushToast({ tone: 'error', title: 'Could not save templates' });
+                }
+              }}
+            >
+              Save templates
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                try {
+                  const raw = localStorage.getItem(`ds.routeTemplates.${business.id}`);
+                  if (!raw) {
+                    pushToast({ tone: 'info', title: 'No saved templates' });
+                    return;
+                  }
+                  const parsed = JSON.parse(raw) as { name: string; pins: string[] }[];
+                  pushToast({
+                    tone: 'success',
+                    title: 'Templates loaded',
+                    message: parsed.map((p) => p.name).join(', ') || 'Empty',
+                  });
+                  if (parsed[0]) {
+                    setRouteName(parsed[0].name);
+                    setRoutePins((parsed[0].pins ?? []).join(', '));
+                    setEditRouteId(null);
+                    setRouteModalOpen(true);
+                  }
+                } catch {
+                  pushToast({ tone: 'error', title: 'Could not load templates' });
+                }
+              }}
+            >
+              Load templates
+            </Button>
           </div>
           {!routes.length ? (
             <EmptyState title="No routes" description="Create a route, then assign open deliveries as stops." />
@@ -419,6 +601,19 @@ export function StockistDelivery() {
                     }}
                   >
                     Assign stops
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!r.stops.length}
+                    onClick={() =>
+                      void optimizeRouteStops(
+                        r.id,
+                        r.stops.slice().sort((a, b) => a.seq - b.seq).map((s) => s.deliveryId),
+                      )
+                    }
+                  >
+                    Optimize stops
                   </Button>
                   <DeleteButton size="sm" onClick={() => setDeleteRouteId(r.id)}>
                     Delete
@@ -499,6 +694,23 @@ export function StockistDelivery() {
                   }}
                 >
                   Save stop order
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!stopPickRoute || selectedStops.length < 2}
+                  onClick={() => {
+                    const ordered = optimizeStopOrder({
+                      origin: {
+                        latitude: liveBiz.preferences?.dispatchLatitude ?? liveBiz.latitude,
+                        longitude: liveBiz.preferences?.dispatchLongitude ?? liveBiz.longitude,
+                      },
+                      stops: stopMetaForIds(selectedStops),
+                    });
+                    setSelectedStops(ordered);
+                    pushToast({ tone: 'info', title: 'Order optimized', message: 'Save to apply' });
+                  }}
+                >
+                  Optimize
                 </Button>
               </div>
             }
@@ -655,6 +867,435 @@ export function StockistDelivery() {
               );
             })
           )}
+        </div>
+      ) : null}
+
+      {tab === 'Dates' && !isBoy ? (
+        <div className="card card-pad stack">
+          <strong>Serviceable delivery dates</strong>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            Pharmacies pick from these dates at checkout. Stored in the workspace database (not localStorage).
+          </p>
+          <Field label="Dates (comma-separated YYYY-MM-DD)">
+            <Input value={datesDraft} onChange={(e) => setDatesDraft(e.target.value)} placeholder="2026-08-10, 2026-08-12" />
+          </Field>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <Button
+              onClick={async () => {
+                const dates = datesDraft
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+                try {
+                  localStorage.removeItem(`ds.deliveryDates.${business.id}`);
+                } catch {
+                  /* ignore */
+                }
+                await replaceDeliveryDates(business.id, dates);
+                pushToast({ tone: 'success', title: 'Delivery dates saved', message: `${dates.length} date(s)` });
+              }}
+            >
+              Save dates
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'Fees' && !isBoy ? (
+        <div className="stack">
+          <div className="card card-pad stack">
+            <strong>Delivery fee rules</strong>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              First matching active rule by priority wins. Profile fee fields stay as a summary fallback when no rules
+              are saved.
+            </p>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Profile fallback: flat {formatINR(liveBiz.preferences?.deliveryFeeFlat ?? 0)}
+              {liveBiz.preferences?.deliveryFeeFreeAbove != null
+                ? ` · free above ${formatINR(liveBiz.preferences.deliveryFeeFreeAbove)}`
+                : ''}
+            </div>
+            {ruleDrafts.map((rule, idx) => (
+              <div key={rule.key} className="card card-pad stack" style={{ gap: 8 }}>
+                <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                  <Field label="Type">
+                    <Select
+                      value={rule.ruleType}
+                      onChange={(e) => {
+                        const ruleType = e.target.value as DeliveryRuleType;
+                        setRuleDrafts((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, ruleType } : r)),
+                        );
+                      }}
+                    >
+                      {RULE_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Priority">
+                    <Input
+                      type="number"
+                      style={{ width: 88 }}
+                      value={rule.priority}
+                      onChange={(e) =>
+                        setRuleDrafts((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, priority: Number(e.target.value) || 0 } : r)),
+                        )
+                      }
+                    />
+                  </Field>
+                  <label className="row" style={{ fontSize: 13, alignItems: 'center', gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={rule.active}
+                      onChange={(e) =>
+                        setRuleDrafts((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, active: e.target.checked } : r)),
+                        )
+                      }
+                    />
+                    Active
+                  </label>
+                  <DeleteButton
+                    size="sm"
+                    onClick={() => setRuleDrafts((prev) => prev.filter((_, i) => i !== idx))}
+                  >
+                    Remove
+                  </DeleteButton>
+                </div>
+                {rule.ruleType === 'order_amount' ? (
+                  <Field label="Free above (₹)">
+                    <Input
+                      type="number"
+                      value={rule.minOrderAmount ?? ''}
+                      onChange={(e) =>
+                        setRuleDrafts((prev) =>
+                          prev.map((r, i) =>
+                            i === idx ? { ...r, minOrderAmount: Number(e.target.value) || undefined } : r,
+                          ),
+                        )
+                      }
+                    />
+                  </Field>
+                ) : null}
+                {rule.ruleType === 'flat_fee' ? (
+                  <Field label="Flat fee (₹)">
+                    <Input
+                      type="number"
+                      value={rule.flatFee ?? ''}
+                      onChange={(e) =>
+                        setRuleDrafts((prev) =>
+                          prev.map((r, i) =>
+                            i === idx ? { ...r, flatFee: Number(e.target.value) || undefined } : r,
+                          ),
+                        )
+                      }
+                    />
+                  </Field>
+                ) : null}
+                {rule.ruleType === 'delivery_date' ? (
+                  <label className="row" style={{ fontSize: 13, gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={!!rule.freeOnDeliveryDate}
+                      onChange={(e) =>
+                        setRuleDrafts((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, freeOnDeliveryDate: e.target.checked } : r)),
+                        )
+                      }
+                    />
+                    Free on published delivery date
+                  </label>
+                ) : null}
+                {rule.ruleType === 'distance' ? (
+                  <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                    <Field label="Per km (₹)">
+                      <Input
+                        type="number"
+                        value={rule.perKmCharge ?? ''}
+                        onChange={(e) =>
+                          setRuleDrafts((prev) =>
+                            prev.map((r, i) =>
+                              i === idx ? { ...r, perKmCharge: Number(e.target.value) || undefined } : r,
+                            ),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field label="Base km free">
+                      <Input
+                        type="number"
+                        value={rule.baseDistanceKm ?? ''}
+                        onChange={(e) =>
+                          setRuleDrafts((prev) =>
+                            prev.map((r, i) =>
+                              i === idx ? { ...r, baseDistanceKm: Number(e.target.value) || undefined } : r,
+                            ),
+                          )
+                        }
+                      />
+                    </Field>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  setRuleDrafts((prev) => [
+                    ...prev,
+                    {
+                      key: `new-${Date.now()}`,
+                      ruleType: 'flat_fee',
+                      priority: (prev.length + 1) * 10,
+                      active: true,
+                      flatFee: liveBiz.preferences?.deliveryFeeFlat ?? 50,
+                    },
+                  ])
+                }
+              >
+                Add rule
+              </Button>
+              <Button
+                onClick={async () => {
+                  await replaceDeliveryRules(
+                    business.id,
+                    ruleDrafts.map(({ key: _k, ...r }) => r),
+                  );
+                  const flat = ruleDrafts.find((r) => r.active && r.ruleType === 'flat_fee')?.flatFee;
+                  const free = ruleDrafts.find((r) => r.active && r.ruleType === 'order_amount')?.minOrderAmount;
+                  await updateBusiness({
+                    actor: user,
+                    business: liveBiz,
+                    patch: {
+                      preferences: {
+                        deliveryFeeFlat: flat,
+                        deliveryFeeFreeAbove: free,
+                      },
+                    },
+                  });
+                  pushToast({ tone: 'success', title: 'Fee rules saved' });
+                }}
+              >
+                Save rules
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'PINs' && !isBoy ? (
+        <div className="stack">
+          <div className="card card-pad stack">
+            <strong>PIN delivery matrix</strong>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              Weekday coverage and charges per service PIN.
+            </p>
+            {!pinDrafts.length ? (
+              <EmptyState title="No service PINs" description="Add serviceable PINs on Business profile first." />
+            ) : (
+              pinDrafts.map((pin, idx) => (
+                <div key={pin.key} className="card card-pad stack">
+                  <strong>PIN {pin.pinCode}</strong>
+                  <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    {WEEKDAYS.map((day) => {
+                      const on = pin.deliveryDays.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          className={`chip${on ? ' active' : ''}`}
+                          onClick={() =>
+                            setPinDrafts((prev) =>
+                              prev.map((p, i) =>
+                                i === idx
+                                  ? {
+                                      ...p,
+                                      deliveryDays: on
+                                        ? p.deliveryDays.filter((d) => d !== day)
+                                        : [...p.deliveryDays, day],
+                                    }
+                                  : p,
+                              ),
+                            )
+                          }
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                    <Field label="Charge (₹)">
+                      <Input
+                        type="number"
+                        value={pin.deliveryCharge}
+                        onChange={(e) =>
+                          setPinDrafts((prev) =>
+                            prev.map((p, i) =>
+                              i === idx ? { ...p, deliveryCharge: Number(e.target.value) || 0 } : p,
+                            ),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field label="Free above (₹)">
+                      <Input
+                        type="number"
+                        value={pin.freeAbove ?? ''}
+                        onChange={(e) =>
+                          setPinDrafts((prev) =>
+                            prev.map((p, i) =>
+                              i === idx
+                                ? { ...p, freeAbove: e.target.value ? Number(e.target.value) : undefined }
+                                : p,
+                            ),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field label="ETA hours">
+                      <Input
+                        type="number"
+                        value={pin.estimatedHours ?? ''}
+                        onChange={(e) =>
+                          setPinDrafts((prev) =>
+                            prev.map((p, i) =>
+                              i === idx
+                                ? { ...p, estimatedHours: e.target.value ? Number(e.target.value) : undefined }
+                                : p,
+                            ),
+                          )
+                        }
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ))
+            )}
+            {pinDrafts.length ? (
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <Button
+                  onClick={async () => {
+                    await replacePinDeliverySettings(
+                      business.id,
+                      pinDrafts.map(({ key: _k, ...r }) => r),
+                    );
+                    pushToast({ tone: 'success', title: 'PIN settings saved' });
+                  }}
+                >
+                  Save PIN matrix
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'Holidays' && !isBoy ? (
+        <div className="card card-pad stack">
+          <strong>Holidays</strong>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            When allow-preorder is off, pharmacies cannot place orders for dates in the window.
+          </p>
+          {holidayDrafts.map((h, idx) => (
+            <div key={`${h.startDate}-${idx}`} className="row" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+              <Field label="Start">
+                <Input
+                  type="date"
+                  value={h.startDate.slice(0, 10)}
+                  onChange={(e) =>
+                    setHolidayDrafts((prev) =>
+                      prev.map((x, i) => (i === idx ? { ...x, startDate: e.target.value } : x)),
+                    )
+                  }
+                />
+              </Field>
+              <Field label="End">
+                <Input
+                  type="date"
+                  value={h.endDate.slice(0, 10)}
+                  onChange={(e) =>
+                    setHolidayDrafts((prev) =>
+                      prev.map((x, i) => (i === idx ? { ...x, endDate: e.target.value } : x)),
+                    )
+                  }
+                />
+              </Field>
+              <Field label="Reason">
+                <Input
+                  value={h.reason ?? ''}
+                  onChange={(e) =>
+                    setHolidayDrafts((prev) =>
+                      prev.map((x, i) => (i === idx ? { ...x, reason: e.target.value || undefined } : x)),
+                    )
+                  }
+                />
+              </Field>
+              <label className="row" style={{ fontSize: 13, gap: 6, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={h.allowPreorder}
+                  onChange={(e) =>
+                    setHolidayDrafts((prev) =>
+                      prev.map((x, i) => (i === idx ? { ...x, allowPreorder: e.target.checked } : x)),
+                    )
+                  }
+                />
+                Allow preorder
+              </label>
+              <DeleteButton size="sm" onClick={() => setHolidayDrafts((prev) => prev.filter((_, i) => i !== idx))}>
+                Remove
+              </DeleteButton>
+            </div>
+          ))}
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                setHolidayDrafts((prev) => [
+                  ...prev,
+                  {
+                    startDate: localTodayKey(),
+                    endDate: localTodayKey(),
+                    allowPreorder: true,
+                    reason: '',
+                  },
+                ])
+              }
+            >
+              Add holiday
+            </Button>
+            <Button
+              onClick={async () => {
+                const entries = holidayDrafts.map((h) => ({
+                  startDate: h.startDate.slice(0, 10),
+                  endDate: h.endDate.slice(0, 10),
+                  reason: h.reason?.trim() || undefined,
+                  allowPreorder: h.allowPreorder,
+                }));
+                const legacy = entries.map((h) =>
+                  h.reason ? `${h.startDate}|${h.reason}` : h.startDate,
+                );
+                const res = await updateBusiness({
+                  actor: user,
+                  business: liveBiz,
+                  patch: { holidayEntries: entries, holidays: legacy },
+                });
+                pushToast(
+                  res.ok
+                    ? { tone: 'success', title: 'Holidays saved' }
+                    : { tone: 'error', title: res.message },
+                );
+              }}
+            >
+              Save holidays
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -862,9 +1503,18 @@ export function StockistDelivery() {
         <EmptyState title="No deliveries" description="Dispatch a packed & invoiced order to create one." />
       ) : null}
       {tab === 'Board' && !isBoy && visible.length ? (
-        <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        <PaginationBar
+          page={list.page}
+          pageCount={list.pageCount}
+          total={list.total}
+          onPage={list.setPage}
+          pageSize={list.pageSize}
+          onPageSizeChange={setPageSize}
+          stickyFooter
+          tableSectionRef={tableRef}
+        />
       ) : null}
-    </div>
+    </ListPageChrome>
   );
 }
 

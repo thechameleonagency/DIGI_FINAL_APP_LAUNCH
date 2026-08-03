@@ -269,3 +269,33 @@ export async function listPendingFeeCharges(stockistId: string): Promise<Platfor
     .filter((c) => c.status === 'Pending')
     .toArray();
 }
+
+/** Stockist acknowledges a Paid settlement advice (demo bookkeeping). */
+export async function acknowledgeSettlement(params: {
+  actor: User;
+  stockist: Business;
+  settlementId: string;
+}): Promise<Result<Settlement>> {
+  const perm = assertCan(params.actor, params.stockist, 'payment.approve');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Settlement was not updated.');
+  const row = await db.settlements.get(params.settlementId);
+  if (!row || row.stockistId !== params.stockist.id) {
+    return fail('NotFound', 'SET_MISSING', 'Settlement not found.', 'Settlement was not updated.');
+  }
+  if (row.status !== 'Paid' && row.status !== 'Draft') {
+    return fail('StateConflict', 'SET_STATE', 'Only Paid/Draft settlements can be acknowledged.', 'Settlement was not updated.');
+  }
+  const ts = nowIso();
+  const updated: Settlement = { ...row, status: 'Paid', updatedAt: ts };
+  await db.settlements.put(updated);
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Settlement',
+    entityId: row.id,
+    action: 'settlement.acknowledge',
+    after: { settlementNo: row.settlementNo, status: updated.status },
+  });
+  return ok(updated);
+}

@@ -69,7 +69,7 @@ export function StockistPharmacyDetail() {
         title={pharmacy.name}
         subtitle={`${pharmacy.city} · ${connection?.status ?? 'No connection'}`}
         backTo="/stockist/pharmacies"
-        backLabel="Back to pharmacies"
+        backLabel="Back to Circle"
         actions={
           <div className="row">
             {canEditTerms ? (
@@ -103,6 +103,12 @@ export function StockistPharmacyDetail() {
                 {connection.inCircle ? 'Remove from Circle' : 'Add to Circle'}
               </Button>
             ) : null}
+            <Link className="btn btn-secondary btn-sm" to={`/stockist/manual-order?pharmacy=${pharmacy.id}`}>
+              Manual order
+            </Link>
+            <Link className="btn btn-secondary btn-sm" to={`/stockist/payments?pharmacy=${pharmacy.id}`}>
+              Record payment
+            </Link>
             <Link className="btn btn-secondary btn-sm" to={`/stockist/messages?with=${pharmacy.id}`}>
               Message
             </Link>
@@ -172,10 +178,33 @@ export function StockistPharmacyDetail() {
               ) : null}
             </div>
           ) : null}
+          {lastTrade ? (
+            <div className="muted" style={{ marginTop: 6 }}>
+              Last order{' '}
+              <Link to={`/stockist/orders/${lastTrade.orderNo}`}>{lastTrade.orderNo}</Link> ·{' '}
+              {new Date(lastTrade.placedAt).toLocaleDateString()}
+            </div>
+          ) : null}
         </div>
+        {tab === 'Overview' ? (
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+            <Button size="sm" variant="secondary" onClick={() => setTab('Orders')}>
+              Orders ({orders.length})
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setTab('Invoices')}>
+              Invoices ({invoices.length})
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setTab('Returns')}>
+              Returns ({returns.length})
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setTab('Ledger')}>
+              Ledger
+            </Button>
+          </div>
+        ) : null}
       </div>
       ) : null}
-      {tab === 'Overview' || tab === 'Orders' ? (
+      {tab === 'Orders' ? (
       <div className="card card-pad">
         <strong>Orders</strong>
         {!orders.length ? (
@@ -191,7 +220,7 @@ export function StockistPharmacyDetail() {
                 </tr>
               </thead>
               <tbody>
-                {orders.slice(0, tab === 'Orders' ? 100 : 20).map((o) => (
+                {orders.slice(0, 100).map((o) => (
                   <tr key={o.id}>
                     <td>
                       <Link to={`/stockist/orders/${o.orderNo}`}>{o.orderNo}</Link>
@@ -210,7 +239,7 @@ export function StockistPharmacyDetail() {
         )}
       </div>
       ) : null}
-      {tab === 'Overview' || tab === 'Invoices' || tab === 'Ledger' ? (
+      {tab === 'Invoices' || tab === 'Ledger' ? (
       <div className="card card-pad">
         <strong>{tab === 'Ledger' ? 'Ledger / invoices' : 'Invoices'}</strong>
         {tab === 'Ledger' ? (

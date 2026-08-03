@@ -33,7 +33,7 @@ export function PharmacyInvoiceDetail() {
       <PageHeader
         title={invoice.invoiceNo}
         subtitle={`${stockist?.name ?? 'Stockist'} · ${invoice.status}`}
-        backTo="/pharmacy/invoices"
+        backTo="/pharmacy/payments?tab=Invoices"
         backLabel="Back to invoices"
         actions={
           <>

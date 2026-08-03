@@ -111,6 +111,7 @@ export function Money({ value }: { value: number }) {
 
 const STATUS_TONE: Record<string, string> = {
   Active: 'success',
+  Circle: 'info',
   Approved: 'success',
   Paid: 'success',
   Delivered: 'success',
@@ -181,6 +182,7 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 const STATUS_LABEL: Record<string, string> = {
+  Circle: 'Circle',
   OutForDelivery: 'Out for delivery',
   InProgress: 'In progress',
   WaitingOnUser: 'Waiting on user',

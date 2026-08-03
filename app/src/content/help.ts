@@ -75,7 +75,7 @@ export const HELP_GUIDES: GuideItem[] = [
     title: 'Connect with a stockist',
     audiences: ['pharmacy'],
     steps: [
-      'Open Connections or Buy and find an approved stockist.',
+      'Open Circle or Buy and find an approved stockist.',
       'Send a connection request (credit terms may be set on approval).',
       'Wait for the stockist to Accept — then catalogue prices become visible.',
     ],
@@ -84,7 +84,7 @@ export const HELP_GUIDES: GuideItem[] = [
     title: 'Place and receive an order',
     audiences: ['pharmacy'],
     steps: [
-      'Add products to cart from Buy / Smart Order / Quick Order.',
+      'Add products to cart from Buy or Smart Order.',
       'Place the order and track status on Orders.',
       'When goods arrive, record GRN (goods received) on the order.',
     ],
@@ -122,7 +122,7 @@ export const HELP_GUIDES: GuideItem[] = [
     steps: [
       'Add or import products; keep the catalogue Active.',
       'Receive batches into inventory with expiry dates.',
-      'Use Expiry and low-stock views before allocating orders.',
+      'Use near-expiry and low-stock batch filters before allocating orders.',
     ],
   },
   {

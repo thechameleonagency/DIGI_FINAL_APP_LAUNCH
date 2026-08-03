@@ -12,5 +12,5 @@ export function AdminReturnDetail() {
       </div>
     );
   }
-  return <ReturnDetail returnNo={returnNo} portal="admin" listPath="/admin/returns" />;
+  return <ReturnDetail returnNo={returnNo} portal="admin" listPath="/admin/trade?tab=Returns" />;
 }

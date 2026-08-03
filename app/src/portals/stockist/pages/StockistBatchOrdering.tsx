@@ -1,17 +1,18 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { localWeekStartKey } from '../../../domain/utils/dateKeys';
 import { formatINR } from '../../../domain/utils/money';
-import { EmptyState, Field, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { EmptyState, Field, Money, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type GroupBy = 'week' | 'schedule' | 'route';
 
 const OPEN = new Set(['Pending', 'Accepted', 'PartiallyAccepted', 'Allocated', 'Packed']);
 
-export function StockistBatchOrdering() {
+/** Batch planning body — embeddable in Orders hub Plan tab. */
+export function StockistBatchOrderingPanel() {
   const { business } = useBiz();
   const [groupBy, setGroupBy] = useState<GroupBy>('week');
   const orders =
@@ -50,27 +51,23 @@ export function StockistBatchOrdering() {
 
   return (
     <div className="stack">
-      <PageHeader
-        title="Batch plan"
-        subtitle="Planning view over live open orders — no separate batch entity"
-        actions={
-          <div className="row">
-            <Link className="btn btn-secondary btn-sm" to="/stockist/bulk-bill">
-              Bulk bill
-            </Link>
-            <Link className="btn btn-secondary btn-sm" to="/stockist/delivery">
-              Routes
-            </Link>
-          </div>
-        }
-      />
-      <Field label="Group by">
-        <Select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} style={{ maxWidth: 240 }}>
-          <option value="week">Placement week</option>
-          <option value="schedule">Scheduled delivery date</option>
-          <option value="route">Delivery route</option>
-        </Select>
-      </Field>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <Field label="Group by">
+          <Select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} style={{ maxWidth: 240 }}>
+            <option value="week">Placement week</option>
+            <option value="schedule">Scheduled delivery date</option>
+            <option value="route">Delivery route</option>
+          </Select>
+        </Field>
+        <div className="row">
+          <Link className="btn btn-secondary btn-sm" to="/stockist/bulk-bill">
+            Bulk bill
+          </Link>
+          <Link className="btn btn-secondary btn-sm" to="/stockist/delivery">
+            Routes
+          </Link>
+        </div>
+      </div>
       {!openOrders.length ? (
         <EmptyState title="No open orders" description="Pending through Packed orders appear here for cycle planning." />
       ) : (
@@ -116,4 +113,13 @@ export function StockistBatchOrdering() {
       )}
     </div>
   );
+}
+
+/** Standalone route redirects into Orders hub Plan tab. */
+export function StockistBatchOrdering() {
+  const [params] = useSearchParams();
+  const next = new URLSearchParams(params);
+  next.set('tab', 'Plan');
+  const qs = next.toString();
+  return <Navigate to={`/stockist/orders${qs ? `?${qs}` : ''}`} replace />;
 }

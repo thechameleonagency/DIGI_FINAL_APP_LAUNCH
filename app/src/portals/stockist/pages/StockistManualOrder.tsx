@@ -22,7 +22,7 @@ import { useBiz } from './useBiz';
 
 type DraftLine = { productId: string; productName: string; qty: number; ptr: number; moq: number };
 
-export function StockistManualOrder() {
+export function StockistManualOrder({ embedded = false }: { embedded?: boolean }) {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
@@ -205,24 +205,30 @@ export function StockistManualOrder() {
 
   return (
     <div className="stack">
-      <PageHeader
-        title="Manual order"
-        subtitle="Record a phone/WhatsApp order for a connected pharmacy — they can cancel while Pending"
-        actions={
-          <ShortcutHints
-            hints={[
-              { keys: 'Ctrl+O', label: 'Create order' },
-              { keys: 'Enter', label: 'Pick / add line' },
-              { keys: 'Ctrl+Enter', label: 'Parse paste' },
-            ]}
-            extra={
-              <Link className="btn btn-secondary btn-sm" to="/stockist/orders">
-                Orders
-              </Link>
-            }
-          />
-        }
-      />
+      {!embedded ? (
+        <PageHeader
+          title="Manual order"
+          subtitle="Record a phone/WhatsApp order for a connected pharmacy — they can cancel while Pending"
+          actions={
+            <ShortcutHints
+              hints={[
+                { keys: 'Ctrl+O', label: 'Create order' },
+                { keys: 'Enter', label: 'Pick / add line' },
+                { keys: 'Ctrl+Enter', label: 'Parse paste' },
+              ]}
+              extra={
+                <Link className="btn btn-secondary btn-sm" to="/stockist/orders">
+                  Orders
+                </Link>
+              }
+            />
+          }
+        />
+      ) : (
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          Record a phone/WhatsApp order for a connected pharmacy — they can cancel while Pending.
+        </p>
+      )}
 
       {!hasTargets ? (
         <EmptyState
@@ -239,7 +245,7 @@ export function StockistManualOrder() {
           title="Catalogue not Active"
           description="Activate your catalogue before recording manual orders. Maintenance or Inactive catalogues cannot accept new lines."
           action={
-            <Link className="btn btn-primary" to="/stockist/catalogue">
+            <Link className="btn btn-primary" to="/stockist/products?tab=products">
               Open catalogue
             </Link>
           }

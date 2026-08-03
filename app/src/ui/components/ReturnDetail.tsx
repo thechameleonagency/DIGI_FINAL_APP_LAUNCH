@@ -81,7 +81,7 @@ export function ReturnDetail({
     portal === 'admin'
       ? order
         ? `/admin/orders/${encodeURIComponent(order.orderNo)}`
-        : '/admin/orders'
+        : '/admin/trade?tab=Orders'
       : order
         ? `/${portal}/orders/${encodeURIComponent(order.orderNo)}`
         : `/${portal}/orders`;
@@ -155,7 +155,7 @@ export function ReturnDetail({
               {credit.creditNoteNo}
             </Link>
           ) : portal === 'stockist' ? (
-            <Link to="/stockist/credit-notes">{credit.creditNoteNo}</Link>
+            <Link to="/stockist/payments?tab=CreditNotes">{credit.creditNoteNo}</Link>
           ) : (
             credit.creditNoteNo
           )}{' '}

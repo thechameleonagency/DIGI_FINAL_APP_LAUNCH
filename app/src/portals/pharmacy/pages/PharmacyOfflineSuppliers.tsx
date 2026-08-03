@@ -102,7 +102,7 @@ export function PharmacyOfflineSuppliers() {
         {!bills.length ? (
           <p className="muted">No bills imported yet.</p>
         ) : (
-          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+          <table className="data" style={{ width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
                 <th>Bill</th>

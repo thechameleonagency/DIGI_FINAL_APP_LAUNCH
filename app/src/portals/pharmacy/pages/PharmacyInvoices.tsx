@@ -1,17 +1,21 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { useUi } from '../../../store/ui';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { EmptyState, Field, Input, LoadingState, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
+import { EmptyState, Field, Input, LoadingState, Money, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
-export function PharmacyInvoices() {
+/** Invoice list body — embeddable in Payments hub. */
+export function PharmacyInvoicesPanel() {
   const { business } = useBiz();
   const navigate = useNavigate();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('pharmacy-invoices');
+  const tableRef = useTableSectionRef();
   const { items: invoices, loading: invoicesLoading } = useLiveArray(
     () => db.invoices.where('pharmacyId').equals(business.id).toArray(),
     [business.id],
@@ -44,7 +48,14 @@ export function PharmacyInvoices() {
         getValue: (i: (typeof rows)[0]) => i.invoiceNo,
         render: (i: (typeof rows)[0]) => <Link to={`/pharmacy/invoices/${i.invoiceNo}`}>{i.invoiceNo}</Link>,
       },
-      { key: 'stockistName', label: 'Stockist', getValue: (i: (typeof rows)[0]) => i.stockistName },
+      {
+        key: 'stockistName',
+        label: 'Stockist',
+        getValue: (i: (typeof rows)[0]) => i.stockistName,
+        render: (i: (typeof rows)[0]) => (
+          <Link to={`/pharmacy/stockists/${i.stockistId}?tab=Ledger`}>{i.stockistName}</Link>
+        ),
+      },
       {
         key: 'status',
         label: 'Status',
@@ -87,19 +98,11 @@ export function PharmacyInvoices() {
     ],
     defaultSortKey: 'issuedAt',
     defaultSortDir: 'desc',
+    pageSize,
   });
 
   return (
     <div className="stack">
-      <PageHeader
-        title="Invoices"
-        subtitle="All pharmacy invoices including Paid and Void"
-        actions={
-          <Link className="btn btn-secondary btn-sm" to="/pharmacy/payments">
-            Make a payment
-          </Link>
-        }
-      />
       <div className="row">
         <Field label="From">
           <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -134,6 +137,9 @@ export function PharmacyInvoices() {
           />
           <DataListTable
             loading={invoicesLoading}
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns}
             rows={list.pageRows}
             sortKey={list.sortKey}
@@ -141,9 +147,23 @@ export function PharmacyInvoices() {
             onSort={list.toggleSort}
             onRowClick={(i) => navigate(`/pharmacy/invoices/${i.invoiceNo}`)}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar
+            page={list.page}
+            pageCount={list.pageCount}
+            total={list.total}
+            onPage={list.setPage}
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>
   );
+}
+
+/** Legacy list route — redirects into Payments hub. */
+export function PharmacyInvoices() {
+  return <Navigate to="/pharmacy/payments?tab=Invoices" replace />;
 }

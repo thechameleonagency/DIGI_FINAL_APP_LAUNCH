@@ -201,3 +201,70 @@ export function assertRouteStopExecutable(delivery: { assignedTo?: string }): Re
 export function mapsDeepLink(address: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
+
+/** Google Maps directions for an ordered list of stop addresses (no API key). */
+export function mapsDirectionsLink(addresses: string[]): string {
+  const cleaned = addresses.map((a) => a.trim()).filter(Boolean);
+  if (!cleaned.length) return mapsDeepLink('');
+  if (cleaned.length === 1) return mapsDeepLink(cleaned[0]!);
+  const path = cleaned.map((a) => encodeURIComponent(a)).join('/');
+  return `https://www.google.com/maps/dir/${path}`;
+}
+
+/**
+ * Greedy nearest-neighbor when stockist + stops have lat/lng; else numeric PIN sort.
+ * Returns reordered delivery ids (unchanged ids if fewer than 2).
+ */
+export function optimizeStopOrder(params: {
+  origin?: { latitude?: number; longitude?: number };
+  stops: {
+    deliveryId: string;
+    latitude?: number;
+    longitude?: number;
+    pincode?: string;
+  }[];
+}): string[] {
+  const { stops } = params;
+  if (stops.length < 2) return stops.map((s) => s.deliveryId);
+
+  const originLat = params.origin?.latitude;
+  const originLng = params.origin?.longitude;
+  const allHaveCoords =
+    originLat != null &&
+    originLng != null &&
+    stops.every((s) => s.latitude != null && s.longitude != null);
+
+  if (!allHaveCoords) {
+    return [...stops]
+      .sort((a, b) => Number(a.pincode ?? 0) - Number(b.pincode ?? 0))
+      .map((s) => s.deliveryId);
+  }
+
+  const remaining = [...stops];
+  const ordered: string[] = [];
+  let curLat = originLat!;
+  let curLng = originLng!;
+  while (remaining.length) {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const s = remaining[i]!;
+      const dLat = (s.latitude! - curLat) * Math.PI / 180;
+      const dLon = (s.longitude! - curLng) * Math.PI / 180;
+      const lat1 = (curLat * Math.PI) / 180;
+      const lat2 = (s.latitude! * Math.PI) / 180;
+      const h =
+        Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+      const km = 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+      if (km < bestDist) {
+        bestDist = km;
+        bestIdx = i;
+      }
+    }
+    const next = remaining.splice(bestIdx, 1)[0]!;
+    ordered.push(next.deliveryId);
+    curLat = next.latitude!;
+    curLng = next.longitude!;
+  }
+  return ordered;
+}

@@ -7,7 +7,8 @@ import { nextNumberFieldValue } from '../../../domain/utils/validation';
 import { issueCreditNote, recordGoodsReceived, reviewReturn } from '../../../services/paymentService';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
+import { PaginationBar, usePagedRows, useTableSectionRef } from '../../../ui/components/ListToolkit';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
@@ -16,6 +17,8 @@ export function StockistReturns() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
+  const { pageSize, setPageSize } = usePersistedPageSize('stockist-returns');
+  const tableRef = useTableSectionRef();
   const returns = useLiveQuery(() => db.returns.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const orders = useLiveQuery(() => db.orders.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
   const [rejectId, setRejectId] = useState<string | null>(null);
@@ -27,7 +30,7 @@ export function StockistReturns() {
   const review = reviewId ? returns.find((r) => r.id === reviewId) : undefined;
   const reviewOrder = review ? orders.find((o) => o.id === review.orderId) : undefined;
   const sortedReturns = [...returns].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const list = usePagedRows(sortedReturns);
+  const list = usePagedRows(sortedReturns, pageSize);
 
   return (
     <div className="stack">
@@ -169,6 +172,7 @@ export function StockistReturns() {
         <EmptyState title="No returns" description="Pharmacy return requests appear here after delivery." />
       ) : (
         <>
+          <section className="table-section" ref={tableRef}>
           {list.pageRows.map((r) => {
             const order = orders.find((o) => o.id === r.orderId);
             return (
@@ -285,7 +289,17 @@ export function StockistReturns() {
               </div>
             );
           })}
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          </section>
+          <PaginationBar
+            page={list.page}
+            pageCount={list.pageCount}
+            total={list.total}
+            onPage={list.setPage}
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

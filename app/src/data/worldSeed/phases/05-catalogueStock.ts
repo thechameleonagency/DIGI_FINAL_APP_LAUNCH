@@ -1,5 +1,9 @@
+import { addDays, formatISO } from 'date-fns';
 import { MEDICINE_REFERENCE } from '../../../content/medicineReference';
+import { defaultRulesFromPrefs } from '../../../domain/calc/deliveryCommerce';
+import type { DeliveryDate, PinDeliverySetting, Scheme } from '../../../domain/entities/types';
 import { nowIso } from '../../../domain/utils/clock';
+import { newId } from '../../../domain/utils/ids';
 import {
   bulkUpdatePrices,
   importProductsCsv,
@@ -9,8 +13,106 @@ import {
 import { adjustStock, setBatchStatus, stockIn } from '../../../services/inventoryService';
 import { assertOk } from '../assert';
 import { advanceBusinessDay, advanceDays } from '../chronology';
-import { getWorldCtx, type TraderParty } from '../context';
+import { getWorldCtx, pharmacyByKey, type TraderParty } from '../context';
 import { db } from '../../db';
+
+function wallDatePlus(days: number): string {
+  return formatISO(addDays(new Date(), days), { representation: 'date' });
+}
+
+/** CF-18 prefs + Dexie delivery commerce samples (dates, rules, PIN, scheme, lat/lng). */
+async function seedDeliveryCommerce(party: TraderParty, productIds: string[]): Promise<void> {
+  const stockistId = party.business.id;
+  const feeFlat = party.key === 'stockistA' ? 80 : 50;
+  const feeFreeAbove = party.key === 'stockistA' ? 5000 : 3000;
+  const isA = party.key === 'stockistA';
+
+  await db.businesses.update(stockistId, {
+    preferences: {
+      ...party.business.preferences,
+      deliveryFeeFlat: feeFlat,
+      deliveryFeeFreeAbove: feeFreeAbove,
+      ...(isA
+        ? { dispatchLatitude: 18.9467, dispatchLongitude: 72.8417 }
+        : {}),
+    },
+    holidayEntries: [
+      {
+        startDate: wallDatePlus(12),
+        endDate: wallDatePlus(12),
+        reason: 'Warehouse maintenance',
+        allowPreorder: true,
+      },
+      {
+        startDate: wallDatePlus(20),
+        endDate: wallDatePlus(21),
+        reason: 'Stockist holiday — no preorders',
+        allowPreorder: false,
+      },
+    ],
+    holidays: [wallDatePlus(12), `${wallDatePlus(20)}|Stockist holiday`],
+    ...(isA ? { latitude: 18.9467, longitude: 72.8417 } : {}),
+    updatedAt: nowIso(),
+  });
+
+  const dateRows: DeliveryDate[] = [1, 3, 5, 8, 12, 15].map((d) => ({
+    id: newId(),
+    stockistId,
+    date: wallDatePlus(d),
+    active: true,
+  }));
+  await db.deliveryDates.bulkPut(dateRows);
+
+  const rules = defaultRulesFromPrefs(stockistId, {
+    deliveryFeeFlat: feeFlat,
+    deliveryFeeFreeAbove: feeFreeAbove,
+  });
+  if (isA) {
+    rules.unshift({
+      id: newId(),
+      stockistId,
+      ruleType: 'delivery_date',
+      priority: 5,
+      active: true,
+      freeOnDeliveryDate: true,
+    });
+  }
+  await db.deliveryRules.bulkPut(rules);
+
+  const pinCode = party.business.servicePins?.[0] ?? party.business.pincode;
+  const pinRow: PinDeliverySetting = {
+    id: newId(),
+    stockistId,
+    pinCode,
+    deliveryDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    deliveryCharge: Math.max(30, feeFlat - 20),
+    freeAbove: feeFreeAbove,
+    estimatedHours: 24,
+  };
+  await db.pinDeliverySettings.bulkPut([pinRow]);
+
+  const schemeProductId = productIds[0];
+  if (schemeProductId) {
+    const product = await db.products.get(schemeProductId);
+    const scheme: Scheme = {
+      id: newId(),
+      stockistId,
+      title: isA ? 'Launch 5% off' : 'Category 3% promo',
+      scope: isA ? 'product' : 'category',
+      productId: isA ? schemeProductId : undefined,
+      category: isA ? undefined : product?.category ?? 'Supplement',
+      discountType: 'percent',
+      discountValue: isA ? 5 : 3,
+      startsOn: wallDatePlus(-7),
+      endsOn: wallDatePlus(60),
+      active: true,
+      stackable: false,
+    };
+    await db.schemes.put(scheme);
+  }
+
+  party.business = (await db.businesses.get(stockistId))!;
+}
 
 type SkuSpec = {
   name: string;
@@ -292,7 +394,21 @@ export async function seedCatalogueStockPhase(): Promise<void> {
     const tag = party.key === 'stockistA' ? 'SA' : 'SB';
     const ids = await seedStockistCatalogue(party, tag);
     ctx.productIdsByStockist.set(party.business.id, ids);
+    await seedDeliveryCommerce(party, ids);
     // Spread remaining clock budget across stockists (~15 days each contribution toward ~30)
     advanceDays(2);
+  }
+
+  // Optional lat/lng pair for distance / Maps optimize demos (stockistA ↔ pharmacyA).
+  try {
+    const pharmacyA = pharmacyByKey('pharmacyA');
+    await db.businesses.update(pharmacyA.business.id, {
+      latitude: 19.0596,
+      longitude: 72.8295,
+      updatedAt: nowIso(),
+    });
+    pharmacyA.business = (await db.businesses.get(pharmacyA.business.id))!;
+  } catch {
+    // pharmacyA may be missing in partial seeds — ignore
   }
 }

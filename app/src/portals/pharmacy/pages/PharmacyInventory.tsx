@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { expiryRiskBand, lowStock } from '../../../domain/calc';
 import { newId } from '../../../domain/utils/ids';
@@ -9,7 +10,7 @@ import { nextNumberFieldValue, parseNumberInput } from '../../../domain/utils/va
 import { stockAdd, stockAdjust } from '../../../services/inventoryService';
 import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { ShortcutHints } from '../../../ui/components/ShortcutHints';
 import { Button, EmptyState, Field, Input, Kpi, LoadingState, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
@@ -17,6 +18,8 @@ import { useBiz } from './useBiz';
 export function PharmacyInventory() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('pharmacy-inventory');
+  const tableRef = useTableSectionRef();
   const canAdjust = useCan('inventory.adjust');
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -175,6 +178,8 @@ export function PharmacyInventory() {
     defaultSortKey: 'expiryDate',
     defaultSortDir: 'asc',
     initialFilters: initialFlag ? { flag: initialFlag } : undefined,
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   const kpis = {
@@ -194,7 +199,7 @@ export function PharmacyInventory() {
         actions={
           <div className="row">
             {canAdjust ? <ShortcutHints hints={[{ keys: 'Ctrl+Shift+A', label: 'Add medicine' }]} /> : null}
-            <Link className="btn btn-secondary btn-sm" to="/pharmacy/expiry">
+            <Link className="btn btn-secondary btn-sm" to="/pharmacy/inventory?filter=near-expiry">
               Expiry
             </Link>
             <Button size="sm" variant="secondary" onClick={() => setShowMovements((v) => !v)}>
@@ -471,8 +476,16 @@ export function PharmacyInventory() {
               pushToast(ok ? { tone: 'success', title: 'Exported inventory' } : { tone: 'error', title: 'Export denied' });
             }}
           />
-          <DataListTable loading={itemsLoading} columns={columns.filter((c) => c.key !== 'flag')} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef} loading={itemsLoading} columns={columns.filter((c) => c.key !== 'flag')} rows={list.pageRows} sortKey={list.sortKey} sortDir={list.sortDir} onSort={list.toggleSort} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
 

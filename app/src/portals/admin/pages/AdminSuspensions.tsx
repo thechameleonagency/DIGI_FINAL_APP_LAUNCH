@@ -5,7 +5,8 @@ import { db } from '../../../data/db';
 import { archiveNotification } from '../../../services/notifications';
 import { reactivateBusiness } from '../../../services/verificationService';
 import { useUi } from '../../../store/ui';
-import { ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
+import { ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit';
 import { SuspendBusinessDialog } from '../../../ui/components/SuspendBusinessDialog';
 import { Button, EmptyState, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
@@ -13,6 +14,8 @@ import { useBiz } from './useBiz';
 export function AdminSuspensions() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('admin-suspensions');
+  const tableRef = useTableSectionRef();
   const businesses = useLiveQuery(() => db.businesses.filter((b) => b.type !== 'Platform').toArray()) ?? [];
   const notifications =
     useLiveQuery(() => db.notifications.filter((n) => n.code === 'N-057' && n.status !== 'Archived').toArray()) ?? [];
@@ -51,6 +54,8 @@ export function AdminSuspensions() {
     ],
     defaultSortKey: 'name',
     initialFilters: { accountStatus: 'Suspended' },
+    pageSize,
+    onPageSizeChange: setPageSize,
   });
 
   const inbox = useMemo(() => {
@@ -162,7 +167,16 @@ export function AdminSuspensions() {
               </div>
             </div>
           ))}
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar
+            page={list.page}
+            pageCount={list.pageCount}
+            total={list.total}
+            onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
 

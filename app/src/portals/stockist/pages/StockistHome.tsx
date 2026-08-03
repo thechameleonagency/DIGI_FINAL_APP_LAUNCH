@@ -176,7 +176,7 @@ export function StockistHome() {
           icon={AlertTriangle}
           badge={low ? 'Reorder soon' : 'Stock healthy'}
           tone={toneForCount(low)}
-          to="/stockist/inventory?filter=low"
+          to="/stockist/products?tab=batches&filter=low"
           linkLabel="View low stock"
         />
         <HomeMetricCard
@@ -185,7 +185,7 @@ export function StockistHome() {
           icon={Clock3}
           badge={near ? 'Move or discount' : 'No near-expiry'}
           tone={toneForCount(near)}
-          to="/stockist/inventory?filter=near-expiry"
+          to="/stockist/products?tab=batches&filter=near-expiry"
           linkLabel="View near expiry"
         />
         <HomeMetricCard
@@ -227,19 +227,19 @@ export function StockistHome() {
           linkLabel="Open money"
         />
         <HomeMetricCard
-          title="Catalogue"
+          title="Products"
           value={products.filter((p) => p.status === 'Active').length}
           icon={Boxes}
           badge="Active SKUs"
           tone="neutral"
-          to="/stockist/catalogue"
+          to="/stockist/products?tab=products"
           linkLabel="Manage catalogue"
         />
         <HomeMetricCard
-          title="Pharmacies"
+          title="Circle"
           value="Network"
           icon={PackagePlus}
-          badge="Connections & invites"
+          badge="Circle & invites"
           tone="neutral"
           to="/stockist/pharmacies"
           linkLabel="Open pharmacies"
@@ -257,13 +257,13 @@ export function StockistHome() {
               primary: true,
             },
             {
-              to: '/stockist/catalogue',
+              to: '/stockist/products?tab=products',
               title: 'Add product',
               description: 'Grow your active catalogue',
               icon: Boxes,
             },
             {
-              to: '/stockist/inventory',
+              to: '/stockist/products?tab=batches',
               title: 'Stock in',
               description: 'Receive or adjust batch stock',
               icon: Boxes,
@@ -281,7 +281,7 @@ export function StockistHome() {
               icon: Wallet,
             },
             {
-              to: '/stockist/batch-ordering',
+              to: '/stockist/orders?tab=Plan',
               title: 'Batch plan',
               description: 'Plan fulfilment by route',
               icon: Route,

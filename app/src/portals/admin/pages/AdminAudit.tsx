@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { can } from '../../../domain/permissions';
 import { db } from '../../../data/db';
 import { localDayKey } from '../../../domain/utils/dateKeys';
 import { entityTypeLabel } from '../../../domain/utils/humanLabels';
 import { useUi } from '../../../store/ui';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { Button, EmptyState, Field, Input, LoadingState, Modal, PageHeader } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -18,6 +19,8 @@ function dayKey(iso?: string): string {
 export function AdminAudit() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('admin-audit');
+  const tableRef = useTableSectionRef();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -144,6 +147,9 @@ export function AdminAudit() {
             exportLabel={canExport ? 'Export CSV' : 'Export (no permission)'}
           />
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns.filter((c) => c.key !== 'entityType')}
             loading={logsLoading}
             rows={list.pageRows}
@@ -153,7 +159,12 @@ export function AdminAudit() {
             activeRowId={expanded}
             onRowClick={(l) => setExpanded(l.id)}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
           <p className="muted" style={{ fontSize: 12, margin: 0 }}>
             Showing page of {list.total} filtered entries (full history, not capped at 200). Click a row to inspect
             before/after.

@@ -3,12 +3,15 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
-import { PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
+import { PaginationBar, usePagedRows, useTableSectionRef } from '../../../ui/components/ListToolkit';
 import { EmptyState, Field, Input, PageHeader, Select } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function StockistPriceHistory() {
   const { business } = useBiz();
+  const { pageSize, setPageSize } = usePersistedPageSize('stockist-price-history');
+  const tableRef = useTableSectionRef();
   const [params] = useSearchParams();
   const productFilter = params.get('product') ?? '';
   const changes =
@@ -36,7 +39,7 @@ export function StockistPriceHistory() {
       }),
     [changes, productId, dateFrom, dateTo],
   );
-  const list = usePagedRows(filtered, 7, `${productId}|${dateFrom}|${dateTo}`);
+  const list = usePagedRows(filtered, pageSize, `${productId}|${dateFrom}|${dateTo}`);
 
   return (
     <div className="stack">
@@ -44,7 +47,7 @@ export function StockistPriceHistory() {
         title="Price history"
         subtitle="PTR/MRP changes from edits and bulk updates — historical orders are never rewritten"
         actions={
-          <Link className="btn btn-secondary btn-sm" to="/stockist/catalogue">
+          <Link className="btn btn-secondary btn-sm" to="/stockist/products?tab=products">
             Catalogue
           </Link>
         }
@@ -71,7 +74,8 @@ export function StockistPriceHistory() {
         <EmptyState title="No price changes yet" description="Edit a product price or run bulk price update to build this trail." />
       ) : (
         <>
-          <div className="table-wrap queue-responsive">
+          <section className="table-section" ref={tableRef}>
+          <div className="table-wrap queue-responsive table-scroll table-sticky">
             <table className="data">
               <thead>
                 <tr>
@@ -90,7 +94,7 @@ export function StockistPriceHistory() {
                       {new Date(c.at).toLocaleString()}
                     </td>
                     <td data-label="Product">
-                      <Link to={`/stockist/catalogue?highlight=${c.productId}`}>{nameOf(c.productId)}</Link>
+                      <Link to={`/stockist/products?tab=products&highlight=${c.productId}`}>{nameOf(c.productId)}</Link>
                     </td>
                     <td data-label="PTR">
                       {formatINR(c.oldPtr)} → {formatINR(c.newPtr)}
@@ -107,7 +111,17 @@ export function StockistPriceHistory() {
               </tbody>
             </table>
           </div>
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          </section>
+          <PaginationBar
+            page={list.page}
+            pageCount={list.pageCount}
+            total={list.total}
+            onPage={list.setPage}
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

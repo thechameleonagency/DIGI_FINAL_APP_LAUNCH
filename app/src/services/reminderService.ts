@@ -93,3 +93,23 @@ export async function sendPaymentReminder(params: {
 
   return ok({ invoiceId: inv.id, notifiedAt: ts });
 }
+
+/** Send reminders for many invoices; skips throttled/settled with reasons. */
+export async function sendBulkPaymentReminders(params: {
+  actor: User;
+  stockist: Business;
+  invoiceIds: string[];
+}): Promise<Result<{ sent: string[]; skipped: { invoiceId: string; reason: string }[] }>> {
+  const sent: string[] = [];
+  const skipped: { invoiceId: string; reason: string }[] = [];
+  for (const invoiceId of params.invoiceIds) {
+    const res = await sendPaymentReminder({
+      actor: params.actor,
+      stockist: params.stockist,
+      invoiceId,
+    });
+    if (res.ok) sent.push(invoiceId);
+    else skipped.push({ invoiceId, reason: res.message });
+  }
+  return ok({ sent, skipped });
+}

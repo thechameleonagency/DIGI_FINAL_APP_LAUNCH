@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
@@ -14,17 +14,28 @@ import {
 import { createManagedPharmacy, inviteManagedPharmacy } from '../../../services/managedPharmacyService';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
+import { ListPageChrome } from '../../../ui/components/ListPageChrome';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
-import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge, Tabs, Textarea } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, Modal, Select, StatusBadge, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
-type HubTab = 'Offline' | 'Invited' | 'Platform';
+type HubTab = 'Circle' | 'Platform' | 'Invited' | 'Offline';
 
 export function StockistPharmaciesHub() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
-  const [tab, setTab] = useState<HubTab>('Platform');
+  const [params, setParams] = useSearchParams();
+  const tabParam = params.get('tab');
+  const tab: HubTab =
+    tabParam === 'Platform' || tabParam === 'Invited' || tabParam === 'Offline' || tabParam === 'Circle'
+      ? tabParam
+      : 'Circle';
+  const setTab = (nextTab: HubTab) => {
+    const next = new URLSearchParams(params);
+    next.set('tab', nextTab);
+    setParams(next, { replace: true });
+  };
   const [platformFilter, setPlatformFilter] = useState('Requested');
   const [createOpen, setCreateOpen] = useState(false);
   const [inviteFirst, setInviteFirst] = useState(false);
@@ -56,51 +67,30 @@ export function StockistPharmaciesHub() {
 
   const offline = managed.filter((m) => m.status === 'OfflineOnly');
   const invited = managed.filter((m) => m.status === 'Invited');
+  const circleConns = connections.filter((c) => c.status === 'Active' && c.inCircle);
   const filteredConns =
     platformFilter === 'All' ? connections : connections.filter((c) => c.status === platformFilter);
   const approveTarget = approveId ? connections.find((c) => c.id === approveId) : undefined;
   const approvePharmacy = approveTarget ? pharmacies.find((p) => p.id === approveTarget.pharmacyId) : undefined;
 
   return (
-    <div className="stack">
-      <PageHeader
-        title="Circle"
-        subtitle="Credit Circle, invited, offline-managed, and platform-connected pharmacies"
-        actions={
-          <div className="row">
-            <Link className="btn btn-secondary btn-sm" to="/stockist/invites">
-              Invites
-            </Link>
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              Add offline pharmacy
-            </Button>
-          </div>
-        }
-      />
-
-      <Tabs
-        ariaLabel="Pharmacy hub"
-        value={tab}
-        onChange={setTab}
-        items={(
-          [
-            ['Offline', offline.length],
-            ['Invited', invited.length],
-            ['Platform', connections.length],
-          ] as const
-        ).map(([id, count]) => ({
-          id: id as HubTab,
-          label: (
-            <>
-              {id}
-              <span className="muted" style={{ marginLeft: 6 }}>
-                {count}
-              </span>
-            </>
-          ),
-        }))}
-      />
-
+    <ListPageChrome
+      title="Circle"
+      subtitle="Credit Circle, platform links, invites, and offline-managed pharmacies"
+      actions={
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          Add offline pharmacy
+        </Button>
+      }
+      tabs={[
+        { id: 'Circle', label: 'Circle', count: circleConns.length },
+        { id: 'Platform', label: 'Platform', count: connections.length },
+        { id: 'Invited', label: 'Invited', count: invited.length },
+        { id: 'Offline', label: 'Offline', count: offline.length },
+      ]}
+      tab={tab}
+      onTab={(id) => setTab(id as HubTab)}
+    >
       <Modal
         open={createOpen}
         title={inviteFirst ? 'Invite pharmacy first' : 'Add offline pharmacy'}
@@ -190,7 +180,47 @@ export function StockistPharmaciesHub() {
         </div>
       ) : null}
 
-      {tab === 'Offline' || tab === 'Invited' ? (
+      {tab === 'Circle' ? (
+        <div className="stack">
+          {!circleConns.length ? (
+            <EmptyState
+              title="No Circle members yet"
+              description="Approve a connection with a credit limit, or open a pharmacy and use Add to Circle."
+              action={
+                <Button size="sm" variant="secondary" onClick={() => setTab('Platform')}>
+                  Open platform requests
+                </Button>
+              }
+            />
+          ) : (
+            circleConns.map((c) => {
+              const ph = pharmacies.find((p) => p.id === c.pharmacyId);
+              const outstanding = pairOutstanding(invoices, c.pharmacyId, business.id);
+              return (
+                <div key={c.id} className="card card-pad row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                  <div>
+                    <strong>{ph?.name ?? c.pharmacyId}</strong>
+                    <div className="muted" style={{ fontSize: 13 }}>
+                      Credit {c.creditDays ?? 0}d · Limit {formatINR(c.creditLimit ?? 0)} · Outstanding {formatINR(outstanding)}
+                    </div>
+                  </div>
+                  <div className="row">
+                    <Link className="btn btn-secondary btn-sm" to={`/stockist/pharmacies/${c.pharmacyId}`}>
+                      Open
+                    </Link>
+                    <Link className="btn btn-secondary btn-sm" to={`/stockist/manual-order?pharmacy=${c.pharmacyId}`}>
+                      Manual order
+                    </Link>
+                    <Link className="btn btn-secondary btn-sm" to={`/stockist/payments?pharmacy=${c.pharmacyId}`}>
+                      Record payment
+                    </Link>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : tab === 'Offline' || tab === 'Invited' ? (
         <div className="stack">
           {(tab === 'Offline' ? offline : invited).length === 0 ? (
             <EmptyState
@@ -301,7 +331,7 @@ export function StockistPharmaciesHub() {
           <ConfirmDialog
             open={!!blockId}
             title="Block connection"
-            body="Blocked partners cannot place new orders."
+            body="Blocked pharmacies cannot place new orders."
             requireReason
             tone="danger"
             confirmLabel="Block"
@@ -488,6 +518,6 @@ export function StockistPharmaciesHub() {
           )}
         </div>
       )}
-    </div>
+    </ListPageChrome>
   );
 }

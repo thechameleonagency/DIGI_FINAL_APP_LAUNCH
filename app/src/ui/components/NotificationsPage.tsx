@@ -12,11 +12,10 @@ import {
 } from '../../services/notificationService';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
-import { PaginationBar } from './ListToolkit';
+import { usePersistedPageSize } from '../hooks/usePersistedPageSize';
+import { PaginationBar, useTableSectionRef } from './ListToolkit';
 import { NotificationMutePreferences } from './NotificationMutePreferences';
 import { Button, EmptyState, LoadingState, PageHeader, Select, StatusBadge } from './primitives';
-
-const PAGE_SIZE = 7;
 
 function dayHeading(iso: string): string {
   const d = new Date(iso);
@@ -41,6 +40,8 @@ export function NotificationsPage({ portal }: { portal: 'pharmacy' | 'stockist' 
   const liveUser = useLiveQuery(() => (user ? db.users.get(user.id) : undefined), [user?.id]);
   const [filter, setFilter] = useState<'All' | 'Unread' | 'Read' | 'Archived'>('All');
   const [page, setPage] = useState(0);
+  const { pageSize, setPageSize } = usePersistedPageSize(`notifications-${portal}`);
+  const tableRef = useTableSectionRef();
   const muted = liveUser?.notificationPreferences?.mutedCategories ?? [];
 
   const visible = useMemo(() => {
@@ -50,11 +51,11 @@ export function NotificationsPage({ portal }: { portal: 'pharmacy' | 'stockist' 
 
   useEffect(() => {
     setPage(0);
-  }, [filter]);
+  }, [filter, pageSize]);
 
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const pageRows = visible.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const pageRows = visible.slice(safePage * pageSize, safePage * pageSize + pageSize);
 
   if (!user) return null;
 
@@ -102,78 +103,89 @@ export function NotificationsPage({ portal }: { portal: 'pharmacy' | 'stockist' 
         />
       ) : (
         <>
-          {pageRows.map((n, i) => {
-            const heading = dayHeading(n.createdAt);
-            const prev = i > 0 ? dayHeading(pageRows[i - 1]!.createdAt) : null;
-            const showDay = heading !== prev;
-            return (
-              <div key={n.id} className="stack" style={{ gap: 8 }}>
-                {showDay ? (
-                  <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginTop: i === 0 ? 0 : 8 }}>
-                    {heading}
-                  </div>
-                ) : null}
-                <div className="card card-pad stack notification-item">
-                  <button
-                    type="button"
-                    style={{
-                      textAlign: 'left',
-                      width: '100%',
-                      cursor: 'pointer',
-                      opacity: n.status === 'Read' || n.status === 'Archived' ? 0.75 : 1,
-                      border: 'none',
-                      background: 'transparent',
-                      padding: 0,
-                      color: 'inherit',
-                      borderLeft: n.status === 'Unread' ? '3px solid var(--accent)' : undefined,
-                      paddingLeft: n.status === 'Unread' ? 8 : 0,
-                    }}
-                    onClick={async () => {
-                      await markRead(n.id, user.id);
-                      navigate(resolveNotificationLink(n, portal));
-                    }}
-                  >
-                    <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
-                      <strong>{n.title}</strong>
-                      <StatusBadge status={n.status} />
+          <section className="table-section" ref={tableRef}>
+            {pageRows.map((n, i) => {
+              const heading = dayHeading(n.createdAt);
+              const prev = i > 0 ? dayHeading(pageRows[i - 1]!.createdAt) : null;
+              const showDay = heading !== prev;
+              return (
+                <div key={n.id} className="stack" style={{ gap: 8 }}>
+                  {showDay ? (
+                    <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginTop: i === 0 ? 0 : 8 }}>
+                      {heading}
                     </div>
-                    <div style={{ fontSize: 13.5, marginTop: 4 }}>{n.body}</div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-                      {new Date(n.createdAt).toLocaleString()}
-                      {n.entityType ? ` · ${entityTypeLabel(n.entityType)}` : ''}
-                    </div>
-                  </button>
-                  <div className="row notification-item-actions">
-                    {n.status !== 'Read' && n.status !== 'Archived' ? (
-                      <Button size="sm" variant="secondary" onClick={() => void markRead(n.id, user.id)}>
-                        Mark read
-                      </Button>
-                    ) : null}
-                    {n.status !== 'Archived' ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          const prev = n.status === 'Read' ? 'Read' : 'Unread';
-                          void archiveNotification(n.id, user.id).then(() => {
-                            pushToast({
-                              tone: 'info',
-                              title: 'Notification dismissed',
-                              actionLabel: 'Undo',
-                              onAction: () => unarchiveNotification(n.id, user.id, prev),
+                  ) : null}
+                  <div className="card card-pad stack notification-item">
+                    <button
+                      type="button"
+                      style={{
+                        textAlign: 'left',
+                        width: '100%',
+                        cursor: 'pointer',
+                        opacity: n.status === 'Read' || n.status === 'Archived' ? 0.75 : 1,
+                        border: 'none',
+                        background: 'transparent',
+                        padding: 0,
+                        color: 'inherit',
+                        borderLeft: n.status === 'Unread' ? '3px solid var(--accent)' : undefined,
+                        paddingLeft: n.status === 'Unread' ? 8 : 0,
+                      }}
+                      onClick={async () => {
+                        await markRead(n.id, user.id);
+                        navigate(resolveNotificationLink(n, portal));
+                      }}
+                    >
+                      <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+                        <strong>{n.title}</strong>
+                        <StatusBadge status={n.status} />
+                      </div>
+                      <div style={{ fontSize: 13.5, marginTop: 4 }}>{n.body}</div>
+                      <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                        {new Date(n.createdAt).toLocaleString()}
+                        {n.entityType ? ` · ${entityTypeLabel(n.entityType)}` : ''}
+                      </div>
+                    </button>
+                    <div className="row notification-item-actions">
+                      {n.status !== 'Read' && n.status !== 'Archived' ? (
+                        <Button size="sm" variant="secondary" onClick={() => void markRead(n.id, user.id)}>
+                          Mark read
+                        </Button>
+                      ) : null}
+                      {n.status !== 'Archived' ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            const prev = n.status === 'Read' ? 'Read' : 'Unread';
+                            void archiveNotification(n.id, user.id).then(() => {
+                              pushToast({
+                                tone: 'info',
+                                title: 'Notification dismissed',
+                                actionLabel: 'Undo',
+                                onAction: () => unarchiveNotification(n.id, user.id, prev),
+                              });
                             });
-                          });
-                        }}
-                      >
-                        Dismiss
-                      </Button>
-                    ) : null}
+                          }}
+                        >
+                          Dismiss
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-          <PaginationBar page={safePage} pageCount={pageCount} total={visible.length} onPage={setPage} />
+              );
+            })}
+          </section>
+          <PaginationBar
+            page={safePage}
+            pageCount={pageCount}
+            total={visible.length}
+            onPage={setPage}
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>

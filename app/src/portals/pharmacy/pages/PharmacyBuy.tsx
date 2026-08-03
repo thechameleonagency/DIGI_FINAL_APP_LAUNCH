@@ -11,7 +11,9 @@ import { isFavouritePinned, setFavourite, sortStockistsFavouritesFirst } from '.
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useUi } from '../../../store/ui';
 import { AnnouncementStrip } from '../../../ui/components/AnnouncementStrip';
+import { Sheet } from '../../../ui/components/Sheet';
 import { Button, EmptyState, Field, Input, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { PharmacyComparePanel } from './PharmacyComparePanel';
 import { PharmacyMarketplace } from './PharmacyMarketplace';
 import { useBiz } from './useBiz';
 
@@ -57,6 +59,7 @@ export function PharmacyBuy() {
     ) ?? [];
   const catalogueBlocked = catalogue && catalogue.status !== 'Active';
   const [cart, setCart] = useState<Awaited<ReturnType<typeof getCart>> | null>(null);
+  const [compareProductId, setCompareProductId] = useState<string | null>(null);
 
   useEffect(() => {
     if (selected) getCart(business.id, selected).then(setCart);
@@ -103,9 +106,6 @@ export function PharmacyBuy() {
           <div className="row">
             <Link className="btn btn-primary btn-sm" to="/pharmacy/smart-order">
               Smart Order
-            </Link>
-            <Link className="btn btn-secondary btn-sm" to="/pharmacy/quick-order">
-              Quick Order
             </Link>
           </div>
         }
@@ -334,9 +334,14 @@ export function PharmacyBuy() {
                           >
                             Wishlist
                           </Button>
-                          <Link className="btn btn-ghost btn-sm" to={`/pharmacy/compare?productId=${p.id}`}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            type="button"
+                            onClick={() => setCompareProductId(p.id)}
+                          >
                             Compare
-                          </Link>
+                          </Button>
                         </div>
                       </div>
                     );
@@ -358,6 +363,15 @@ export function PharmacyBuy() {
         </div>
       </div>
       ) : null}
+
+      <Sheet
+        open={!!compareProductId}
+        title="Compare prices"
+        onClose={() => setCompareProductId(null)}
+        width={720}
+      >
+        {compareProductId ? <PharmacyComparePanel productId={compareProductId} compact /> : null}
+      </Sheet>
 
       {mode === 'stockist' && cartLines.length && selected ? (
         <div className="card card-pad row mini-cart-bar">

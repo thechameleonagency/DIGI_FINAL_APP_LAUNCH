@@ -28,8 +28,11 @@ export type BusinessProfilePatch = {
   accountHolderName?: string;
   servicePins?: string[];
   holidays?: string[];
+  holidayEntries?: Business['holidayEntries'];
   preferences?: Business['preferences'];
   locations?: Business['locations'];
+  latitude?: number;
+  longitude?: number;
 };
 
 export async function updateBusiness(params: {
@@ -126,8 +129,13 @@ export async function updateBusiness(params: {
   if (patch.accountHolderName !== undefined) next.accountHolderName = patch.accountHolderName.trim() || undefined;
   if (patch.servicePins !== undefined) next.servicePins = patch.servicePins;
   if (patch.holidays !== undefined) next.holidays = patch.holidays;
-  if (patch.preferences !== undefined) next.preferences = patch.preferences;
+  if (patch.holidayEntries !== undefined) next.holidayEntries = patch.holidayEntries;
+  if (patch.preferences !== undefined) {
+    next.preferences = { ...params.business.preferences, ...patch.preferences };
+  }
   if (patch.locations !== undefined) next.locations = patch.locations;
+  if (patch.latitude !== undefined) next.latitude = patch.latitude;
+  if (patch.longitude !== undefined) next.longitude = patch.longitude;
 
   await db.businesses.update(params.business.id, next);
   await writeAudit({

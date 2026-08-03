@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react';
 import { Download, Search } from 'lucide-react';
 import { Button, EmptyState, Input, LoadingState, Select } from './primitives';
+import { PAGE_SIZE_OPTIONS } from '../hooks/usePersistedPageSize';
 
 export type SortDir = 'asc' | 'desc';
 
-/** Default rows per page for queue tables across portals. */
+/** Default rows per page for queue tables across portals (legacy callers). */
 export const LIST_PAGE_SIZE = 7;
+
+export { PAGE_SIZE_OPTIONS };
 
 export interface ListColumn<T> {
   key: string;
@@ -64,6 +67,7 @@ export function useListControls<T>(
     defaultSortKey?: string;
     defaultSortDir?: SortDir;
     pageSize?: number;
+    onPageSizeChange?: (n: number) => void;
     /** Opt-in initial search (state initializer only — F9). */
     initialQuery?: string;
     /** Opt-in initial filter map (state initializer only — F9). */
@@ -76,6 +80,10 @@ export function useListControls<T>(
   const [sortDir, setSortDir] = useState<SortDir>(opts.defaultSortDir ?? 'desc');
   const [page, setPage] = useState(0);
   const pageSize = opts.pageSize ?? LIST_PAGE_SIZE;
+
+  useEffect(() => {
+    setPage(0);
+  }, [pageSize]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -177,6 +185,8 @@ export function useListControls<T>(
     page: safePage,
     pageCount,
     setPage,
+    pageSize,
+    setPageSize: opts.onPageSizeChange,
     total: filtered.length,
     doExport,
   };
@@ -293,6 +303,9 @@ export function DataListTable<T extends { id: string }>({
   loading = false,
   activeRowId,
   mobileCards = true,
+  stickyHeader = false,
+  scrollBody = false,
+  tableSectionRef,
 }: {
   columns: ListColumn<T>[];
   rows: T[];
@@ -307,6 +320,11 @@ export function DataListTable<T extends { id: string }>({
   activeRowId?: string | null;
   /** Stack rows as cards on small screens (default on). */
   mobileCards?: boolean;
+  /** Opt-in sticky thead inside .table-scroll (default false — additive). */
+  stickyHeader?: boolean;
+  /** Opt-in nested scroll body for sticky header. */
+  scrollBody?: boolean;
+  tableSectionRef?: RefObject<HTMLElement | null>;
 }) {
   if (loading) {
     return <LoadingState />;
@@ -314,70 +332,78 @@ export function DataListTable<T extends { id: string }>({
   if (!rows.length) {
     return <EmptyState title={emptyTitle} description={emptyDescription} />;
   }
-  return (
-    <div className={`table-wrap${mobileCards ? ' queue-responsive' : ''}`}>
-      <table className="data">
-        <thead>
-          <tr>
-            {columns.map((c) => (
-              <th
-                key={c.key}
-                aria-sort={
-                  sortKey === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined
-                }
-              >
-                {c.sortable !== false && onSort ? (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm table-sort"
-                    onClick={() => onSort(c.key)}
-                  >
-                    {c.label}
-                    {sortKey === c.key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
-                  </button>
-                ) : (
-                  c.label
-                )}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const active = activeRowId != null && row.id === activeRowId;
-            return (
-              <tr
-                key={row.id}
-                data-row-id={row.id}
-                className={active ? 'is-active' : undefined}
-                aria-selected={active || undefined}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                onKeyDown={
-                  onRowClick
-                    ? (e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          onRowClick(row);
-                        }
+  const wrapClass = [
+    'table-wrap',
+    mobileCards ? 'queue-responsive' : '',
+    stickyHeader || scrollBody ? 'table-scroll' : '',
+    stickyHeader ? 'table-sticky' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const table = (
+    <table className="data">
+      <thead>
+        <tr>
+          {columns.map((c) => (
+            <th
+              key={c.key}
+              aria-sort={sortKey === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
+            >
+              {c.sortable !== false && onSort ? (
+                <button type="button" className="btn btn-ghost btn-sm table-sort" onClick={() => onSort(c.key)}>
+                  {c.label}
+                  {sortKey === c.key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                </button>
+              ) : (
+                c.label
+              )}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => {
+          const active = activeRowId != null && row.id === activeRowId;
+          return (
+            <tr
+              key={row.id}
+              data-row-id={row.id}
+              className={active ? 'is-active' : undefined}
+              aria-selected={active || undefined}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              onKeyDown={
+                onRowClick
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onRowClick(row);
                       }
-                    : undefined
-                }
-                tabIndex={onRowClick ? 0 : undefined}
-                role={onRowClick ? 'button' : undefined}
-                style={{ cursor: onRowClick ? 'pointer' : undefined }}
-              >
-                {columns.map((c) => (
-                  <td key={c.key} data-label={c.label}>
-                    {c.render ? c.render(row) : String(c.getValue(row) ?? '—')}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                    }
+                  : undefined
+              }
+              tabIndex={onRowClick ? 0 : undefined}
+              role={onRowClick ? 'button' : undefined}
+              style={{ cursor: onRowClick ? 'pointer' : undefined }}
+            >
+              {columns.map((c) => (
+                <td key={c.key} data-label={c.label}>
+                  {c.render ? c.render(row) : String(c.getValue(row) ?? '—')}
+                </td>
+              ))}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
+  if (tableSectionRef) {
+    return (
+      <section className="table-section" ref={tableSectionRef as RefObject<HTMLElement>}>
+        <div className={wrapClass}>{table}</div>
+      </section>
+    );
+  }
+  return <div className={wrapClass}>{table}</div>;
 }
 
 export function PaginationBar({
@@ -385,25 +411,72 @@ export function PaginationBar({
   pageCount,
   total,
   onPage,
+  pageSize,
+  pageSizeOptions = [...PAGE_SIZE_OPTIONS],
+  onPageSizeChange,
+  stickyFooter = false,
+  tableSectionRef,
 }: {
   page: number;
   pageCount: number;
   total: number;
   onPage: (p: number) => void;
+  pageSize?: number;
+  pageSizeOptions?: number[];
+  onPageSizeChange?: (n: number) => void;
+  /** Stick pagination to bottom when it is the last section on the page. */
+  stickyFooter?: boolean;
+  /** When set, page changes scroll this section into view. */
+  tableSectionRef?: RefObject<HTMLElement | null>;
 }) {
+  const go = (p: number) => {
+    onPage(p);
+    tableSectionRef?.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
   return (
-    <div className="pagination-bar">
+    <div className={`pagination-bar${stickyFooter ? ' pagination-bar-sticky' : ''}`}>
       <span className="muted" style={{ fontSize: 12 }}>
         {total} result{total === 1 ? '' : 's'} · page {page + 1} of {pageCount}
       </span>
-      <div className="row">
-        <Button type="button" size="sm" variant="secondary" disabled={page <= 0} onClick={() => onPage(page - 1)}>
+      <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {onPageSizeChange && pageSize != null ? (
+          <label className="row" style={{ gap: 6, alignItems: 'center', fontSize: 12 }}>
+            <span className="muted">Rows</span>
+            <Select
+              aria-label="Rows per page"
+              value={String(pageSize)}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              style={{ width: 88, height: 32, minHeight: 32 }}
+            >
+              {(pageSizeOptions.includes(pageSize) ? pageSizeOptions : [pageSize, ...pageSizeOptions])
+                .filter((v, i, a) => a.indexOf(v) === i)
+                .sort((a, b) => a - b)
+                .map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+            </Select>
+          </label>
+        ) : null}
+        <Button type="button" size="sm" variant="secondary" disabled={page <= 0} onClick={() => go(page - 1)}>
           Prev
         </Button>
-        <Button type="button" size="sm" variant="secondary" disabled={page >= pageCount - 1} onClick={() => onPage(page + 1)}>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={page >= pageCount - 1}
+          onClick={() => go(page + 1)}
+        >
           Next
         </Button>
       </div>
     </div>
   );
+}
+
+/** Convenience: sticky table section + pagination with page-size (opt-in). */
+export function useTableSectionRef() {
+  return useRef<HTMLElement | null>(null);
 }

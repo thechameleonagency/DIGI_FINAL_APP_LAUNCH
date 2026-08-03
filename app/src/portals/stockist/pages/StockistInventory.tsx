@@ -146,8 +146,8 @@ export function StockistInventory() {
             <Link className="btn btn-secondary btn-sm" to="/stockist/movements">
               Movements
             </Link>
-            <Link className="btn btn-secondary btn-sm" to="/stockist/expiry">
-              Expiry
+            <Link className="btn btn-secondary btn-sm" to="/stockist/products?tab=batches&filter=near-expiry">
+              Near expiry
             </Link>
           </div>
         }
@@ -157,7 +157,7 @@ export function StockistInventory() {
           title="No stock yet"
           description="Add products to your catalogue, then stock in batches here."
           action={
-            <Link className="btn btn-primary" to="/stockist/catalogue">
+            <Link className="btn btn-primary" to="/stockist/products?tab=products">
               Add products
             </Link>
           }

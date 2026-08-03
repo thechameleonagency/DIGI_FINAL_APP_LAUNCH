@@ -1,5 +1,5 @@
-import { Link, useParams } from 'react-router-dom';
-import { useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
@@ -13,9 +13,20 @@ type Tab = 'Overview' | 'Catalogue' | 'Orders' | 'Invoices' | 'Ledger';
 
 export function PharmacyStockistDetail() {
   const { stockistId } = useParams();
+  const [params] = useSearchParams();
   const { business, user } = useBiz();
   const { pushToast } = useUi();
-  const [tab, setTab] = useState<Tab>('Overview');
+  const tabParam = params.get('tab');
+  const [tab, setTab] = useState<Tab>(
+    tabParam === 'Catalogue' || tabParam === 'Orders' || tabParam === 'Invoices' || tabParam === 'Ledger'
+      ? tabParam
+      : 'Overview',
+  );
+  useEffect(() => {
+    if (tabParam === 'Catalogue' || tabParam === 'Orders' || tabParam === 'Invoices' || tabParam === 'Ledger' || tabParam === 'Overview') {
+      setTab(tabParam);
+    }
+  }, [tabParam]);
   const stockist = useLiveQuery(() => (stockistId ? db.businesses.get(stockistId) : undefined), [stockistId]);
   const connection = useLiveQuery(
     () => (stockistId ? db.connections.where({ pharmacyId: business.id, stockistId }).first() : undefined),
@@ -57,12 +68,20 @@ export function PharmacyStockistDetail() {
   const canRequest =
     !connection || ['Rejected', 'Disconnected', 'Cancelled'].includes(connection.status);
   const pinned = isFavouritePinned(favourite);
+  const tradeMode =
+    connection?.status === 'Active'
+      ? connection.inCircle
+        ? 'Circle credit'
+        : 'Pay-First'
+      : connection?.status ?? 'Not connected';
 
   return (
     <div className="stack">
       <PageHeader
         title={stockist.name}
-        subtitle={`${stockist.city}, ${stockist.state} · ${connection?.status ?? 'Not connected'}`}
+        subtitle={`${stockist.city}, ${stockist.state} · ${tradeMode}`}
+        backTo="/pharmacy/connections"
+        backLabel="Back to Circle"
         actions={
           <div className="row">
             <Button
@@ -102,7 +121,7 @@ export function PharmacyStockistDetail() {
                 <Link className="btn btn-primary btn-sm" to={`/pharmacy/buy/${stockist.id}`}>
                   View catalogue
                 </Link>
-                <Link className="btn btn-secondary btn-sm" to={`/pharmacy/ledger/${stockist.id}`}>
+                <Link className="btn btn-secondary btn-sm" to={`/pharmacy/stockists/${stockist.id}?tab=Ledger`}>
                   Ledger
                 </Link>
                 <Link className="btn btn-secondary btn-sm" to={`/pharmacy/messages?with=${stockist.id}`}>
@@ -242,38 +261,22 @@ export function PharmacyStockistDetail() {
           </ul>
         )}
       </div>
-      <div className="card card-pad">
-        <strong>Recent orders</strong>
-        {!orders.length ? (
-          <p className="muted">No orders yet.</p>
-        ) : (
-          <div className="table-wrap" style={{ marginTop: 8 }}>
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Status</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.slice(0, 8).map((o) => (
-                  <tr key={o.id}>
-                    <td>
-                      <Link to={`/pharmacy/orders/${o.orderNo}`}>{o.orderNo}</Link>
-                    </td>
-                    <td>
-                      <StatusBadge status={o.status} />
-                    </td>
-                    <td>
-                      <Money value={o.grandTotal} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="card card-pad stack">
+        <strong>Quick links</strong>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <Button size="sm" variant="secondary" onClick={() => setTab('Orders')}>
+            Orders ({orders.length})
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setTab('Invoices')}>
+            Invoices ({invoices.length})
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setTab('Catalogue')}>
+            Catalogue ({products.length})
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setTab('Ledger')}>
+            Ledger
+          </Button>
+        </div>
       </div>
         </>
       ) : null}
@@ -287,7 +290,7 @@ export function PharmacyStockistDetail() {
               </Link>
             ) : null}
           </div>
-          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+          <table className="data" style={{ width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
                 <th>Name</th>
@@ -313,7 +316,7 @@ export function PharmacyStockistDetail() {
       ) : null}
       {tab === 'Orders' ? (
         <div className="card card-pad">
-          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+          <table className="data" style={{ width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
                 <th>Order</th>
@@ -341,7 +344,7 @@ export function PharmacyStockistDetail() {
       ) : null}
       {tab === 'Invoices' ? (
         <div className="card card-pad">
-          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+          <table className="data" style={{ width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
                 <th>Invoice</th>
@@ -371,7 +374,7 @@ export function PharmacyStockistDetail() {
         <div className="card card-pad stack">
           <strong>Ledger</strong>
           <p className="muted">Outstanding <Money value={outstanding} /></p>
-          <Link className="btn btn-secondary btn-sm" to={`/pharmacy/ledger/${stockistId}`}>
+          <Link className="btn btn-secondary btn-sm" to={`/pharmacy/stockists/${stockistId}?tab=Ledger`}>
             Open full ledger
           </Link>
         </div>

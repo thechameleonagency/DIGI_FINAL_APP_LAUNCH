@@ -2,20 +2,23 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
+import { usePersistedPageSize } from '../../../ui/hooks/usePersistedPageSize';
 import { db } from '../../../data/db';
 import { localDayKey } from '../../../domain/utils/dateKeys';
 import { useUi } from '../../../store/ui';
 import { FileLink } from '../../../ui/components/FileUpload';
-import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { DataListTable, ListToolbar, PaginationBar, useListControls, useTableSectionRef } from '../../../ui/components/ListToolkit'
 import { EmptyState, Field, Input, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 
 function dayKey(iso?: string): string {
   return localDayKey(iso);
 }
 
-export function AdminPayments() {
+export function AdminPayments({ embedded = false }: { embedded?: boolean }) {
   const { paymentNo } = useParams();
   const { pushToast } = useUi();
+  const { pageSize, setPageSize } = usePersistedPageSize('admin-payments');
+  const tableRef = useTableSectionRef();
   const navigate = useNavigate();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -109,13 +112,13 @@ export function AdminPayments() {
     if (!payment) {
       return (
         <div className="stack">
-          <PageHeader title="Payment detail" backTo="/admin/payments" backLabel="Back to payments" />
+          <PageHeader title="Payment detail" backTo="/admin/trade?tab=Payments" backLabel="Back to trade" />
           <EmptyState
             title="Payment not found"
             description="Return to the payments monitor."
             action={
-              <Link className="btn btn-primary" to="/admin/payments">
-                Back to payments
+              <Link className="btn btn-primary" to="/admin/trade?tab=Payments">
+                Back to trade
               </Link>
             }
           />
@@ -127,8 +130,8 @@ export function AdminPayments() {
         <PageHeader
           title={payment.paymentNo}
           subtitle={`${nameOf(payment.pharmacyId)} → ${nameOf(payment.stockistId)} · read-only`}
-          backTo="/admin/payments"
-          backLabel="Back to payments"
+          backTo="/admin/trade?tab=Payments"
+          backLabel="Back to trade"
         />
         <div className="row" style={{ gap: 8 }}>
           <StatusBadge status={payment.status} />
@@ -180,7 +183,9 @@ export function AdminPayments() {
 
   return (
     <div className="stack">
-      <PageHeader title="Platform payments monitor" subtitle="Read-only — counterparty names + date filter" />
+      {!embedded ? (
+        <PageHeader title="Platform payments monitor" subtitle="Read-only — counterparty names + date filter" />
+      ) : null}
       <div className="row" style={{ alignItems: 'flex-end' }}>
         <Field label="From">
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -206,6 +211,9 @@ export function AdminPayments() {
       ) : (
         <>
           <DataListTable
+            stickyHeader
+            scrollBody
+            tableSectionRef={tableRef}
             columns={columns}
             loading={paymentsLoading}
             rows={list.pageRows}
@@ -214,7 +222,12 @@ export function AdminPayments() {
             onSort={list.toggleSort}
             onRowClick={(p) => navigate(`/admin/payments/${encodeURIComponent(p.paymentNo)}`)}
           />
-          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSizeChange={setPageSize}
+            stickyFooter
+            tableSectionRef={tableRef}
+          />
         </>
       )}
     </div>
