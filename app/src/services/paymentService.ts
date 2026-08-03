@@ -15,6 +15,7 @@ import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 const OPEN_PAYMENT_STATUSES: Payment['status'][] = ['Submitted', 'UnderReview', 'OnHold'];
 
@@ -151,7 +152,7 @@ export async function submitPayment(params: {
     return fail('Validation', 'PAY_ALLOC', validity.reason!, 'Payment was not submitted.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const payment: Payment = {
     id: newId(),
     paymentNo: nextNumber('PAY'),
@@ -204,7 +205,7 @@ export async function withdrawPayment(params: {
       'Payment was not withdrawn.',
     );
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.payments.update(payment.id, {
     status: 'Cancelled',
     updatedAt: ts,
@@ -321,7 +322,7 @@ export async function recordOfflinePayment(params: {
     return fail('Validation', 'PAY_ALLOC', validity.reason!, 'Payment was not recorded.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const remittanceNote = params.remittanceDate ? `Remittance date: ${params.remittanceDate}` : undefined;
   const notes = [params.notes?.trim(), remittanceNote].filter(Boolean).join(' · ') || undefined;
   const payment: Payment = {
@@ -383,7 +384,7 @@ export async function reviewPayment(params: {
     return fail('Validation', 'PAY_REASON', 'Reason is required.', 'Payment decision was not saved.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const allocatedSum = roundMoney(payment.allocations.reduce((s, a) => s + a.amount, 0));
   const surplus = roundMoney(payment.amount - allocatedSum);
 
@@ -546,7 +547,7 @@ export async function submitReturn(params: {
     );
   }
   const windowDays = settings?.returnWindowDays ?? 7;
-  const elapsed = (Date.now() - new Date(anchor).getTime()) / 86400000;
+  const elapsed = (new Date(nowIso()).getTime() - new Date(anchor).getTime()) / 86400000;
   if (elapsed > windowDays) {
     return fail('BusinessRule', 'RET_WINDOW', `Return window of ${windowDays} days has expired.`, 'Return was not submitted.');
   }
@@ -584,7 +585,7 @@ export async function submitReturn(params: {
     });
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const ret: ReturnRequest = {
     id: newId(),
     returnNo: nextNumber('RET'),
@@ -621,7 +622,7 @@ export async function cancelReturn(params: {
   }
   const t = machines.return(ret.status, 'Cancelled');
   if (!t.ok) return fail('StateConflict', 'RET_BAD_STATE', t.reason!, 'Return was not cancelled.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const reason = params.reason?.trim() || 'Cancelled by pharmacy';
   await db.returns.update(ret.id, {
     status: 'Cancelled',
@@ -703,7 +704,7 @@ export async function reviewReturn(params: {
     return fail('StateConflict', 'RET_BAD_STATE', decisionCheck.reason!, 'Return decision was not saved.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   let history = ret.statusHistory;
   if (ret.status === 'Submitted') {
     const bump = machines.return('Submitted', 'UnderReview');
@@ -790,7 +791,7 @@ export async function issueCreditNote(params: {
   amount = roundMoney(amount);
   if (amount <= 0) return fail('Validation', 'CN_ZERO', 'Credit amount is zero.', 'Credit note was not issued.');
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const cn: CreditNote = {
     id: newId(),
     creditNoteNo: nextNumber('CN'),
@@ -865,7 +866,7 @@ export async function issueGoodwillCreditNote(params: {
   if (!conn) {
     return fail('BusinessRule', 'CN_CONN', 'Active connection required.', 'Credit note was not issued.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const cn: CreditNote = {
     id: newId(),
     creditNoteNo: nextNumber('CN'),
@@ -938,7 +939,7 @@ export async function issueAdvanceCreditNote(params: {
       existingId: existing.id,
     });
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const cn: CreditNote = {
     id: newId(),
     creditNoteNo: nextNumber('CN'),
@@ -1006,7 +1007,7 @@ export async function applyCreditNote(params: {
   const check = applyCredit(rem, out, params.amount);
   if (!check.ok) return fail('Validation', 'CN_APPLY', check.reason!, 'Credit was not applied.');
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const applications = [
     ...cn.applications,
     { invoiceId: inv.id, invoiceNo: inv.invoiceNo, amount: check.applied, at: ts, actorId: params.actor.id },
@@ -1085,7 +1086,7 @@ export async function voidInvoice(params: {
   }
   const t = machines.invoice(inv.status, "Void");
   if (!t.ok) return fail("StateConflict", "INV_BAD_STATE", t.reason!, "Invoice was not voided.");
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.invoices.update(inv.id, {
     status: "Void",
     voidReason: params.reason,
@@ -1124,7 +1125,7 @@ export async function recordGoodsReceived(params: {
   }
   const t = machines.return(ret.status, "GoodsReceived");
   if (!t.ok) return fail("StateConflict", "RET_BAD_STATE", t.reason!, "Goods receipt was not recorded.");
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   for (const line of ret.lines) {
     const qty = line.approvedQty ?? 0;
     if (qty <= 0) continue;
@@ -1141,7 +1142,7 @@ export async function recordGoodsReceived(params: {
           productId: line.productId,
           stockistId: params.stockist.id,
           batchNumber: line.batchNumber || retBatchNo,
-          expiryDate: new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10),
+          expiryDate: new Date(new Date(nowIso()).getTime() + 180 * 86400000).toISOString().slice(0, 10),
           onHand: 0,
           reserved: 0,
           status: "Available",
@@ -1180,7 +1181,7 @@ export async function recordGoodsReceived(params: {
           productId: line.productId,
           stockistId: params.stockist.id,
           batchNumber: retBatchNo,
-          expiryDate: new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10),
+          expiryDate: new Date(new Date(nowIso()).getTime() + 180 * 86400000).toISOString().slice(0, 10),
           onHand: 0,
           reserved: 0,
           status: "Quarantined",

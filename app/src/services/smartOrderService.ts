@@ -15,6 +15,7 @@ import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
 import { setCartLine } from './catalogueService';
+import { nowIso } from '../domain/utils/clock';
 
 export type SmartOrderScopeFlag = 'lowStock' | 'frequent' | 'nearExpiry';
 
@@ -367,7 +368,7 @@ export async function completeSmartOrderRun(params: {
     suggestions: params.suggestions,
     acceptedLines,
     createdBy: params.actor.id,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso(),
   };
   await db.smartOrderRuns.add(run);
   await writeAudit({

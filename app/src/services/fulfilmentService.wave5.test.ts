@@ -14,6 +14,7 @@ import {
   updateDeliveryStatus,
 } from './fulfilmentService';
 import { deleteStockistRoute, scheduleDelivery, setRouteStops, upsertStockistRoute } from './routeService';
+import { nowIso } from '../domain/utils/clock';
 
 async function seedPlatform(billAhead = false) {
   await db.platformSettings.put({
@@ -23,7 +24,7 @@ async function seedPlatform(billAhead = false) {
     returnWindowDays: 7,
     inviteTtlDays: 7,
     roundingMode: 'nearest',
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   } as never);
 }
 
@@ -44,7 +45,7 @@ async function seedTradePair(suffix: string) {
     role: 'DeliveryStaff',
     name: 'Pharmacy Rider',
   });
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.connections.add({
     id: `conn-${suffix}`,
     pharmacyId: pharmacy.id,

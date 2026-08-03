@@ -12,6 +12,7 @@ import { roundMoney } from '../domain/utils/money';
 import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
+import { nowIso } from '../domain/utils/clock';
 
 export type SaleDraftLine = {
   inventoryId: string;
@@ -96,7 +97,7 @@ export async function createCustomerSale(params: {
   }
 
   const revenue = roundMoney(built.reduce((s, l) => s + l.qty * l.unitPrice, 0));
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const sale: CustomerSale = {
     id: newId(),
     saleNo: nextNumber('SALE'),
@@ -177,7 +178,7 @@ export async function voidCustomerSale(params: {
     return fail('BusinessRule', 'SALE_VOID_RETURNED', 'Void is not allowed after partial returns — return remaining lines instead.', 'Sale was not voided.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.transaction('rw', db.customerSales, db.pharmacyInventory, db.inventoryMovements, async () => {
     for (const line of sale.lines) {
       for (const a of line.batchAllocations) {
@@ -247,7 +248,7 @@ export async function returnCustomerSaleLines(params: {
     return fail('Validation', 'SALE_RET_EMPTY', 'Select at least one line to return.', 'Return was not recorded.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const lines = sale.lines.map((l) => ({ ...l, batchAllocations: l.batchAllocations.map((a) => ({ ...a })) }));
   const returnedLines = [...sale.returnedLines];
 
@@ -349,7 +350,7 @@ export async function collectCustomerSalePayment(params: {
     return fail('Validation', 'SALE_COLLECT_OVER', `Amount exceeds outstanding (${due}).`, 'Collection was not recorded.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const entry = {
     id: newId(),
     amount,

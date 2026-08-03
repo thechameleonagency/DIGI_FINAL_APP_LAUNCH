@@ -14,6 +14,7 @@ import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 const OPEN_PO: PurchaseOrderStatus[] = ['Draft', 'Sent', 'PartiallyReceived'];
 
@@ -126,7 +127,7 @@ export async function createPurchaseOrder(params: {
       receivedQty: 0,
     });
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const po: PurchaseOrder = {
     id: newId(),
     poNo: nextNumber('PO'),
@@ -170,7 +171,7 @@ export async function transitionPurchaseOrder(params: {
     }
     return fail('StateConflict', 'PO_STATE', `Cannot move from ${po.status} to ${params.to}.`, 'PO was not updated.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const next = {
     ...po,
     status: params.to,
@@ -212,7 +213,7 @@ export async function receivePurchaseOrder(params: {
   }
 
   const updatedLines = po.lines.map((l) => ({ ...l }));
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   type Prep = {
     recv: (typeof params.lines)[number];
     batchId?: string;
@@ -401,7 +402,7 @@ export async function createPurchaseBill(params: {
     fileId: params.fileId,
     poIds: params.poIds ?? [],
     notes: params.notes,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso(),
   };
   await db.purchaseBills.add(bill);
   return ok(bill);
@@ -461,7 +462,7 @@ export async function createSupplierReturn(params: {
     if (!l.reason.trim()) return fail('Validation', 'SRET_REASON', 'Reason required.', 'Return was not created.');
     lines.push({ batchId: l.batchId, productId: batch.productId, qty: l.qty, reason: l.reason.trim() });
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const ret: SupplierReturn = {
     id: newId(),
     retNo: nextNumber('SRET'),
@@ -513,7 +514,7 @@ export async function sendSupplierReturn(params: {
     });
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const next = { ...ret, status: 'Sent' as const, updatedAt: ts };
   try {
     await db.transaction('rw', db.batches, db.inventoryMovements, db.supplierReturns, async () => {
@@ -574,7 +575,7 @@ export async function settleSupplierReturn(params: {
     ...ret,
     status: 'Settled' as const,
     settledNote: note,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   };
   await db.supplierReturns.put(next);
   return ok(next);

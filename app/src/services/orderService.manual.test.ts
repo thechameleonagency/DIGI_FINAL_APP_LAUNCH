@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../data/db';
 import { clearDb, makeActor, makeBusiness, makeProduct } from '../test/fixtures';
 import { recordManualOrder } from './orderService';
+import { nowIso } from '../domain/utils/clock';
 
 describe('recordManualOrder (CF-11)', () => {
   beforeEach(async () => {
@@ -14,10 +15,10 @@ describe('recordManualOrder (CF-11)', () => {
       id: 'cat-st',
       stockistId: 'biz-st',
       status: 'Active',
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     });
     await makeProduct('biz-st', 'prod-1');
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.connections.add({
       id: 'conn-1',
       pharmacyId: 'biz-ph',

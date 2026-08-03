@@ -3,6 +3,7 @@ import { db } from '../data/db';
 import { clearDb, makeActor, makeBusiness } from '../test/fixtures';
 import { hasNotification, markRead, resolveNotificationLink, setMutedCategories } from './notificationService';
 import { emitNotification } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 describe('resolveNotificationLink', () => {
   it('routes SupportTicket by id', () => {
@@ -61,7 +62,7 @@ describe('notification fan-out prefs (T-1)', () => {
       title: 't',
       body: 'b',
       status: 'Unread',
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso(),
     });
     await markRead('n1', user.id);
     expect((await db.notifications.get('n1'))?.status).toBe('Read');
@@ -93,7 +94,7 @@ describe('notification fan-out prefs (T-1)', () => {
       body: 'b',
       status: 'Unread',
       entityId: 'inv-9',
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso(),
     });
     expect(await hasNotification(user.id, 'N-028', 'inv-9')).toBe(true);
     expect(await hasNotification(user.id, 'N-028', 'other')).toBe(false);

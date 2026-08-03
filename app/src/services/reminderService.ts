@@ -7,6 +7,7 @@ import { assertCan } from './authService';
 import { writeAudit } from './audit';
 import { notifyBusinessUsers } from './notifications';
 import { sendMessage } from './supportService';
+import { nowIso } from '../domain/utils/clock';
 
 export async function sendPaymentReminder(params: {
   actor: User;
@@ -49,7 +50,7 @@ export async function sendPaymentReminder(params: {
 
   const dueSince = inv.dueDate ?? inv.issuedAt?.slice(0, 10) ?? inv.createdAt.slice(0, 10);
   const amount = formatINR(inv.outstanding);
-  const ts = new Date().toISOString();
+  const ts = nowIso();
 
   await notifyBusinessUsers(
     inv.pharmacyId,

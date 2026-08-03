@@ -7,6 +7,7 @@ import { assertCan } from './authService';
 import { writeAudit } from './audit';
 import { notifyBusinessUsers } from './notifications';
 import { priceForPlatformPharmacy } from './pricingService';
+import { nowIso } from '../domain/utils/clock';
 
 export async function upsertProduct(params: {
   actor: User;
@@ -59,7 +60,7 @@ export async function upsertProduct(params: {
   }
   const cat = await db.catalogues.where('stockistId').equals(params.stockist.id).first();
   if (!cat) return fail('NotFound', 'CAT_MISSING', 'Catalogue not found.', 'Product was not saved.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
 
   const skuDup = await db.products
     .where('stockistId')
@@ -210,7 +211,7 @@ export async function getCart(pharmacyId: string, stockistId: string) {
       pharmacyId,
       stockistId,
       lines: [],
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     }
   );
 }
@@ -259,7 +260,7 @@ export async function setCartLine(params: {
       pharmacyId: params.pharmacy.id,
       stockistId: params.stockistId,
       lines: [],
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     };
   }
   const lines = cart.lines.filter((l) => l.productId !== params.productId);
@@ -273,7 +274,7 @@ export async function setCartLine(params: {
       unitPriceAtAdd: inclusive,
     });
   }
-  cart = { ...cart, lines, updatedAt: new Date().toISOString() };
+  cart = { ...cart, lines, updatedAt: nowIso() };
   await db.carts.put(cart);
   return ok(true);
 }
@@ -437,7 +438,7 @@ export async function toggleWishlist(params: {
     pharmacyId: params.pharmacy.id,
     productId: params.productId,
     stockistId: params.stockistId,
-    addedAt: new Date().toISOString(),
+    addedAt: nowIso(),
   });
   return ok(true);
 }
@@ -456,7 +457,7 @@ export async function setProductStatus(params: {
   }
   const t = machines.product(product.status, params.status);
   if (!t.ok) return fail("StateConflict", "PROD_BAD_STATE", t.reason!, "Status was not changed.");
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.products.update(product.id, { status: params.status, updatedAt: ts });
   await writeAudit({
     actorId: params.actor.id,
@@ -481,7 +482,7 @@ export async function setCatalogueStatus(params: {
   if (!cat) return fail("NotFound", "CAT_MISSING", "Catalogue not found.", "Catalogue status was not changed.");
   const t = machines.catalogue(cat.status, params.status);
   if (!t.ok) return fail("StateConflict", "CAT_BAD_STATE", t.reason!, "Catalogue status was not changed.");
-  await db.catalogues.update(cat.id, { status: params.status, updatedAt: new Date().toISOString() });
+  await db.catalogues.update(cat.id, { status: params.status, updatedAt: nowIso() });
   await writeAudit({
     actorId: params.actor.id,
     actorName: params.actor.name,
@@ -514,7 +515,7 @@ export async function bulkUpdatePrices(params: {
   if (!Number.isFinite(params.value)) {
     return fail("Validation", "PRICE_VALUE", "Price update value must be a finite number.", "Prices were not updated.");
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   let updated = 0;
   for (const id of params.productIds) {
     const p = await db.products.get(id);

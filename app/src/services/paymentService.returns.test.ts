@@ -10,8 +10,9 @@ import {
   submitReturn,
 } from './paymentService';
 import { runPolicyClock } from './supportService';
+import { nowIso } from '../domain/utils/clock';
 
-const ts = () => new Date().toISOString();
+const ts = () => nowIso();
 
 async function seedTrade() {
   const phUser = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Pharmacist' });

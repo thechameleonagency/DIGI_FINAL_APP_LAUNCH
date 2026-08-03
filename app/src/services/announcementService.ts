@@ -5,6 +5,7 @@ import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { emitNotification } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 export const ANNOUNCEMENT_PLACEMENTS = ['All Dashboards', 'Pharmacy Home', 'Stockist Home', 'Pharmacy Buy', 'Admin Home'] as const;
 export const ANNOUNCEMENT_AUDIENCES = ['Pharmacy', 'Stockist', 'Admin'] as const;
@@ -34,7 +35,7 @@ export async function upsertAnnouncement(params: {
     return fail('Validation', 'ANN_PLACE', 'Select at least one placement.', 'Announcement was not saved.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const startsAt = params.startsAt || ts;
   const endsAt = params.endsAt?.trim() || undefined;
   if (endsAt && new Date(endsAt) < new Date(startsAt)) {

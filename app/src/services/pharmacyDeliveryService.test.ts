@@ -9,6 +9,7 @@ import {
   upsertDeliveryArea,
   upsertPharmacyRoute,
 } from './pharmacyDeliveryService';
+import { nowIso } from '../domain/utils/clock';
 
 describe('pharmacyDeliveryService (CF-06)', () => {
   beforeEach(async () => {
@@ -24,7 +25,7 @@ describe('pharmacyDeliveryService (CF-06)', () => {
       productName: 'Dolo 650',
       expiryDate: '2028-01-01',
       onHand: 20,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     });
   });
 

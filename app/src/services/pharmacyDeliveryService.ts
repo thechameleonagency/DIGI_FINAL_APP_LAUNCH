@@ -10,6 +10,7 @@ import { newId } from '../domain/utils/ids';
 import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
+import { nowIso } from '../domain/utils/clock';
 
 /** Stop status: Pharmacist (sale.record / delivery.update) or DeliveryStaff (delivery.update) on their assigned route. */
 function canUpdateStops(actor: User, pharmacy: Business) {
@@ -117,7 +118,7 @@ export async function upsertPharmacyRoute(params: {
     return fail('NotFound', 'ROUTE_MISSING', 'Route not found.', 'Route was not saved.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const row: PharmacyRoute = {
     id: existing?.id ?? newId(),
     pharmacyId: params.pharmacy.id,
@@ -210,7 +211,7 @@ export async function assignSaleToRoute(params: {
 
   // Remove from any prior route
   const allRoutes = await db.pharmacyRoutes.where('pharmacyId').equals(params.pharmacy.id).toArray();
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.transaction('rw', db.pharmacyRoutes, db.customerSales, async () => {
     for (const r of allRoutes) {
       if (!r.stops.some((s) => s.saleId === sale.id)) continue;
@@ -264,7 +265,7 @@ export async function updateRouteStopStatus(params: {
     return fail('Validation', 'STOP_FAIL', 'Failure reason is required.', 'Stop was not updated.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const stops = route.stops.map((s) =>
     s.saleId === params.saleId
       ? {

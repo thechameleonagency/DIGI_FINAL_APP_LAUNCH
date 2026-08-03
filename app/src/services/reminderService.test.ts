@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../data/db';
 import { clearDb, makeActor, makeBusiness } from '../test/fixtures';
 import { sendPaymentReminder } from './reminderService';
+import { nowIso } from '../domain/utils/clock';
 
 describe('sendPaymentReminder (CF-14)', () => {
   beforeEach(async () => {
@@ -10,7 +11,7 @@ describe('sendPaymentReminder (CF-14)', () => {
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: phOwner.id });
     const stOwner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: stOwner.id });
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.invoices.add({
       id: 'inv-1',
       invoiceNo: 'INV-1',

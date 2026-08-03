@@ -5,6 +5,7 @@ import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { createPartnerInvite } from './partnerInviteService';
+import { nowIso } from '../domain/utils/clock';
 
 export async function createManagedPharmacy(params: {
   actor: User;
@@ -33,7 +34,7 @@ export async function createManagedPharmacy(params: {
   if (!params.data.name.trim() || !params.data.phone.trim()) {
     return fail('Validation', 'MP_REQ', 'Name and phone are required.', 'Pharmacy was not created.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   let row: ManagedPharmacy = {
     id: newId(),
     stockistId: params.stockist.id,
@@ -81,7 +82,7 @@ export async function createManagedPharmacy(params: {
       await db.managedPharmacies.delete(row.id);
       return fail('BusinessRule', 'MP_INVITE', 'Invite could not be created.', 'Pharmacy was not created.');
     }
-    row = { ...row, inviteId: inv.data.invite.id, updatedAt: new Date().toISOString() };
+    row = { ...row, inviteId: inv.data.invite.id, updatedAt: nowIso() };
     await db.managedPharmacies.put(row);
   }
   await writeAudit({
@@ -123,7 +124,7 @@ export async function updateManagedPharmacy(params: {
   if (!row || row.stockistId !== params.stockist.id) {
     return fail('NotFound', 'MP_MISSING', 'Managed pharmacy not found.', 'Pharmacy was not updated.');
   }
-  const next: ManagedPharmacy = { ...row, updatedAt: new Date().toISOString() };
+  const next: ManagedPharmacy = { ...row, updatedAt: nowIso() };
   for (const key of MANAGED_PATCH_KEYS) {
     if (Object.prototype.hasOwnProperty.call(params.patch, key)) {
       const value = params.patch[key];
@@ -188,7 +189,7 @@ export async function inviteManagedPharmacy(params: {
     ...row,
     status: 'Invited',
     inviteId: inv.data.invite?.id,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   };
   await db.managedPharmacies.put(next);
   return ok({ managed: next, shareText: inv.data.shareText, shareUrl: inv.data.shareUrl });
@@ -203,7 +204,7 @@ export async function linkManagedPharmacyOnRegister(params: {
   if (!invite?.managedPharmacyId) return;
   const row = await db.managedPharmacies.get(invite.managedPharmacyId);
   if (!row) return;
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.managedPharmacies.put({
     ...row,
     status: 'Linked',

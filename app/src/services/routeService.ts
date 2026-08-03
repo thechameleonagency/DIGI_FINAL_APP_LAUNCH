@@ -6,6 +6,7 @@ import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 async function assertActiveDeliveryStaff(stockistId: string, assigneeId: string): Promise<Result<true>> {
   const assignee = await db.users.get(assigneeId);
@@ -85,7 +86,7 @@ export async function deleteStockistRoute(params: {
   if (!route || route.stockistId !== params.stockist.id) {
     return fail('NotFound', 'ROUTE_MISSING', 'Route not found.', 'Route was not deleted.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.transaction('rw', db.stockistRoutes, db.deliveries, async () => {
     for (const s of route.stops) {
       const d = await db.deliveries.get(s.deliveryId);
@@ -121,7 +122,7 @@ export async function setRouteStops(params: {
   const next = { ...route, stops };
   const prevIds = new Set(route.stops.map((s) => s.deliveryId));
   const nextIds = new Set(params.deliveryIds);
-  const ts = new Date().toISOString();
+  const ts = nowIso();
 
   await db.transaction('rw', db.stockistRoutes, db.deliveries, async () => {
     await db.stockistRoutes.put(next);
@@ -167,7 +168,7 @@ export async function scheduleDelivery(params: {
     return fail('Validation', 'DEL_DATE_PAST', 'Scheduled date cannot be in the past.', 'Schedule was not saved.');
   }
   const was = delivery.scheduledDate;
-  await db.deliveries.update(delivery.id, { scheduledDate: date, updatedAt: new Date().toISOString() });
+  await db.deliveries.update(delivery.id, { scheduledDate: date, updatedAt: nowIso() });
   const order = await db.orders.get(delivery.orderId);
   if (order) {
     await notifyBusinessUsers(

@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { RequireAuth, RequirePortal } from './app/guards';
 import { db } from './data/db';
 import { ensureEmptyWorkspace } from './data/seed';
+import { ensureWorldSeeded } from './data/worldSeed';
 import {
   ForgotPasswordPage,
   InviteAcceptPage,
@@ -77,6 +78,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Fast path: open IndexedDB + empty stamp only. Heavy world seed runs after UI paint.
       await ensureEmptyWorkspace();
       const persisted = readPersistedSession();
       if (persisted) {
@@ -127,6 +129,10 @@ export default function App() {
         }
       }
       if (!cancelled) setHydrated(true);
+      // Kick off rich demo seed in background (LoginPage also awaits / shows progress).
+      void ensureWorldSeeded().catch((err) => {
+        console.error('[worldSeed] background seed failed', err);
+      });
       await runPolicyClock();
     })();
     return () => {

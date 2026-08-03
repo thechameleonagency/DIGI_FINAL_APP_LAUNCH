@@ -4,6 +4,7 @@
  * Does not create users, businesses, or trade data.
  */
 import type { PlatformSettings } from '../domain/entities/types';
+import { nowIso } from '../domain/utils/clock';
 import { resetCounters } from '../domain/utils/ids';
 import { hydrateCounters } from './counters';
 import { db } from './db';
@@ -11,6 +12,9 @@ import { db } from './db';
 /** Stamp used by ensureEmptyWorkspace + workspace import to avoid stale wipe loops. */
 export const SEED_VERSION = 6;
 export const EMPTY_STATE_VERSION = SEED_VERSION;
+
+/** Bump to force a one-time world re-seed after clear. */
+export const WORLD_SEED_VERSION = 1;
 
 /** Default platform policy row — configuration only, not demo accounts or trade data. */
 export function defaultPlatformSettings(): PlatformSettings {
@@ -73,7 +77,36 @@ export async function ensureEmptyWorkspace(): Promise<void> {
   await db.seedMeta.put({
     id: 'meta',
     seedVersion: EMPTY_STATE_VERSION,
-    seededAt: new Date().toISOString(),
+    seededAt: nowIso(),
+  });
+  await hydrateCounters();
+}
+
+/**
+ * True when world seed is missing or outdated (auto-run once on boot / after version bump).
+ */
+export async function needsWorldSeed(): Promise<boolean> {
+  const meta = await db.seedMeta.get('meta').catch(() => undefined);
+  return meta?.worldSeedVersion !== WORLD_SEED_VERSION;
+}
+
+/**
+ * Wipe all tables and restore empty platform settings + EMPTY_STATE_VERSION stamp.
+ * Does NOT stamp worldSeedVersion (caller runs world seed next, then stamps both).
+ */
+export async function clearWorkspaceForSeed(): Promise<void> {
+  try {
+    await db.open();
+  } catch {
+    // continue
+  }
+  await clearAllTables();
+  resetCounters();
+  await db.platformSettings.put(defaultPlatformSettings());
+  await db.seedMeta.put({
+    id: 'meta',
+    seedVersion: EMPTY_STATE_VERSION,
+    seededAt: nowIso(),
   });
   await hydrateCounters();
 }

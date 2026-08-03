@@ -11,6 +11,7 @@ import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { emitNotification, notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 async function getCurrentVerification(businessId: string): Promise<Verification | undefined> {
   return db.verifications.where('businessId').equals(businessId).reverse().sortBy('updatedAt').then((rows) => rows[0]);
@@ -51,7 +52,7 @@ export async function submitVerification(
     const t = machines.verification(from, to);
     if (!t.ok) return fail('StateConflict', 'VER_BAD_STATE', t.reason!, 'Verification was not submitted.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const nextDocs = extras?.documents ?? current?.documents;
   const nextIds = extras?.documentIds ?? nextDocs?.map((d) => d.fileId) ?? current?.documentIds ?? [];
 
@@ -120,7 +121,7 @@ export async function adminReviewVerification(params: {
     return fail('Validation', 'VER_REASON', 'Business-visible reason is required.', 'Verification decision was not saved.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const patch: Partial<Verification> = {
     status: params.decision,
     reviewedAt: ts,
@@ -204,7 +205,7 @@ export async function suspendBusiness(params: {
       'Business was not suspended.',
     );
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const visibleReason = params.reason.trim();
   const internalNotes = params.internalNotes?.trim() || undefined;
   await db.businesses.update(biz.id, {
@@ -278,7 +279,7 @@ export async function reactivateBusiness(params: {
   if (biz.accountStatus !== 'Suspended' && biz.accountStatus !== 'Deactivated') {
     return fail('BusinessRule', 'NOT_INACTIVE', 'Business is already active.', 'No change made.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   // Unverified traders return to PendingActivation — not Active — so analytics/marketplace stay correct.
   const nextStatus = biz.verificationStatus === 'Approved' ? 'Active' : 'PendingActivation';
   await db.businesses.update(biz.id, {
@@ -319,7 +320,7 @@ export async function deactivateBusiness(params: {
   if (biz.accountStatus === 'Deactivated') {
     return fail('BusinessRule', 'ALREADY_DEACTIVATED', 'Business is already deactivated.', 'No change made.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const visibleReason = params.reason.trim();
   const internalNotes = params.internalNotes?.trim() || undefined;
   await db.businesses.update(biz.id, {

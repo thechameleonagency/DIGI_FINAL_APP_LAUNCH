@@ -4,6 +4,7 @@ import { fail, ok, type Result } from '../domain/errors/types';
 import { invoiceOutstanding } from '../domain/calc';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
+import { nowIso } from '../domain/utils/clock';
 
 export type ReportCsv = {
   filename: string;
@@ -13,7 +14,7 @@ export type ReportCsv = {
 };
 
 function stamp(filters: string): { generatedAt: string; header: string[] } {
-  const generatedAt = new Date().toISOString();
+  const generatedAt = nowIso();
   return {
     generatedAt,
     header: [`# GeneratedAt=${generatedAt}`, `# Filters=${filters}`],
@@ -60,7 +61,7 @@ async function auditExport(actor: User, business: Business, reportId: string, fi
     entityType: 'Report',
     entityId: reportId,
     action: 'report.export',
-    after: { reportId, filters, at: new Date().toISOString() },
+    after: { reportId, filters, at: nowIso() },
   });
 }
 

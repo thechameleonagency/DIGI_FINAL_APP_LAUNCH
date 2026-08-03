@@ -718,6 +718,8 @@ export interface SeedMeta {
   id: 'meta';
   seedVersion: number;
   seededAt: string;
+  /** Set when flow-based world seed completes successfully. */
+  worldSeedVersion?: number;
 }
 
 /** Canvas-derived tables (docs/22 / PLAN/04 §9) — Dexie version(2) */

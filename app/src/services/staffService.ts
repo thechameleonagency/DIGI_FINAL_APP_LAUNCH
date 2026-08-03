@@ -6,6 +6,7 @@ import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { notifyBusinessUsers, emitNotification } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 function primaryRoleFor(business: Business): OperationalRole {
   if (business.type === 'Stockist') return 'Stockist';
@@ -51,7 +52,7 @@ export async function changeRole(params: {
   if (!allowed) {
     return fail('Validation', 'STAFF_ROLE', 'That role cannot be assigned via change-role.', 'Role was not changed.');
   }
-  await db.users.update(target.id, { role: params.role, updatedAt: new Date().toISOString() });
+  await db.users.update(target.id, { role: params.role, updatedAt: nowIso() });
   await emitNotification({
     userId: target.id,
     businessId: params.business.id,
@@ -87,7 +88,7 @@ export async function suspendStaff(params: {
   if (isPrimaryAccount(target, params.business)) {
     return fail('BusinessRule', 'PRIMARY_LOCK', 'Cannot suspend the primary account holder.', 'Staff was not suspended.');
   }
-  await db.users.update(target.id, { status: 'Suspended', updatedAt: new Date().toISOString() });
+  await db.users.update(target.id, { status: 'Suspended', updatedAt: nowIso() });
   await writeAudit({
     actorId: params.actor.id,
     actorName: params.actor.name,
@@ -111,7 +112,7 @@ export async function reactivateStaff(params: {
   if (!target || target.businessId !== params.business.id) {
     return fail('NotFound', 'USER_MISSING', 'Staff member not found.', 'Staff was not reactivated.');
   }
-  await db.users.update(target.id, { status: 'Active', updatedAt: new Date().toISOString() });
+  await db.users.update(target.id, { status: 'Active', updatedAt: nowIso() });
   await writeAudit({
     actorId: params.actor.id,
     actorName: params.actor.name,
@@ -138,7 +139,7 @@ export async function removeStaff(params: {
   if (isPrimaryAccount(target, params.business)) {
     return fail('BusinessRule', 'PRIMARY_LOCK', 'Cannot remove the primary account holder.', 'Staff was not removed.');
   }
-  await db.users.update(target.id, { status: 'Removed', updatedAt: new Date().toISOString() });
+  await db.users.update(target.id, { status: 'Removed', updatedAt: nowIso() });
   await emitNotification({
     userId: target.id,
     businessId: params.business.id,
@@ -177,7 +178,7 @@ export async function revokeInvite(params: {
     status: 'Removed',
     inviteToken: undefined,
     inviteExpiresAt: undefined,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   });
   await writeAudit({
     actorId: params.actor.id,
@@ -206,11 +207,11 @@ export async function resendInvite(params: {
   }
   const settings = await db.platformSettings.get('platform');
   const token = newId();
-  const expiresAt = new Date(Date.now() + (settings?.inviteTtlDays ?? 7) * 86400000).toISOString();
+  const expiresAt = new Date(new Date(nowIso()).getTime() + (settings?.inviteTtlDays ?? 7) * 86400000).toISOString();
   await db.users.update(target.id, {
     inviteToken: token,
     inviteExpiresAt: expiresAt,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   });
   await writeAudit({
     actorId: params.actor.id,
@@ -254,7 +255,7 @@ export async function transferOwnership(params: {
   }
   const primary = primaryRoleFor(params.business);
   const demoted = demotedRoleFor(params.business);
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.transaction('rw', db.users, db.businesses, async () => {
     const currents = await db.users
       .where({ businessId: params.business.id })
@@ -304,7 +305,7 @@ export async function setPermissionOverrides(params: {
   if (!target || target.businessId !== params.business.id) {
     return fail('NotFound', 'USER_MISSING', 'Staff member not found.', 'Overrides were not saved.');
   }
-  await db.users.update(target.id, { permissionOverrides: params.overrides, updatedAt: new Date().toISOString() });
+  await db.users.update(target.id, { permissionOverrides: params.overrides, updatedAt: nowIso() });
   await writeAudit({
     actorId: params.actor.id,
     actorName: params.actor.name,

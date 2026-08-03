@@ -15,6 +15,7 @@ import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 type LineAllocation = NonNullable<Order['lines'][0]['batchAllocations']>[number];
 
@@ -119,7 +120,7 @@ export async function allocateOrder(params: {
     planned.push({ line, need, allocations });
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const lines = order.lines.map((line) => {
     const p = planned.find((x) => x.line.id === line.id)!;
     return { ...line, allocatedQty: p.need, batchAllocations: p.allocations };
@@ -206,7 +207,7 @@ export async function packOrder(params: {
   const t = machines.order('Allocated', 'Packed');
   if (!t.ok) return fail('StateConflict', 'ORD_BAD_STATE', t.reason!, 'Order was not packed.');
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const lines = order.lines.map((l) => ({ ...l, packedQty: l.allocatedQty ?? l.acceptedQty ?? l.qty }));
   await db.orders.update(order.id, {
     status: 'Packed',
@@ -295,7 +296,7 @@ export async function issueInvoice(params: {
   const totals = calcInvoiceTotals(billableLines, settings?.roundingMode ?? 'nearest');
   const conn = await db.connections.get(order.connectionId);
   const creditDays = conn?.creditDays ?? params.stockist.creditDaysDefault ?? 30;
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const invoice: Invoice = {
     id: newId(),
     invoiceNo: nextNumber('INV'),
@@ -457,7 +458,7 @@ export async function createAndDispatchDelivery(params: {
     }
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const deliveryId = newId();
   const deliveryNo = nextNumber('DEL');
   const delivery: Delivery = {
@@ -613,7 +614,7 @@ export async function assignDelivery(params: {
     const assigneeOk = await assertActiveDeliveryStaff(params.stockist.id, assigneeId);
     if (!assigneeOk.ok) return assigneeOk;
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   let status = delivery.status;
   if (assigneeId && delivery.status === 'Created') {
     const t = machines.delivery('Created', 'Assigned');
@@ -681,7 +682,7 @@ export async function returnFailedDeliveryToStockist(params: {
   if (!order) return fail('NotFound', 'ORD_MISSING', 'Order not found.', 'Stock was not returned.');
   const t = machines.delivery('Failed', 'Cancelled');
   if (!t.ok) return fail('StateConflict', 'DEL_BAD_STATE', t.reason!, 'Stock was not returned.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
 
   try {
     await db.transaction('rw', db.batches, db.inventoryMovements, db.deliveries, db.orders, async () => {
@@ -832,7 +833,7 @@ export async function updateDeliveryStatus(params: {
     return fail('Validation', 'DEL_FAIL_REASON', 'Failure reason is required.', 'Delivery was not updated.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   let lines = delivery.lines;
   if (params.status === 'Delivered' || params.status === 'PartiallyDelivered') {
     for (const l of delivery.lines) {
@@ -1014,7 +1015,7 @@ export async function recordGrn(params: {
     return fail('Validation', 'GRN_MIN', 'Receive at least 1 unit to record a GRN.', 'GRN was not recorded.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const nextDeliveryLines = delivery.lines.map((dl) => {
     const orderLine = order.lines.find((l) => l.productId === dl.productId);
     const r = orderLine ? params.received.find((x) => x.lineId === orderLine.id) : undefined;

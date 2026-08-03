@@ -2,6 +2,7 @@ import { NOTIFICATION_CATALOG } from '../domain/notifications/catalog';
 import { normalizeRoleForBusiness } from '../domain/permissions';
 import { newId } from '../domain/utils/ids';
 import { db } from '../data/db';
+import { nowIso } from '../domain/utils/clock';
 
 function entityNoFromVars(vars?: Record<string, string>, entityType?: string): string | undefined {
   if (!vars) return undefined;
@@ -65,7 +66,7 @@ export async function emitNotification(params: {
       entityType: params.entityType,
       entityId: params.entityId,
       entityNo,
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso(),
     });
   } catch {
     // Notification failure never rolls back primary commit

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../data/db';
 import { clearDb, makeActor, makeBusiness } from '../test/fixtures';
 import { issueAdvanceCreditNote, issueGoodwillCreditNote, recordOfflinePayment, reviewPayment } from './paymentService';
+import { nowIso } from '../domain/utils/clock';
 
 describe('Goodwill & Advance credit notes (CF-39)', () => {
   beforeEach(async () => {
@@ -10,7 +11,7 @@ describe('Goodwill & Advance credit notes (CF-39)', () => {
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: ph.id });
     const st = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: st.id });
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.connections.add({
       id: 'c1',
       pharmacyId: 'biz-ph',

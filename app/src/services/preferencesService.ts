@@ -1,5 +1,6 @@
 import type { User } from '../domain/entities/types';
 import { db } from '../data/db';
+import { nowIso } from '../domain/utils/clock';
 
 export type ThemeMode = 'light' | 'dark';
 export type UiLanguage = 'en';
@@ -64,7 +65,7 @@ export async function saveUiPreferences(params: {
   const next: UiPreferences = { ...(user.uiPreferences ?? {}), ...params.patch };
   await db.users.update(params.userId, {
     uiPreferences: next,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   });
   if (next.theme) applyTheme(next.theme);
   if (next.showLocalFirstHint != null) applyLocalFirstHint(next.showLocalFirstHint);
@@ -78,7 +79,7 @@ export function filterMutableCategories(muted: string[]): string[] {
 
 export async function markOnboardingSeen(userId: string): Promise<void> {
   await db.users.update(userId, {
-    onboardingSeenAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    onboardingSeenAt: nowIso(),
+    updatedAt: nowIso(),
   });
 }

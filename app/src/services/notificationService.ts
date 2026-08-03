@@ -1,6 +1,7 @@
 import type { Notification } from '../domain/entities/types';
 import { db } from '../data/db';
 import { filterMutableCategories } from './preferencesService';
+import { nowIso } from '../domain/utils/clock';
 
 /** Deep-link by entityType + human number when present (never N-code in the path). */
 export function resolveNotificationLink(
@@ -54,19 +55,19 @@ export async function markRead(notificationId: string, userId: string): Promise<
   const n = await db.notifications.get(notificationId);
   if (!n || n.userId !== userId) return;
   if (n.status === 'Read') return;
-  await db.notifications.update(notificationId, { status: 'Read', readAt: new Date().toISOString() });
+  await db.notifications.update(notificationId, { status: 'Read', readAt: nowIso() });
 }
 
 export async function markAllRead(userId: string): Promise<void> {
   const unread = await db.notifications.where({ userId, status: 'Unread' }).toArray();
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await Promise.all(unread.map((n) => db.notifications.update(n.id, { status: 'Read', readAt: ts })));
 }
 
 export async function archiveNotification(notificationId: string, userId: string): Promise<void> {
   const n = await db.notifications.get(notificationId);
   if (!n || n.userId !== userId) return;
-  await db.notifications.update(notificationId, { status: 'Archived', readAt: n.readAt ?? new Date().toISOString() });
+  await db.notifications.update(notificationId, { status: 'Archived', readAt: n.readAt ?? nowIso() });
 }
 
 export async function unarchiveNotification(
@@ -78,7 +79,7 @@ export async function unarchiveNotification(
   if (!n || n.userId !== userId) return;
   await db.notifications.update(notificationId, {
     status: restoreStatus,
-    readAt: restoreStatus === 'Unread' ? undefined : n.readAt ?? new Date().toISOString(),
+    readAt: restoreStatus === 'Unread' ? undefined : n.readAt ?? nowIso(),
   });
 }
 
@@ -90,7 +91,7 @@ export async function setMutedCategories(userId: string, mutedCategories: string
       ...(user.notificationPreferences ?? {}),
       mutedCategories: filterMutableCategories(mutedCategories),
     },
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   });
 }
 

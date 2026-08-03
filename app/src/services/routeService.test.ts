@@ -3,6 +3,7 @@ import { db } from '../data/db';
 import { clearDb, makeActor, makeBusiness } from '../test/fixtures';
 import { scheduleDelivery, setRouteStops, upsertStockistRoute } from './routeService';
 import { updateDeliveryStatus } from './fulfilmentService';
+import { nowIso } from '../domain/utils/clock';
 
 describe('routeService (CF-18)', () => {
   beforeEach(async () => {
@@ -12,7 +13,7 @@ describe('routeService (CF-18)', () => {
     await makeActor({ id: 'u-boy', businessId: 'biz-st', role: 'DeliveryStaff', name: 'Rider' });
     const ph = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Stockist' });
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: ph.id });
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.deliveries.add({
       id: 'del-1',
       deliveryNo: 'DEL-1',

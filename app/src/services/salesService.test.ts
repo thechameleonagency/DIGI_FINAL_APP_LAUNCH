@@ -8,6 +8,7 @@ import {
   saleCreditOutstanding,
   voidCustomerSale,
 } from './salesService';
+import { nowIso } from '../domain/utils/clock';
 
 describe('salesService (CF-05)', () => {
   beforeEach(async () => {
@@ -23,7 +24,7 @@ describe('salesService (CF-05)', () => {
       batchNumber: 'B1',
       expiryDate: '2028-01-01',
       onHand: 5,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     });
   });
 
@@ -77,7 +78,7 @@ describe('salesService (CF-05)', () => {
       productName: 'Old Syrup',
       expiryDate: '2020-01-01',
       onHand: 3,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     });
     const res = await createCustomerSale({
       actor,

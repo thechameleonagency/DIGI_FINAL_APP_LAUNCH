@@ -4,6 +4,7 @@ import { newId } from '../domain/utils/ids';
 import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
+import { nowIso } from '../domain/utils/clock';
 
 export const BANNER_PLACEMENTS = [
   'Auth',
@@ -30,7 +31,7 @@ export async function upsertBanner(params: {
   if (!params.placements.length) {
     return fail('Validation', 'BAN_PLACE', 'Select at least one placement.', 'Banner was not saved.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const existing = params.id ? await db.banners.get(params.id) : undefined;
   const row: Banner = {
     id: existing?.id ?? newId(),

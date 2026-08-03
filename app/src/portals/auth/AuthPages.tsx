@@ -2,6 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
+import { needsWorldSeed, WORLD_SEED_VERSION } from '../../data/seed';
+import {
+  DEMO_PASSWORD,
+  ensureWorldSeeded,
+  getSeedAccountDirectory,
+  subscribeWorldSeedProgress,
+  type WorldSeedProgress,
+} from '../../data/worldSeed';
 import type { VerificationDocKind, VerificationDocument } from '../../domain/entities/types';
 import { portalFor } from '../../domain/permissions';
 import { DEMO_OTP } from '../../domain/utils/crypto';
@@ -62,9 +70,14 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [lockRemaining, setLockRemaining] = useState(0);
   const [showSetupLink, setShowSetupLink] = useState(false);
+  const [seedProgress, setSeedProgress] = useState<WorldSeedProgress | null>(null);
   const { setSession, user, business } = useSession();
   const { pushToast } = useUi();
   const navigate = useNavigate();
+  const seedMeta = useLiveQuery(() => db.seedMeta.get('meta'));
+  const seededAccounts =
+    seedMeta?.worldSeedVersion === WORLD_SEED_VERSION ? getSeedAccountDirectory() : [];
+  const seedBlocking = seedProgress?.status === 'running';
 
   useEffect(() => {
     const reason = takeReauthReason();
@@ -76,8 +89,47 @@ export function LoginPage() {
   }, [pushToast]);
 
   useEffect(() => {
-    void needsFirstSuperAdmin().then(setShowSetupLink);
+    return subscribeWorldSeedProgress(setSeedProgress);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!(await needsWorldSeed())) return;
+      try {
+        await ensureWorldSeeded();
+      } catch (e) {
+        if (!cancelled) {
+          pushToast({
+            tone: 'error',
+            title: 'Demo seed failed',
+            message: e instanceof Error ? e.message : 'Could not build demo world.',
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pushToast]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const needSetup = await needsFirstSuperAdmin();
+      const needSeed = await needsWorldSeed();
+      if (cancelled) return;
+      // Don't push users to empty SuperAdmin setup while the demo world is still seeding.
+      if (seedProgress?.status === 'running' || needSeed) {
+        setShowSetupLink(false);
+        return;
+      }
+      setShowSetupLink(needSetup);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [seedProgress?.status, seedMeta?.worldSeedVersion]);
 
   useEffect(() => {
     setLockRemaining(getLoginLockoutRemainingMs(email));
@@ -98,17 +150,92 @@ export function LoginPage() {
   }
 
   const locked = lockRemaining > 0;
+  const showSeedBanner =
+    seedBlocking ||
+    (seedProgress?.status !== 'done' &&
+      seedProgress?.status !== 'error' &&
+      seededAccounts.length === 0 &&
+      (seedMeta == null || seedMeta.worldSeedVersion !== WORLD_SEED_VERSION));
 
   return (
     <AuthShell>
       <h1 className="auth-brand">DigiSwasthya</h1>
       <p className="auth-sub">B2B pharmaceutical commerce — sign in to your Pharmacy, Stockist, or Platform Admin workspace.</p>
-      {showSetupLink ? (
+      {showSeedBanner ? (
+        <div className="banner-strip info" style={{ marginBottom: 12 }}>
+          <strong>Building demo world…</strong>{' '}
+          {seedProgress && seedProgress.phase > 0 ? (
+            <>
+              Phase {seedProgress.phase}/{seedProgress.totalPhases}: {seedProgress.label}. This can take a minute on first
+              load.
+            </>
+          ) : (
+            <>Starting seed pipeline…</>
+          )}
+        </div>
+      ) : null}
+      {seedProgress?.status === 'error' ? (
+        <div className="banner-strip danger" style={{ marginBottom: 12 }}>
+          Demo seed failed: {seedProgress.error ?? 'unknown error'}.{' '}
+          <button
+            type="button"
+            className="linkish"
+            style={{ fontWeight: 700, background: 'none', border: 0, cursor: 'pointer', textDecoration: 'underline' }}
+            onClick={() => {
+              void ensureWorldSeeded().catch(() => undefined);
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+      {showSetupLink && !seedBlocking ? (
         <div className="banner-strip info" style={{ marginBottom: 12 }}>
           Empty workspace — create the first SuperAdmin, then sign in.{' '}
           <Link to="/auth/setup" style={{ fontWeight: 700 }}>
             Create SuperAdmin
           </Link>
+        </div>
+      ) : null}
+      {seededAccounts.length > 0 ? (
+        <div className="card card-pad" style={{ marginBottom: 12, padding: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Seeded demo accounts</div>
+          <p className="muted" style={{ margin: '0 0 8px', fontSize: 12 }}>
+            Password for all: <code>{DEMO_PASSWORD}</code> — click to fill email, then sign in.
+          </p>
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
+            {seededAccounts.map((a) => (
+              <li key={a.email}>
+                <button
+                  type="button"
+                  className="row"
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    border: '1px solid var(--border, #e2e8f0)',
+                    borderRadius: 8,
+                    padding: '8px 10px',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    gap: 8,
+                    alignItems: 'center',
+                  }}
+                  onClick={() => {
+                    setEmail(a.email);
+                    setPassword('');
+                  }}
+                >
+                  <span style={{ flex: 1, fontSize: 13 }}>
+                    <strong>{a.email}</strong>
+                    <span className="muted" style={{ display: 'block', fontSize: 11 }}>
+                      {a.role} · {a.portal}
+                      {a.businessName ? ` · ${a.businessName}` : ''}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
       {locked ? (

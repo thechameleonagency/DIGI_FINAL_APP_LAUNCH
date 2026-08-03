@@ -5,6 +5,7 @@ import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
 import { emitNotification, notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 export type PlanConfig = {
   priceText: string;
@@ -128,7 +129,7 @@ export async function submitUpgradeRequest(params: {
     return fail('Duplicate', 'UPG_OPEN', 'You already have an open upgrade request.', 'Request was not submitted.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const row: UpgradeRequest = {
     id: newId(),
     businessId: params.business.id,
@@ -181,7 +182,7 @@ export async function decideUpgradeRequest(params: {
     .filter((r) => r.id !== row.id)
     .first();
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const next: UpgradeRequest = {
     ...row,
     status: params.decision,
@@ -226,7 +227,7 @@ export async function revokePremium(params: {
   if ((biz.plan ?? 'Free') !== 'Premium') {
     return fail('BusinessRule', 'UPG_FREE', 'Business is not Premium.', 'Premium was not revoked.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const before = { plan: biz.plan };
   await db.businesses.update(biz.id, { plan: 'Free', updatedAt: ts });
   await writeAudit({
@@ -261,6 +262,6 @@ export async function saveReportPreset(params: {
   const id = newId();
   presets.push({ id, name, periodDays: params.periodDays });
   const preferences = { ...(params.business.preferences ?? {}), reportPresets: presets };
-  await db.businesses.update(params.business.id, { preferences, updatedAt: new Date().toISOString() });
+  await db.businesses.update(params.business.id, { preferences, updatedAt: nowIso() });
   return ok(presets);
 }

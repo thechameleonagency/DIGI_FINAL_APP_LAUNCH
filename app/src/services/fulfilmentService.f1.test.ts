@@ -10,6 +10,7 @@ import {
   returnFailedDeliveryToStockist,
   updateDeliveryStatus,
 } from './fulfilmentService';
+import { nowIso } from '../domain/utils/clock';
 
 async function seedPlatform() {
   await db.platformSettings.put({
@@ -18,7 +19,7 @@ async function seedPlatform() {
     billAheadAllowed: false,
     returnWindowDays: 7,
     inviteTtlDays: 7,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   } as never);
 }
 
@@ -35,7 +36,7 @@ describe('fulfilment F1 fixes', () => {
       id: 'cat-1',
       stockistId: stockist.id,
       status: 'Active',
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     } as never);
     const productId = 'prod-1';
     await db.products.add({
@@ -49,15 +50,15 @@ describe('fulfilment F1 fixes', () => {
       mrp: 20,
       gstPercent: 12,
       ptr: 10,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     } as never);
     await db.managedPharmacies.add({
       id: 'mp-1',
       stockistId: stockist.id,
       name: 'Offline Chemist',
       status: 'OfflineOnly',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
     } as never);
 
     const created = await recordManualOrder({
@@ -90,14 +91,14 @@ describe('fulfilment F1 fixes', () => {
       stockistId: stockist.id,
       status: 'Active',
       creditLimit: 1_000_000,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
     } as never);
     await db.catalogues.add({
       id: 'cat-2',
       stockistId: stockist.id,
       status: 'Active',
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     } as never);
     const productId = 'prod-2';
     await db.products.add({
@@ -111,7 +112,7 @@ describe('fulfilment F1 fixes', () => {
       mrp: 50,
       gstPercent: 12,
       ptr: 30,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     } as never);
     const batchId = 'batch-2';
     const expiry = new Date(Date.now() + 86400000 * 400).toISOString().slice(0, 10);
@@ -124,11 +125,11 @@ describe('fulfilment F1 fixes', () => {
       onHand: 20,
       reserved: 0,
       status: 'Available',
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     } as never);
 
     const orderId = 'ord-2';
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.orders.add({
       id: orderId,
       orderNo: 'ORD-T2',
@@ -228,8 +229,8 @@ describe('fulfilment F1 fixes', () => {
       pharmacyId: pharmacy.id,
       stockistId: stockist.id,
       status: 'Active',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
     } as never);
     const productId = 'prod-3';
     await db.products.add({
@@ -243,7 +244,7 @@ describe('fulfilment F1 fixes', () => {
       mrp: 20,
       gstPercent: 12,
       ptr: 10,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     } as never);
     const batchId = 'batch-3';
     const expiry = new Date(Date.now() + 86400000 * 400).toISOString().slice(0, 10);
@@ -256,11 +257,11 @@ describe('fulfilment F1 fixes', () => {
       onHand: 50,
       reserved: 0,
       status: 'Available',
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     } as never);
     const orderId = 'ord-3';
     const lineId = 'ol-3';
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.orders.add({
       id: orderId,
       orderNo: 'ORD-T3',

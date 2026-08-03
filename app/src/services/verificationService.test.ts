@@ -8,6 +8,7 @@ import {
   submitVerification,
   suspendBusiness,
 } from './verificationService';
+import { nowIso } from '../domain/utils/clock';
 
 describe('verificationService Wave 1', () => {
   beforeEach(async () => {
@@ -26,12 +27,12 @@ describe('verificationService Wave 1', () => {
       id: 'ver-1',
       businessId: biz.id,
       status: 'Submitted',
-      submittedAt: new Date().toISOString(),
+      submittedAt: nowIso(),
       documentIds: [],
       documents: [],
-      decisionHistory: [{ from: 'NotStarted', to: 'Submitted', at: new Date().toISOString(), actorId: owner.id }],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      decisionHistory: [{ from: 'NotStarted', to: 'Submitted', at: nowIso(), actorId: owner.id }],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
     });
     return { owner, biz: refreshed };
   }

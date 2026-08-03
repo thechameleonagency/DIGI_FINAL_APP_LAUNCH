@@ -6,6 +6,7 @@ import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
 import { notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 export type CreateInviteResult = {
   invite?: PartnerInvite;
@@ -93,7 +94,7 @@ export async function createPartnerInvite(params: {
     gst,
     managedPharmacyId: params.managedPharmacyId,
     status: 'Sent',
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso(),
   };
   await db.partnerInvites.add(invite);
   await writeAudit({
@@ -132,7 +133,7 @@ export async function withdrawPartnerInvite(params: {
         ...managed,
         status: 'OfflineOnly',
         inviteId: undefined,
-        updatedAt: new Date().toISOString(),
+        updatedAt: nowIso(),
       });
     }
   }
@@ -177,7 +178,7 @@ export async function matchPartnerInvitesOnRegistration(params: {
       const managed = await db.managedPharmacies.get(invite.managedPharmacyId);
       const creditDays = managed?.creditDays ?? 30;
       const creditLimit = managed?.creditLimit ?? 100000;
-      const ts = new Date().toISOString();
+      const ts = nowIso();
       if (!existing) {
         await db.connections.add({
           id: newId(),

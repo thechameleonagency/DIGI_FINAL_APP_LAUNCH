@@ -1,11 +1,12 @@
 import { v4 as uuid } from 'uuid';
+import { nowIso } from './clock';
 
 export function newId(): string {
   return uuid();
 }
 
 export function yearPrefix(): string {
-  return String(new Date().getFullYear());
+  return String(new Date(nowIso()).getUTCFullYear());
 }
 
 let counters: Record<string, number> = {};

@@ -13,6 +13,7 @@ import {
   transitionPurchaseOrder,
   upsertSupplier,
 } from './procurementService';
+import { nowIso } from '../domain/utils/clock';
 
 async function seedStockist() {
   const owner = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
@@ -21,7 +22,7 @@ async function seedStockist() {
     id: 'cat-st',
     stockistId: 'biz-st',
     status: 'Active',
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   });
   await makeProduct('biz-st', 'prod-1');
   return { actor: owner, stockist: (await db.businesses.get('biz-st'))! };
@@ -78,7 +79,7 @@ describe('procurementService (Wave 8 / CF-17)', () => {
   it('refuses receive into Quarantined batch and writes nothing (atomicity)', async () => {
     const { actor, stockist } = await seedStockist();
     await makeProduct('biz-st', 'prod-2');
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.batches.add({
       id: 'batch-q',
       productId: 'prod-1',
@@ -115,7 +116,7 @@ describe('procurementService (Wave 8 / CF-17)', () => {
 
   it('refuses receive into Recalled batch', async () => {
     const { actor, stockist } = await seedStockist();
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.batches.add({
       id: 'batch-r',
       productId: 'prod-1',
@@ -265,7 +266,7 @@ describe('procurementService (Wave 8 / CF-17)', () => {
 
   it('blocks supplier return over available qty (E-CF-17c)', async () => {
     const { actor, stockist } = await seedStockist();
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.batches.add({
       id: 'batch-1',
       productId: 'prod-1',
@@ -292,7 +293,7 @@ describe('procurementService (Wave 8 / CF-17)', () => {
   it('supplier return send is atomic across lines; settle requires note', async () => {
     const { actor, stockist } = await seedStockist();
     await makeProduct('biz-st', 'prod-2');
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.batches.bulkAdd([
       {
         id: 'b-a',
@@ -363,7 +364,7 @@ describe('procurementService (Wave 8 / CF-17)', () => {
     const { stockist } = await seedStockist();
     expect(await listRequiredStock(stockist.id)).toEqual([]);
     await db.products.update('prod-1', { reorderLevel: 20 });
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.batches.add({
       id: 'q-only',
       productId: 'prod-1',
@@ -384,7 +385,7 @@ describe('procurementService (Wave 8 / CF-17)', () => {
 
   it('rejects return against missing supplier', async () => {
     const { actor, stockist } = await seedStockist();
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.batches.add({
       id: 'batch-x',
       productId: 'prod-1',

@@ -9,6 +9,7 @@ import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { notifyBusinessUsers } from './notifications';
 import { calcInclusiveOrderLine, priceForOfflineManagedLine, priceForPlatformPharmacy } from './pricingService';
+import { nowIso } from '../domain/utils/clock';
 
 function addressFromPharmacy(pharmacy: Business): Address {
   const saved = pharmacy.deliveryAddresses?.find((a) => a.isDefault) ?? pharmacy.deliveryAddresses?.[0];
@@ -133,7 +134,7 @@ export async function placeOrder(params: {
       );
     }
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const order: Order = {
     id: newId(),
     orderNo: nextNumber('ORD'),
@@ -336,7 +337,7 @@ export async function recordManualOrder(params: {
       }
     }
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const order: Order = {
     id: newId(),
     orderNo: nextNumber('ORD'),
@@ -439,7 +440,7 @@ export async function acceptOrder(params: {
   const t = machines.order(order.status, to);
   if (!t.ok) return fail('StateConflict', 'ORD_BAD_STATE', t.reason!, 'Order was not accepted.');
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.orders.update(order.id, {
     status: to,
     lines,
@@ -481,7 +482,7 @@ export async function rejectOrder(params: {
   }
   const t = machines.order(order.status, 'Rejected');
   if (!t.ok) return fail('StateConflict', 'ORD_BAD_STATE', t.reason!, 'Order was not rejected.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.orders.update(order.id, {
     status: 'Rejected',
     updatedAt: ts,
@@ -515,7 +516,7 @@ export async function closeOrder(params: {
   }
   const t = machines.order(order.status, 'Closed');
   if (!t.ok) return fail('StateConflict', 'ORD_BAD_STATE', t.reason!, 'Order was not closed.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.orders.update(order.id, {
     status: 'Closed',
     updatedAt: ts,
@@ -552,7 +553,7 @@ export async function cancelOrder(params: {
   }
   const t = machines.order(order.status, 'Cancelled');
   if (!t.ok) return fail('StateConflict', 'ORD_BAD_STATE', t.reason!, 'Order was not cancelled.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
 
   // release reservations
   for (const line of order.lines) {
@@ -605,7 +606,7 @@ export async function editOrderLines(params: {
   if (!['Pending', 'Accepted', 'PartiallyAccepted'].includes(order.status)) {
     return fail('StateConflict', 'ORD_LOCKED', 'Lines are locked after allocation — adjust via returns after delivery.', 'Order lines were not updated.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const lines = order.lines.map((l) => {
     const qty = params.qtys[l.id] ?? l.qty;
     if (qty < 1) return l;

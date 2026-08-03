@@ -5,6 +5,7 @@ import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
 import { notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 export type ImpersonationSession = {
   adminUser: User;
@@ -67,7 +68,7 @@ export async function enterImpersonation(params: {
     passwordSalt: '',
     impersonationReadOnly: true,
   };
-  const startedAt = new Date().toISOString();
+  const startedAt = nowIso();
   const impersonation: ImpersonationSession = {
     adminUser: params.actor,
     adminBusiness: params.platform,
@@ -118,7 +119,7 @@ export async function exitImpersonation(params: {
     entityId: targetBusinessId,
     action: 'impersonate.exit',
     reason,
-    after: { targetBusinessId, startedAt, exitedAt: new Date().toISOString() },
+    after: { targetBusinessId, startedAt, exitedAt: nowIso() },
   });
   // Reload admin entities from DB (fresh)
   const user = await db.users.get(adminUser.id);

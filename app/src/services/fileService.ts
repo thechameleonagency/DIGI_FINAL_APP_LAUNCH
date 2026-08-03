@@ -2,6 +2,7 @@ import type { StoredFile, User } from '../domain/entities/types';
 import { fail, ok, type Result } from '../domain/errors/types';
 import { newId } from '../domain/utils/ids';
 import { db } from '../data/db';
+import { nowIso } from '../domain/utils/clock';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/jpg']);
@@ -56,7 +57,7 @@ export async function storeFile(params: {
     size,
     dataUrl,
     uploadedBy: params.actor.id,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso(),
   };
   await db.files.put(stored);
   return ok(stored);

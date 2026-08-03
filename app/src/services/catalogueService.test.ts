@@ -8,6 +8,7 @@ import {
   setProductStatus,
   upsertProduct,
 } from './catalogueService';
+import { nowIso } from '../domain/utils/clock';
 
 async function seedStockist() {
   const owner = await makeActor({ id: 'u-cat', businessId: 'biz-cat', role: 'Stockist' });
@@ -16,7 +17,7 @@ async function seedStockist() {
     id: 'cat-biz-cat',
     stockistId: biz.id,
     status: 'Active',
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   });
   return { owner, biz };
 }

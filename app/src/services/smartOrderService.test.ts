@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Product } from '../domain/entities/types';
 import { buildSmartOrderSuggestions, productMatchKey } from './smartOrderService';
+import { nowIso } from '../domain/utils/clock';
 
 function product(partial: Partial<Product> & Pick<Product, 'id' | 'stockistId' | 'name' | 'sku' | 'brand' | 'ptr' | 'moq'>): Product {
   return {
@@ -11,8 +12,8 @@ function product(partial: Partial<Product> & Pick<Product, 'id' | 'stockistId' |
     gstPercent: 12,
     pricingClass: 'Generic',
     status: 'Active',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
     ...partial,
   };
 }

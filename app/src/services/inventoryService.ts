@@ -6,6 +6,7 @@ import { newId } from '../domain/utils/ids';
 import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
+import { nowIso } from '../domain/utils/clock';
 
 export async function stockIn(params: {
   actor: User;
@@ -37,7 +38,7 @@ export async function stockIn(params: {
   if (dup) {
     return fail('Duplicate', 'BATCH_DUP', 'This batch number already exists for the product.', 'Stock was not added.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const location = params.location?.trim() || undefined;
   const expiryDate = params.expiryDate.slice(0, 10);
   const batch: Batch = {
@@ -101,7 +102,7 @@ export async function adjustStock(params: {
   if (newOnHand < 0 || newOnHand < batch.reserved) {
     return fail('Integrity', 'STOCK_NEG', 'Adjustment would make available stock negative.', 'Stock was not adjusted.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.transaction('rw', db.batches, db.inventoryMovements, async () => {
     await db.batches.update(batch.id, { onHand: newOnHand, updatedAt: ts });
     await db.inventoryMovements.add({
@@ -146,7 +147,7 @@ export async function setBatchStatus(params: {
   }
   const t = machines.batch(batch.status, params.status);
   if (!t.ok) return fail('StateConflict', 'BATCH_STATE', t.reason!, 'Batch status was not changed.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.batches.update(batch.id, { status: params.status, updatedAt: ts });
   await db.inventoryMovements.add({
     id: newId(),
@@ -216,7 +217,7 @@ export async function transferStock(params: {
     );
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const pairId = newId();
   const outId = newId();
   const inId = newId();
@@ -283,7 +284,7 @@ export async function stockAdd(params: {
   if (params.mrp != null && !(params.mrp >= 0)) {
     return fail('Validation', 'STOCK_MRP', 'MRP cannot be negative.', 'Stock was not added.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const batchKey = params.batchNumber?.trim().toLowerCase() ?? '';
   const existing = (
     await db.pharmacyInventory.where({ pharmacyId: params.pharmacy.id, productId: params.productId }).toArray()
@@ -353,7 +354,7 @@ export async function stockAdjust(params: {
   }
   const newQty = item.onHand + params.delta;
   if (newQty < 0) return fail('Integrity', 'STOCK_NEG', 'Stock cannot go negative.', 'Stock was not adjusted.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.transaction('rw', db.pharmacyInventory, db.inventoryMovements, async () => {
     await db.pharmacyInventory.update(item.id, { onHand: newQty, updatedAt: ts });
     await db.inventoryMovements.add({

@@ -13,6 +13,7 @@ import {
 } from './orderService';
 import { confirmQuickOrder, resolveQuickOrder } from './quickOrderService';
 import { completeSmartOrderRun, generateSmartOrderSuggestions } from './smartOrderService';
+import { nowIso } from '../domain/utils/clock';
 
 const address = {
   id: 'addr-1',
@@ -34,10 +35,10 @@ async function seedPair(opts?: { creditLimit?: number }) {
     id: 'cat-biz-st',
     stockistId: stockist.id,
     status: 'Active',
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   });
   await makeProduct(stockist.id, 'prod-1');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.connections.add({
     id: 'conn-1',
     pharmacyId: pharmacy.id,
@@ -339,7 +340,7 @@ describe('Wave 4 — Ordering', () => {
       await seedPair();
       const stOwner = (await db.users.get('u-st'))!;
       const stockist = (await db.businesses.get('biz-st'))!;
-      const ts = new Date().toISOString();
+      const ts = nowIso();
       await db.managedPharmacies.add({
         id: 'mp-1',
         stockistId: 'biz-st',

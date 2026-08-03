@@ -6,6 +6,7 @@ import { db } from '../data/db';
 import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 export async function requestConnection(params: {
   actor: User;
@@ -45,7 +46,7 @@ export async function requestConnection(params: {
     return fail('BusinessRule', 'CONN_BLOCKED', 'This stockist has blocked the connection.', 'Connection was not requested.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   if (existing && (existing.status === 'Rejected' || existing.status === 'Disconnected' || existing.status === 'Cancelled')) {
     const t = machines.connection(existing.status, 'Requested');
     if (!t.ok) return fail('StateConflict', 'CONN_BAD_STATE', t.reason!, 'Connection was not requested.');
@@ -119,7 +120,7 @@ export async function respondConnection(params: {
       return fail('Validation', 'CONN_TERMS_LIMIT', 'Credit limit must be greater than zero.', 'Connection response was not saved.');
     }
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.connections.update(conn.id, {
     status: params.decision,
     respondedAt: ts,
@@ -176,7 +177,7 @@ export async function updateConnectionCreditTerms(params: {
   if (conn.status !== 'Active') {
     return fail('BusinessRule', 'CONN_TERMS_STATE', 'Credit terms can only be edited on Active connections.', 'Credit terms were not updated.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const before = { creditDays: conn.creditDays, creditLimit: conn.creditLimit };
   await db.connections.update(conn.id, {
     creditDays: params.creditDays,
@@ -211,7 +212,7 @@ export async function cancelConnectionRequest(params: {
   }
   const t = machines.connection(conn.status, 'Cancelled');
   if (!t.ok) return fail('StateConflict', 'CONN_BAD_STATE', t.reason!, 'Request was not cancelled.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.connections.update(conn.id, {
     status: 'Cancelled',
     updatedAt: ts,
@@ -240,7 +241,7 @@ export async function disconnectConnection(params: {
   }
   const t = machines.connection(conn.status, 'Disconnected');
   if (!t.ok) return fail('StateConflict', 'CONN_BAD_STATE', t.reason!, 'Connection was not disconnected.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.connections.update(conn.id, {
     status: 'Disconnected',
     updatedAt: ts,
@@ -274,7 +275,7 @@ export async function blockConnection(params: {
   }
   const t = machines.connection(conn.status, 'Blocked');
   if (!t.ok) return fail('StateConflict', 'CONN_BAD_STATE', t.reason!, 'Connection was not blocked.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.connections.update(conn.id, {
     status: 'Blocked',
     updatedAt: ts,
@@ -307,7 +308,7 @@ export async function unblockConnection(params: {
   const t = machines.connection(conn.status, 'Active');
   if (!t.ok) return fail('StateConflict', 'CONN_BAD_STATE', t.reason!, 'Connection was not unblocked.');
   const pharmacy = await db.businesses.get(conn.pharmacyId);
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.connections.update(conn.id, {
     status: 'Active',
     updatedAt: ts,

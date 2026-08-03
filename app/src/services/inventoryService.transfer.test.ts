@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../data/db';
 import { clearDb, makeActor, makeBusiness, makeProduct } from '../test/fixtures';
 import { transferStock } from './inventoryService';
+import { nowIso } from '../domain/utils/clock';
 
 describe('transferStock (CF-33)', () => {
   beforeEach(async () => {
@@ -12,10 +13,10 @@ describe('transferStock (CF-33)', () => {
       id: 'cat-st',
       stockistId: 'biz-st',
       status: 'Active',
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     });
     await makeProduct('biz-st', 'prod-1');
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.batches.add({
       id: 'batch-1',
       productId: 'prod-1',

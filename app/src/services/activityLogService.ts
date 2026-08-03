@@ -3,6 +3,7 @@ import { fail, ok, type Result } from '../domain/errors/types';
 import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
+import { nowIso } from '../domain/utils/clock';
 
 export type ActivityFilters = {
   from?: string;
@@ -39,7 +40,7 @@ export async function exportOwnActivityCsv(params: {
 }): Promise<Result<{ filename: string; csv: string }>> {
   const list = await listOwnActivity(params);
   if (!list.ok) return list;
-  const generatedAt = new Date().toISOString();
+  const generatedAt = nowIso();
   const filters = JSON.stringify(params.filters ?? {});
   const header = [`# GeneratedAt=${generatedAt}`, `# Filters=${filters}`, 'at,actor,action,entityType,entityId,reason'];
   const body = list.data.map((r) =>

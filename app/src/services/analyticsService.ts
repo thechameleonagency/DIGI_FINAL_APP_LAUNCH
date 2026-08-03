@@ -3,6 +3,7 @@ import { invoiceOutstanding, pharmacyOutstanding, stockistReceivables } from '..
 import { localDayKey, localLastNDays } from '../domain/utils/dateKeys';
 import { roundMoney } from '../domain/utils/money';
 import { db } from '../data/db';
+import { nowIso } from '../domain/utils/clock';
 
 export interface KpiDrill {
   id: string;
@@ -50,7 +51,7 @@ export async function pharmacyAnalytics(pharmacyId: string, periodDays = 14): Pr
   const periodOrders = orders.filter((o) => new Date(o.placedAt).getTime() >= cutoff);
 
   return {
-    calculatedAt: new Date().toISOString(),
+    calculatedAt: nowIso(),
     stale: false,
     outstandingCheck: { dashboard: outstanding, invoiceSum, matches: Math.abs(outstanding - invoiceSum) < 0.01 },
     series: [
@@ -178,7 +179,7 @@ export async function stockistAnalytics(stockistId: string, periodDays = 14): Pr
   });
 
   return {
-    calculatedAt: new Date().toISOString(),
+    calculatedAt: nowIso(),
     stale: false,
     outstandingCheck: { dashboard: receivables, invoiceSum, matches: Math.abs(receivables - invoiceSum) < 0.01 },
     series: [{ key: 'sales', label: `Sales (${periodDays}d)`, points: seriesFromOrders(periodOrders, periodDays) }],
@@ -286,7 +287,7 @@ export async function platformAnalytics(): Promise<AnalyticsBundle> {
   const openTickets = tickets.filter((t) => ['Open', 'InProgress', 'Reopened', 'WaitingOnUser'].includes(t.status));
 
   return {
-    calculatedAt: new Date().toISOString(),
+    calculatedAt: nowIso(),
     stale: false,
     outstandingCheck: { dashboard: outstanding, invoiceSum: outstanding, matches: true },
     series: [{ key: 'gmv', label: 'Platform order value (14d)', points: seriesFromOrders(orders) }],

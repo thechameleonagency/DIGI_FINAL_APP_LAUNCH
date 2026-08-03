@@ -1,3 +1,5 @@
+import { nowIso } from './clock';
+
 /** Local calendar day key (YYYY-MM-DD) — avoids UTC bucketing for India-region activity. */
 export function localDayKey(input?: string | Date | null): string {
   if (input == null || input === '') return '';
@@ -10,7 +12,7 @@ export function localDayKey(input?: string | Date | null): string {
 }
 
 export function localTodayKey(): string {
-  return localDayKey(new Date());
+  return localDayKey(nowIso());
 }
 
 /** Last n local calendar days ending today, oldest → newest. */

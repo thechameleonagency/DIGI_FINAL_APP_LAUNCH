@@ -3,9 +3,10 @@ import { db } from '../data/db';
 import type { Order } from '../domain/entities/types';
 import { clearDb, makeActor, makeBusiness } from '../test/fixtures';
 import { bulkIssueInvoices } from './fulfilmentService';
+import { nowIso } from '../domain/utils/clock';
 
 function packedOrder(id: string, orderNo: string, invoiceId?: string): Order {
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   return {
     id,
     orderNo,
@@ -62,7 +63,7 @@ describe('bulkIssueInvoices (CF-16)', () => {
     await makeBusiness({ id: 'biz-ph', type: 'Pharmacy', ownerUserId: ph.id });
     const st = await makeActor({ id: 'u-st', businessId: 'biz-st', role: 'Stockist' });
     await makeBusiness({ id: 'biz-st', type: 'Stockist', ownerUserId: st.id });
-    const ts = new Date().toISOString();
+    const ts = nowIso();
     await db.connections.add({
       id: 'conn-1',
       pharmacyId: 'biz-ph',
@@ -111,8 +112,8 @@ describe('bulkIssueInvoices (CF-16)', () => {
       paidAmount: 0,
       creditApplied: 0,
       statusHistory: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
       version: 1,
     });
     const actor = (await db.users.get('u-st'))!;

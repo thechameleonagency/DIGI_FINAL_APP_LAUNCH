@@ -18,6 +18,7 @@ import {
 } from './connectionService';
 import { isFavouritePinned, setFavourite, setSupplierRating } from './favouriteService';
 import { newId } from '../domain/utils/ids';
+import { nowIso } from '../domain/utils/clock';
 
 describe('Wave 2 — Network', () => {
   beforeEach(async () => {
@@ -83,7 +84,7 @@ describe('Wave 2 — Network', () => {
     });
 
     it('auto-connect reactivates Disconnected with managed credit terms', async () => {
-      const ts = new Date().toISOString();
+      const ts = nowIso();
       const managedId = newId();
       const inviteId = newId();
       await db.users.update('u-ph', { phone: '9123456780' });
@@ -134,7 +135,7 @@ describe('Wave 2 — Network', () => {
     });
 
     it('does not reactivate Blocked on managed register', async () => {
-      const ts = new Date().toISOString();
+      const ts = nowIso();
       const managedId = newId();
       const inviteId = newId();
       await db.users.update('u-ph', { phone: '9123456780' });

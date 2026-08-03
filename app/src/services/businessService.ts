@@ -5,6 +5,7 @@ import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
 import { storeFile } from './fileService';
+import { nowIso } from '../domain/utils/clock';
 
 export type BusinessProfilePatch = {
   name?: string;
@@ -104,7 +105,7 @@ export async function updateBusiness(params: {
     return fail('Validation', 'BIZ_PINS_REQUIRED', 'Add at least one serviceable PIN.', 'Business was not updated.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const next: Partial<Business> = { updatedAt: ts };
   if (patch.name !== undefined) next.name = patch.name.trim();
   if (patch.legalName !== undefined) next.legalName = patch.legalName.trim() || undefined;
@@ -169,7 +170,7 @@ export async function addBusinessDocument(params: {
     await db.verifications.update(current.id, {
       documents,
       documentIds: documents.map((d) => d.fileId),
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     });
   }
   await writeAudit({

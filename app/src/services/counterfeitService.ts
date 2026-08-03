@@ -6,6 +6,7 @@ import { db } from '../data/db';
 import { assertCan } from './authService';
 import { writeAudit } from './audit';
 import { emitNotification, notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 async function notifyPlatformAdmins(code: string, vars: Record<string, string>, entityId: string) {
   const admins = await db.users
@@ -51,7 +52,7 @@ export async function fileCounterfeitReport(params: {
     if (!product) return fail('NotFound', 'CF_PROD', 'Product not found.', 'Report was not filed.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const reportNo = nextNumber('CF');
   const row: CounterfeitReport = {
     id: newId(),
@@ -94,7 +95,7 @@ export async function startCounterfeitInvestigation(params: {
   if (row.status !== 'Reported') {
     return fail('StateConflict', 'CF_STATE', 'Only Reported items can enter investigation.', 'Investigation was not started.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const note = params.note?.trim();
   const next: CounterfeitReport = {
     ...row,
@@ -164,7 +165,7 @@ export async function addCounterfeitNote(params: {
   }
   const text = params.note.trim();
   if (!text) return fail('Validation', 'CF_NOTE', 'Note is required.', 'Note was not added.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const next = {
     ...row,
     internalNotes: [...row.internalNotes, `${ts}: ${text}`],
@@ -179,7 +180,7 @@ async function releaseReservationsForBatch(
   actorId: string,
   reason: string,
 ): Promise<{ flaggedOrderIds: string[] }> {
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const flaggedOrderIds: string[] = [];
   const openStatuses = new Set(['Accepted', 'PartiallyAccepted', 'Allocated', 'Packed']);
   const orders = await db.orders.filter((o) => openStatuses.has(o.status)).toArray();
@@ -251,7 +252,7 @@ export async function issueCounterfeitRecall(params: {
   const t = machines.batch(batch.status, 'Recalled');
   if (!t.ok) return fail('StateConflict', 'BATCH_STATE', t.reason!, 'Recall was not issued.');
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const reason = `Counterfeit recall ${row.reportNo ?? row.id}`;
   const { flaggedOrderIds } = await releaseReservationsForBatch(batch.id, params.actor.id, reason);
 
@@ -351,7 +352,7 @@ export async function dismissCounterfeitReport(params: {
   if (!params.reason.trim()) {
     return fail('Validation', 'CF_REASON', 'Dismissal reason is required.', 'Report was not dismissed.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const next: CounterfeitReport = {
     ...row,
     status: 'Dismissed',
@@ -410,7 +411,7 @@ export async function resolveCounterfeitReport(params: {
   if (!params.note.trim()) {
     return fail('Validation', 'CF_NOTE', 'Resolution note is required.', 'Report was not resolved.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const next: CounterfeitReport = {
     ...row,
     status: 'Resolved',

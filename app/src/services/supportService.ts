@@ -12,6 +12,7 @@ import { writeAudit } from './audit';
 import { assertCan } from './authService';
 import { hasNotification } from './notificationService';
 import { emitNotification, notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 export async function createTicket(params: {
   actor: User;
@@ -31,7 +32,7 @@ export async function createTicket(params: {
   if (!params.category.trim()) {
     return fail('Validation', 'TKT_CATEGORY', 'Category is required.', 'Ticket was not created.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const ticket: SupportTicket = {
     id: newId(),
     ticketNo: nextNumber('TKT'),
@@ -76,7 +77,7 @@ export async function updateTicket(params: {
     const perm = assertCan(params.actor, params.business, 'support.manage');
     if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Ticket was not updated.');
   }
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   let status = ticket.status;
   if (params.status && params.status !== ticket.status) {
     const t = machines.ticket(ticket.status, params.status);
@@ -160,7 +161,7 @@ export async function ensureMessageThread(params: {
     return !t.relatedEntityId;
   });
   if (existing) return ok(existing);
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const thread: MessageThread = {
     id: newId(),
     participantBusinessIds: [params.business.id, params.counterpartBusinessId],
@@ -194,7 +195,7 @@ export async function sendMessage(params: {
     );
   }
   if (!params.body.trim()) return fail('Validation', 'MSG_EMPTY', 'Message cannot be empty.', 'Message was not sent.');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   let thread = params.threadId ? await db.messageThreads.get(params.threadId) : undefined;
   if (!thread) {
     const ensured = await ensureMessageThread({
@@ -410,7 +411,7 @@ export async function exportWorkspace(): Promise<string> {
   for (const table of db.tables) {
     data[table.name] = await table.toArray();
   }
-  return JSON.stringify({ exportedAt: new Date().toISOString(), data }, null, 2);
+  return JSON.stringify({ exportedAt: nowIso(), data }, null, 2);
 }
 
 export type WorkspaceImportPreview = {
@@ -482,7 +483,7 @@ export async function importWorkspace(json: string): Promise<Result<true>> {
       await db.seedMeta.put({
         id: 'meta',
         seedVersion: SEED_VERSION,
-        seededAt: new Date().toISOString(),
+        seededAt: nowIso(),
       });
     });
     await hydrateCounters();

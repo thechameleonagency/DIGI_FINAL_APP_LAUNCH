@@ -28,6 +28,7 @@ import { setRouteStops, upsertStockistRoute } from './routeService';
 import { createCustomerSale } from './salesService';
 import { runPolicyClock } from './supportService';
 import { verifyBillPayload } from './verifyBillService';
+import { nowIso } from '../domain/utils/clock';
 
 const address = {
   id: 'addr-1',
@@ -51,10 +52,10 @@ async function seedTradePair() {
     id: 'cat-biz-st',
     stockistId: stockist.id,
     status: 'Active',
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   });
   await makeProduct(stockist.id, 'prod-1');
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.connections.add({
     id: 'conn-1',
     pharmacyId: pharmacy.id,
@@ -106,7 +107,7 @@ describe('Wave 11 — cross-feature matrices + final gate', () => {
       expect(canTransition('order', 'Closed', 'Cancelled').ok).toBe(false);
 
       const { stOwner, stockist, pharmacy } = await seedTradePair();
-      const ts = new Date().toISOString();
+      const ts = nowIso();
       await db.orders.bulkAdd([
         {
           id: 'ord-acc',
@@ -174,7 +175,7 @@ describe('Wave 11 — cross-feature matrices + final gate', () => {
     it('delivery: Failed → Delivered blocked', async () => {
       expect(canTransition('delivery', 'Failed', 'Delivered').ok).toBe(false);
       const { stOwner, stockist, pharmacy } = await seedTradePair();
-      const ts = new Date().toISOString();
+      const ts = nowIso();
       await db.orders.add({
         id: 'ord-d',
         orderNo: 'ORD-D',
@@ -227,7 +228,7 @@ describe('Wave 11 — cross-feature matrices + final gate', () => {
       expect(canTransition('invoice', 'Paid', 'Void').ok).toBe(false);
 
       const { stOwner, stockist, pharmacy } = await seedTradePair();
-      const ts = new Date().toISOString();
+      const ts = nowIso();
 
       await db.payments.add({
         id: 'pay-1',
@@ -503,9 +504,9 @@ describe('Wave 11 — cross-feature matrices + final gate', () => {
         productName: 'Dolo 650',
         expiryDate: '2028-01-01',
         onHand: 20,
-        updatedAt: new Date().toISOString(),
+        updatedAt: nowIso(),
       });
-      const ts = new Date().toISOString();
+      const ts = nowIso();
       await db.deliveries.add({
         id: 'del-b2b',
         deliveryNo: 'DEL-B2B',

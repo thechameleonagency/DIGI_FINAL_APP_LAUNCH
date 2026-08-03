@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { PlatformSettings } from '../../../domain/entities/types';
 import { db } from '../../../data/db';
+import { resetAndSeedWorld } from '../../../data/worldSeed';
 import { updatePlatformSettings } from '../../../services/platformSettingsService';
 import {
   downloadWorkspaceJson,
@@ -51,7 +52,9 @@ export function AdminSettings() {
   const [importText, setImportText] = useState('');
   const [importPreview, setImportPreview] = useState<WorkspaceImportPreview | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [rebuildOpen, setRebuildOpen] = useState(false);
   const { busy: saving, run } = useBusyAction();
+  const isSuperAdmin = user.role === 'SuperAdmin';
 
   useEffect(() => {
     if (settings) setDraft(toDraft(settings));
@@ -295,8 +298,43 @@ export function AdminSettings() {
           >
             Import workspace
           </Button>
+          {isSuperAdmin ? (
+            <Button variant="danger" onClick={() => setRebuildOpen(true)}>
+              Rebuild demo world
+            </Button>
+          ) : null}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={rebuildOpen}
+        title="Rebuild demo world?"
+        tone="danger"
+        confirmLabel="Wipe & re-seed"
+        confirmPhrase="REBUILD"
+        confirmPhraseLabel='Type “REBUILD” to confirm'
+        body={
+          <p style={{ margin: 0 }}>
+            This clears the entire local workspace and re-runs the flow-based world seed. All current
+            businesses, trade, and settings will be replaced with the demo cast.
+          </p>
+        }
+        onClose={() => setRebuildOpen(false)}
+        onConfirm={async () => {
+          setRebuildOpen(false);
+          try {
+            await resetAndSeedWorld();
+            pushToast({ tone: 'success', title: 'Demo world rebuilt', message: 'Reloading…' });
+            window.setTimeout(() => window.location.reload(), 600);
+          } catch (err) {
+            pushToast({
+              tone: 'error',
+              title: 'World seed failed',
+              message: err instanceof Error ? err.message : 'Unknown error',
+            });
+          }
+        }}
+      />
 
       <Modal
         open={importOpen}

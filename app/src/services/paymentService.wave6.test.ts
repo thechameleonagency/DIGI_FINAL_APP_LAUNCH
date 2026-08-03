@@ -13,8 +13,9 @@ import {
   withdrawPayment,
 } from './paymentService';
 import { sendPaymentReminder } from './reminderService';
+import { nowIso } from '../domain/utils/clock';
 
-const ts = () => new Date().toISOString();
+const ts = () => nowIso();
 
 async function seedPair() {
   const phUser = await makeActor({ id: 'u-ph', businessId: 'biz-ph', role: 'Pharmacist' });

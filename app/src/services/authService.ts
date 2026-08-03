@@ -21,6 +21,7 @@ import { defaultPlatformSettings } from '../data/seed';
 import { writeAudit } from './audit';
 import { storeFile } from './fileService';
 import { emitNotification, notifyBusinessUsers } from './notifications';
+import { nowIso } from '../domain/utils/clock';
 
 export type RegistrationDocInput = {
   kind: VerificationDocKind;
@@ -88,7 +89,7 @@ export async function createFirstSuperAdmin(input: {
     return fail('Duplicate', 'AUTH_PHONE_DUP', 'An account with this phone already exists.', 'First SuperAdmin was not created.');
   }
 
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const salt = randomSalt();
   const passwordHash = await hashPassword(input.password, salt);
 
@@ -180,7 +181,7 @@ export async function login(emailOrPhone: string, password: string): Promise<Res
   if (business.accountStatus === 'Deactivated') {
     return fail('Permission', 'AUTH_BIZ_INACTIVE', 'This business is deactivated.', 'You were not signed in.');
   }
-  await db.users.update(user.id, { lastLoginAt: new Date().toISOString() });
+  await db.users.update(user.id, { lastLoginAt: nowIso() });
   return ok({ user, business });
 }
 
@@ -306,7 +307,7 @@ export async function registerBusiness(input: {
   const userId = newId();
   const salt = randomSalt();
   const passwordHash = await hashPassword(input.password, salt);
-  const ts = new Date().toISOString();
+  const ts = nowIso();
 
   const business: Business = {
     id: businessId,
@@ -431,7 +432,7 @@ export async function resetPassword(email: string, otp: string, newPassword: str
   }
   const salt = randomSalt();
   const passwordHash = await hashPassword(newPassword, salt);
-  await db.users.update(user.id, { passwordSalt: salt, passwordHash, updatedAt: new Date().toISOString() });
+  await db.users.update(user.id, { passwordSalt: salt, passwordHash, updatedAt: nowIso() });
   await emitNotification({ userId: user.id, businessId: user.businessId, code: 'N-051', vars: {} });
   return ok(true);
 }
@@ -439,7 +440,7 @@ export async function resetPassword(email: string, otp: string, newPassword: str
 export async function acceptInvite(token: string, password: string): Promise<Result<{ user: User; business: Business }>> {
   const user = await db.users.where('inviteToken').equals(token).first();
   if (!user) return fail('NotFound', 'INVITE_BAD', 'Invite link is invalid.', 'Invite was not accepted.');
-  if (user.inviteExpiresAt && new Date(user.inviteExpiresAt) < new Date()) {
+  if (user.inviteExpiresAt && new Date(user.inviteExpiresAt) < new Date(nowIso())) {
     return fail('BusinessRule', 'INVITE_EXPIRED', 'Invite has expired.', 'Invite was not accepted.');
   }
   if (password.length < 6) {
@@ -453,7 +454,7 @@ export async function acceptInvite(token: string, password: string): Promise<Res
     status: 'Active',
     inviteToken: undefined,
     inviteExpiresAt: undefined,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   });
   const updated = (await db.users.get(user.id))!;
   const business = (await db.businesses.get(user.businessId))!;
@@ -468,7 +469,7 @@ export async function getInvitePreview(
   if (!user || user.status !== 'Invited') {
     return fail('NotFound', 'INVITE_BAD', 'Invite link is invalid.', 'Invite cannot be opened.');
   }
-  if (user.inviteExpiresAt && new Date(user.inviteExpiresAt) < new Date()) {
+  if (user.inviteExpiresAt && new Date(user.inviteExpiresAt) < new Date(nowIso())) {
     return fail('BusinessRule', 'INVITE_EXPIRED', 'Invite has expired.', 'Ask your owner to resend the invite.');
   }
   const business = await db.businesses.get(user.businessId);
@@ -509,7 +510,7 @@ export async function changePassword(params: {
   }
   const salt = randomSalt();
   const passwordHash = await hashPassword(params.newPassword, salt);
-  await db.users.update(params.actor.id, { passwordSalt: salt, passwordHash, updatedAt: new Date().toISOString() });
+  await db.users.update(params.actor.id, { passwordSalt: salt, passwordHash, updatedAt: nowIso() });
   await writeAudit({
     actorId: params.actor.id,
     actorName: params.actor.name,
@@ -526,7 +527,7 @@ export async function updateProfile(params: {
   name?: string;
   phone?: string;
 }): Promise<Result<User>> {
-  const patch: Partial<User> = { updatedAt: new Date().toISOString() };
+  const patch: Partial<User> = { updatedAt: nowIso() };
   if (params.name?.trim()) patch.name = params.name.trim();
   if (params.phone?.trim()) patch.phone = params.phone.trim();
   await db.users.update(params.actor.id, patch);
@@ -579,7 +580,7 @@ export async function inviteStaff(params: {
   const token = newId();
   const salt = randomSalt();
   const passwordHash = await hashPassword('Invite@2026', salt);
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   const user: User = {
     id: newId(),
     businessId: params.business.id,
@@ -591,7 +592,7 @@ export async function inviteStaff(params: {
     passwordSalt: salt,
     passwordHash,
     inviteToken: token,
-    inviteExpiresAt: new Date(Date.now() + (settings?.inviteTtlDays ?? 7) * 86400000).toISOString(),
+    inviteExpiresAt: new Date(new Date(nowIso()).getTime() + (settings?.inviteTtlDays ?? 7) * 86400000).toISOString(),
     createdAt: ts,
     updatedAt: ts,
   };
@@ -654,7 +655,7 @@ export async function upsertDeliveryAddress(params: {
   if (idx >= 0) list[idx] = next;
   else list.push(next);
   if (!list.some((a) => a.isDefault) && list[0]) list[0].isDefault = true;
-  const ts = new Date().toISOString();
+  const ts = nowIso();
   await db.businesses.update(biz.id, { deliveryAddresses: list, updatedAt: ts });
   await writeAudit({
     actorId: params.actor.id,
@@ -679,7 +680,7 @@ export async function removeDeliveryAddress(params: {
   if (!biz) return fail('NotFound', 'BIZ_MISSING', 'Business not found.', 'Address was not removed.');
   let list = (biz.deliveryAddresses ?? []).filter((a) => a.id !== params.addressId);
   if (list.length && !list.some((a) => a.isDefault)) list = list.map((a, i) => ({ ...a, isDefault: i === 0 }));
-  await db.businesses.update(biz.id, { deliveryAddresses: list, updatedAt: new Date().toISOString() });
+  await db.businesses.update(biz.id, { deliveryAddresses: list, updatedAt: nowIso() });
   await writeAudit({
     actorId: params.actor.id,
     actorName: params.actor.name,
