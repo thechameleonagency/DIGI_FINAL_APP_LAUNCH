@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
@@ -10,6 +10,7 @@ import { stockAdd, stockAdjust } from '../../../services/inventoryService';
 import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { ShortcutHints } from '../../../ui/components/ShortcutHints';
 import { Button, EmptyState, Field, Input, Kpi, LoadingState, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -17,7 +18,9 @@ export function PharmacyInventory() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const canAdjust = useCan('inventory.adjust');
+  const navigate = useNavigate();
   const [params] = useSearchParams();
+  const productSelectRef = useRef<HTMLSelectElement>(null);
   const { items, loading: itemsLoading } = useLiveArray(
     () => db.pharmacyInventory.where('pharmacyId').equals(business.id).toArray(),
     [business.id],
@@ -63,6 +66,12 @@ export function PharmacyInventory() {
     reason?: string;
   }>({});
   const [adjErrors, setAdjErrors] = useState<{ delta?: string; reason?: string }>({});
+
+  useEffect(() => {
+    if (params.get('new') !== '1' || !canAdjust) return;
+    setAddOpen(true);
+    navigate('/pharmacy/inventory', { replace: true });
+  }, [params, canAdjust, navigate]);
 
   const rows = useMemo(
     () =>
@@ -184,6 +193,7 @@ export function PharmacyInventory() {
         subtitle="GRN stock-in plus manual add / adjust / write-off"
         actions={
           <div className="row">
+            {canAdjust ? <ShortcutHints hints={[{ keys: 'Ctrl+Shift+A', label: 'Add medicine' }]} /> : null}
             <Link className="btn btn-secondary btn-sm" to="/pharmacy/expiry">
               Expiry
             </Link>
@@ -215,6 +225,7 @@ export function PharmacyInventory() {
           setAddErrors({});
         }}
         title="Add medicine"
+        initialFocusRef={productSelectRef}
         footer={
           <Button
             onClick={async () => {
@@ -262,6 +273,7 @@ export function PharmacyInventory() {
         <div className="stack">
           <Field label="Catalogue product (optional)">
             <Select
+              ref={productSelectRef}
               value={form.productId}
               onChange={(e) => {
                 const p = products.find((x) => x.id === e.target.value);

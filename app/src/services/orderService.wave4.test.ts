@@ -45,6 +45,7 @@ async function seedPair(opts?: { creditLimit?: number }) {
     stockistId: stockist.id,
     status: 'Active',
     creditLimit: opts?.creditLimit,
+    inCircle: opts?.creditLimit != null && opts.creditLimit > 0,
     requestedAt: ts,
     statusHistory: [{ from: 'Requested', to: 'Active', at: ts, actorId: stOwner.id }],
     createdAt: ts,
@@ -139,10 +140,28 @@ describe('Wave 4 — Ordering', () => {
         pharmacy,
         stockistId: 'biz-st',
         address,
+        paymentMode: 'Credit',
         idempotencyKey: 'place-credit',
       });
       expect(res.ok).toBe(false);
       if (!res.ok) expect(res.code).toBe('ORD_CREDIT_LIMIT');
+    });
+
+    it('blocks Credit when connection is not in Circle', async () => {
+      await seedPair();
+      await fillCart(2);
+      const actor = (await db.users.get('u-ph'))!;
+      const pharmacy = (await db.businesses.get('biz-ph'))!;
+      const res = await placeOrder({
+        actor,
+        pharmacy,
+        stockistId: 'biz-st',
+        address,
+        paymentMode: 'Credit',
+        idempotencyKey: 'place-not-circle',
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.code).toBe('ORD_NOT_CIRCLE');
     });
 
     it('idempotent key returns Duplicate', async () => {

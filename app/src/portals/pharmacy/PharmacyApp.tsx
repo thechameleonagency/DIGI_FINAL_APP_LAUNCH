@@ -28,6 +28,7 @@ import {
   PharmacyCart,
   PharmacyProductDetail,
   PharmacyConnections,
+  PharmacyOfflineSuppliers,
   PharmacyLedger,
   PharmacyStockistDetail,
   PharmacyHome,
@@ -62,17 +63,44 @@ import {
 } from './PharmacyPages';
 
 const nav = [
-  { to: '/pharmacy', label: 'Home', icon: Home, end: true },
+  {
+    to: '/pharmacy/quick-order',
+    label: 'Create order',
+    icon: ListPlus,
+    section: 'Quick keyboard actions',
+    requires: 'order.place' as const,
+    shortcut: 'Ctrl+O',
+    chord: { key: 'o', ctrl: true },
+  },
+  {
+    to: '/pharmacy/payments',
+    label: 'Pay invoices',
+    icon: CreditCard,
+    section: 'Quick keyboard actions',
+    requires: 'payment.submit' as const,
+    shortcut: 'Ctrl+I',
+    chord: { key: 'i', ctrl: true },
+  },
+  {
+    to: '/pharmacy/inventory?new=1',
+    label: 'Add medicine',
+    icon: Warehouse,
+    section: 'Quick keyboard actions',
+    requires: 'inventory.adjust' as const,
+    shortcut: 'Ctrl+Shift+A',
+    chord: { key: 'a', ctrl: true, shift: true },
+  },
+  { to: '/pharmacy', label: 'Home', icon: Home, end: true, section: 'Trade' },
   { to: '/pharmacy/buy', label: 'Buy', icon: Search, section: 'Trade', requires: 'order.place' as const },
   { to: '/pharmacy/smart-order', label: 'Smart order', icon: Sparkles, section: 'Trade', requires: 'order.place' as const },
-  { to: '/pharmacy/quick-order', label: 'Quick Order', icon: ListPlus, section: 'Trade', requires: 'order.place' as const },
   { to: '/pharmacy/orders', label: 'Orders', icon: ClipboardList, section: 'Trade', requires: 'order.place' as const },
-  { to: '/pharmacy/connections', label: 'Connections', icon: Building2, section: 'Trade', requires: 'connection.request' as const },
+  { to: '/pharmacy/connections', label: 'Circle', icon: Building2, section: 'Trade', requires: 'connection.request' as const },
   { to: '/pharmacy/payments', label: 'Payments', icon: CreditCard, section: 'Money', requires: 'payment.submit' as const },
   { to: '/pharmacy/invoices', label: 'Invoices', icon: FileText, section: 'Money', requires: 'payment.submit' as const },
   { to: '/pharmacy/returns', label: 'Returns', icon: RotateCcw, section: 'Money', requires: 'return.raise' as const },
   { to: '/pharmacy/sales', label: 'Sales', icon: Receipt, section: 'Money', requires: 'sale.record' as const },
   { to: '/pharmacy/inventory', label: 'Inventory', icon: Warehouse, section: 'Stock', requires: 'inventory.adjust' as const },
+  { to: '/pharmacy/suppliers', label: 'Offline suppliers', icon: Building2, section: 'Stock', requires: 'inventory.adjust' as const },
   { to: '/pharmacy/delivery', label: 'Delivery', icon: Truck, section: 'Stock', requires: 'delivery.update' as const },
   { to: '/pharmacy/messages', label: 'Messages', icon: MessageSquare, section: 'Workspace', requires: 'order.place' as const },
   { to: '/pharmacy/settings', label: 'Settings & data', icon: Settings, sticky: true },
@@ -129,6 +157,7 @@ export function PharmacyApp() {
         <Route element={<RequirePermission action="inventory.adjust" />}>
           <Route path="inventory" element={<PharmacyInventory />} />
           <Route path="expiry" element={<PharmacyExpiry />} />
+          <Route path="suppliers" element={<PharmacyOfflineSuppliers />} />
         </Route>
         <Route element={<RequirePermission action="connection.request" />}>
           <Route path="connections" element={<PharmacyConnections />} />

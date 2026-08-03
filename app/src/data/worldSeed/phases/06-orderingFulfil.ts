@@ -23,10 +23,10 @@ import {
   acceptOrder,
   cancelOrder,
   editOrderLines,
-  placeOrder,
   recordManualOrder,
   rejectOrder,
 } from '../../../services/orderService';
+import { seedPlaceOrder } from '../seedPlaceOrder';
 import { confirmQuickOrder } from '../../../services/quickOrderService';
 import { setRouteStops, upsertStockistRoute } from '../../../services/routeService';
 import {
@@ -195,17 +195,20 @@ async function placeFromCart(params: {
   stockistId: string;
   seed: number;
   notes?: string;
+  /** Optional override; default follows connection.inCircle (Credit vs PayFirst). */
+  paymentMode?: 'PayFirst' | 'Credit' | 'Cash';
 }): Promise<Order> {
   const addr = await deliveryAddress(params.pharmacy);
   return assertOk(
     `06-order.place.${params.seed}`,
-    await placeOrder({
+    await seedPlaceOrder({
       actor: params.pharmacy.user,
       pharmacy: params.pharmacy.business,
       stockistId: params.stockistId,
       address: addr,
       notes: params.notes ?? `World seed order #${params.seed}`,
       idempotencyKey: makeIdempotencyKey(`world-ord-${params.seed}`, params.pharmacy.user.id),
+      paymentMode: params.paymentMode,
     }),
   ).data;
 }

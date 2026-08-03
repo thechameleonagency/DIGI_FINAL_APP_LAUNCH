@@ -12,7 +12,8 @@ import {
   recordGrn,
   updateDeliveryStatus,
 } from '../../../services/fulfilmentService';
-import { acceptOrder, placeOrder } from '../../../services/orderService';
+import { acceptOrder } from '../../../services/orderService';
+import { seedPlaceOrder } from '../seedPlaceOrder';
 import {
   applyCreditNote,
   issueAdvanceCreditNote,
@@ -160,7 +161,7 @@ async function seedFreshDeliveriesForReturns(): Promise<void> {
 
     const order = assertOk(
       `07-retprep.place.${i}`,
-      await placeOrder({
+      await seedPlaceOrder({
         actor: pharmacy.user,
         pharmacy: pharmacy.business,
         stockistId: stockist.business.id,

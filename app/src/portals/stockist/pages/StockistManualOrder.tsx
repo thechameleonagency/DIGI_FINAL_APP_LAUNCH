@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
@@ -15,7 +15,9 @@ import {
 import { productAvailableSellable } from '../../../domain/calc';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
-import { Button, EmptyState, Field, Input, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
+import { SearchableSelect } from '../../../ui/components/SearchableSelect';
+import { ShortcutHints } from '../../../ui/components/ShortcutHints';
+import { Button, EmptyState, Field, Input, PageHeader, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type DraftLine = { productId: string; productName: string; qty: number; ptr: number; moq: number };
@@ -63,6 +65,13 @@ export function StockistManualOrder() {
   const [paste, setPaste] = useState('');
   const [unmatched, setUnmatched] = useState<UnmatchedQuickLine[]>([]);
   const [notes, setNotes] = useState('');
+  const [pharmacyReady, setPharmacyReady] = useState(!!managedParam);
+  const [openProduct, setOpenProduct] = useState(!!managedParam);
+
+  const qtyRef = useRef<HTMLInputElement>(null);
+  const pasteRef = useRef<HTMLTextAreaElement>(null);
+  const firstQtyRef = useRef<HTMLInputElement>(null);
+  const firstUnmatchedRef = useRef<HTMLInputElement>(null);
 
   const activePharmacies = useMemo(
     () =>
@@ -75,6 +84,34 @@ export function StockistManualOrder() {
   const hasTargets = activePharmacies.length > 0 || managedList.length > 0;
   const catalogueBlocked = !catalogue || catalogue.status !== 'Active';
   const maintenanceOn = !!settings?.maintenanceMode;
+
+  const pharmacyOptions = useMemo(
+    () => [
+      ...managedList.map((m) => ({
+        value: `m:${m.id}`,
+        label: `${m.name} · ${m.status}`,
+        group: 'Managed / offline',
+        keywords: m.name,
+      })),
+      ...activePharmacies.map((p) => ({
+        value: `p:${p.id}`,
+        label: `${p.name} · ${p.city}`,
+        group: 'Platform connected',
+        keywords: `${p.name} ${p.city}`,
+      })),
+    ],
+    [managedList, activePharmacies],
+  );
+
+  const productOptions = useMemo(
+    () =>
+      products.map((p) => ({
+        value: p.id,
+        label: `${p.name} · MOQ ${p.moq} · ${formatINR(p.ptr)}`,
+        keywords: `${p.name} ${p.sku} ${p.brand}`,
+      })),
+    [products],
+  );
 
   const sellable: QuickOrderSeller[] = useMemo(
     () =>
@@ -105,6 +142,8 @@ export function StockistManualOrder() {
       return [...prev, { productId: p.id, productName: p.name, qty, ptr: p.ptr, moq: p.moq }];
     });
     setPickProductId('');
+    setPickQty(1);
+    setOpenProduct(true);
   };
 
   const applyPaste = () => {
@@ -136,6 +175,10 @@ export function StockistManualOrder() {
       }
       return next;
     });
+    window.setTimeout(() => {
+      if (nextUnmatched.length) firstUnmatchedRef.current?.focus();
+      else firstQtyRef.current?.focus();
+    }, 0);
   };
 
   const promoteUnmatched = (idx: number, productId: string) => {
@@ -155,15 +198,29 @@ export function StockistManualOrder() {
 
   const total = lines.reduce((s, l) => s + l.qty * l.ptr, 0);
 
+  useEffect(() => {
+    if (!hasTargets || catalogueBlocked) return;
+    if (!target) setPharmacyReady(true);
+  }, [hasTargets, catalogueBlocked, target]);
+
   return (
     <div className="stack">
       <PageHeader
         title="Manual order"
         subtitle="Record a phone/WhatsApp order for a connected pharmacy — they can cancel while Pending"
         actions={
-          <Link className="btn btn-secondary btn-sm" to="/stockist/orders">
-            Orders
-          </Link>
+          <ShortcutHints
+            hints={[
+              { keys: 'Ctrl+O', label: 'Create order' },
+              { keys: 'Enter', label: 'Pick / add line' },
+              { keys: 'Ctrl+Enter', label: 'Parse paste' },
+            ]}
+            extra={
+              <Link className="btn btn-secondary btn-sm" to="/stockist/orders">
+                Orders
+              </Link>
+            }
+          />
         }
       />
 
@@ -195,45 +252,62 @@ export function StockistManualOrder() {
             </div>
           ) : null}
           <Field label="Pharmacy">
-            <Select value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">Select…</option>
-              {managedList.length ? (
-                <optgroup label="Managed / offline">
-                  {managedList.map((m) => (
-                    <option key={m.id} value={`m:${m.id}`}>
-                      {m.name} · {m.status}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-              {activePharmacies.length ? (
-                <optgroup label="Platform connected">
-                  {activePharmacies.map((p) => (
-                    <option key={p.id} value={`p:${p.id}`}>
-                      {p.name} · {p.city}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-            </Select>
+            <SearchableSelect
+              aria-label="Pharmacy"
+              options={pharmacyOptions}
+              value={target}
+              autoOpen={pharmacyReady && !target}
+              placeholder="Search pharmacy…"
+              onChange={(v) => {
+                setTarget(v);
+                setPharmacyReady(false);
+                setOpenProduct(true);
+              }}
+              onSelected={() => setOpenProduct(true)}
+            />
           </Field>
 
           <strong>Product picker</strong>
           <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <Field label="Product">
-              <Select value={pickProductId} onChange={(e) => setPickProductId(e.target.value)}>
-                <option value="">Select…</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · MOQ {p.moq} · {formatINR(p.ptr)}
-                  </option>
-                ))}
-              </Select>
+              <SearchableSelect
+                key={openProduct ? 'product-open' : 'product-idle'}
+                aria-label="Product"
+                options={productOptions}
+                value={pickProductId}
+                autoOpen={!!target && openProduct}
+                placeholder="Search product…"
+                onChange={(v) => {
+                  setPickProductId(v);
+                  setOpenProduct(false);
+                  const p = products.find((x) => x.id === v);
+                  if (p) setPickQty(p.moq);
+                  window.setTimeout(() => qtyRef.current?.focus(), 0);
+                }}
+              />
             </Field>
             <Field label="Qty">
-              <Input type="number" min={1} value={pickQty} onChange={(e) => setPickQty(Number(e.target.value))} />
+              <Input
+                ref={qtyRef}
+                type="number"
+                min={1}
+                value={pickQty}
+                onChange={(e) => setPickQty(Number(e.target.value))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && pickProductId) {
+                    e.preventDefault();
+                    addPickerLine();
+                  }
+                }}
+              />
             </Field>
-            <Button variant="secondary" disabled={!pickProductId} onClick={addPickerLine}>
+            <Button
+              variant="secondary"
+              disabled={!pickProductId}
+              onClick={() => {
+                addPickerLine();
+              }}
+            >
               Add line
             </Button>
           </div>
@@ -241,10 +315,17 @@ export function StockistManualOrder() {
           <strong>Or paste order text</strong>
           <Field label="Lines">
             <Textarea
+              ref={pasteRef}
               rows={4}
               value={paste}
               onChange={(e) => setPaste(e.target.value)}
               placeholder={'Dolo 650 x 20\nCrocin Advance, 10'}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && paste.trim()) {
+                  e.preventDefault();
+                  applyPaste();
+                }
+              }}
             />
           </Field>
           <Button variant="secondary" disabled={!paste.trim()} onClick={applyPaste}>
@@ -267,19 +348,16 @@ export function StockistManualOrder() {
                     </div>
                   </div>
                   <Field label="Pick product">
-                    <Select
-                      defaultValue=""
-                      onChange={(e) => {
-                        if (e.target.value) promoteUnmatched(idx, e.target.value);
+                    <SearchableSelect
+                      inputRef={idx === 0 ? firstUnmatchedRef : undefined}
+                      aria-label={`Match ${u.raw}`}
+                      options={productOptions}
+                      value=""
+                      placeholder="Search product…"
+                      onChange={(v) => {
+                        if (v) promoteUnmatched(idx, v);
                       }}
-                    >
-                      <option value="">Select…</option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} · {p.sku}
-                        </option>
-                      ))}
-                    </Select>
+                    />
                   </Field>
                   <Button size="sm" variant="secondary" onClick={() => setUnmatched((prev) => prev.filter((_, i) => i !== idx))}>
                     Discard
@@ -305,11 +383,12 @@ export function StockistManualOrder() {
                   </tr>
                 </thead>
                 <tbody>
-                  {lines.map((l) => (
+                  {lines.map((l, idx) => (
                     <tr key={l.productId}>
                       <td>{l.productName}</td>
                       <td>
                         <Input
+                          ref={idx === 0 ? firstQtyRef : undefined}
                           type="number"
                           min={l.moq}
                           value={l.qty}

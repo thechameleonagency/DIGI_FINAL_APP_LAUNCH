@@ -23,6 +23,7 @@ import { AppShell } from '../../ui/layout/AppShell';
 import {
   StockistAnalytics,
   StockistCatalogue,
+  StockistProducts,
   StockistCreditNotes,
   StockistDelivery,
   StockistHome,
@@ -41,6 +42,7 @@ import {
   StockistPriceHistory,
   StockistBatchOrdering,
   StockistPayments,
+  StockistSettlements,
   StockistPharmacyDetail,
   StockistPharmaciesHub,
   StockistManagedPharmacyDetail,
@@ -59,15 +61,41 @@ import {
 } from './StockistPages';
 
 const nav = [
+  {
+    to: '/stockist/manual-order',
+    label: 'Create order',
+    icon: PenLine,
+    section: 'Quick keyboard actions',
+    requires: 'order.recordManual' as const,
+    shortcut: 'Ctrl+O',
+    chord: { key: 'o', ctrl: true },
+  },
+  {
+    to: '/stockist/bulk-bill',
+    label: 'Create invoice',
+    icon: FileText,
+    section: 'Quick keyboard actions',
+    requires: 'invoice.issue' as const,
+    shortcut: 'Ctrl+I',
+    chord: { key: 'i', ctrl: true },
+  },
+  {
+    to: '/stockist/products?new=1',
+    label: 'Add product',
+    icon: ShoppingBag,
+    section: 'Quick keyboard actions',
+    requires: 'catalogue.manage' as const,
+    shortcut: 'Ctrl+Shift+A',
+    chord: { key: 'a', ctrl: true, shift: true },
+  },
   { to: '/stockist', label: 'Home', icon: Home, end: true, section: 'Trade' },
   { to: '/stockist/orders', label: 'Orders', icon: ClipboardList, section: 'Trade', requires: 'order.accept' as const },
   { to: '/stockist/batch-ordering', label: 'Batch plan', icon: Layers, section: 'Trade', requires: 'order.allocate' as const },
-  { to: '/stockist/manual-order', label: 'Manual order', icon: PenLine, section: 'Trade', requires: 'order.recordManual' as const },
-  { to: '/stockist/pharmacies', label: 'Pharmacies', icon: Building2, section: 'Trade', requires: 'connection.respond' as const },
-  { to: '/stockist/catalogue', label: 'Catalogue', icon: ShoppingBag, section: 'Stock', requires: 'catalogue.manage' as const },
-  { to: '/stockist/inventory', label: 'Inventory', icon: Package, section: 'Stock', requires: 'inventory.adjust' as const },
+  { to: '/stockist/pharmacies', label: 'Circle', icon: Building2, section: 'Trade', requires: 'connection.respond' as const },
+  { to: '/stockist/products', label: 'Products', icon: Package, section: 'Stock', requires: 'catalogue.manage' as const },
   { to: '/stockist/delivery', label: 'Delivery', icon: Truck, section: 'Stock', requires: 'delivery.update' as const },
   { to: '/stockist/payments', label: 'Payments', icon: CreditCard, section: 'Money', requires: 'payment.approve' as const },
+  { to: '/stockist/settlements', label: 'Settlements', icon: FileText, section: 'Money', requires: 'payment.approve' as const },
   { to: '/stockist/returns', label: 'Returns', icon: RotateCcw, section: 'Money', requires: 'return.approve' as const },
   { to: '/stockist/credit-notes', label: 'Credit notes', icon: FileText, section: 'Money', requires: 'credit.issue' as const },
   { to: '/stockist/analytics', label: 'Analytics', icon: BarChart3, section: 'Workspace', requires: 'order.accept' as const },
@@ -107,11 +135,12 @@ export function StockistApp() {
           <Route path="invites" element={<StockistPartnerInvites />} />
         </Route>
         <Route element={<RequirePermission action="catalogue.manage" />}>
-          <Route path="catalogue" element={<StockistCatalogue />} />
+          <Route path="products" element={<StockistProducts />} />
+          <Route path="catalogue" element={<Navigate to="/stockist/products?tab=products" replace />} />
           <Route path="price-history" element={<StockistPriceHistory />} />
         </Route>
         <Route element={<RequirePermission action="inventory.adjust" />}>
-          <Route path="inventory" element={<StockistInventory />} />
+          <Route path="inventory" element={<Navigate to="/stockist/products?tab=batches" replace />} />
           <Route path="movements" element={<StockistMovements />} />
           <Route path="expiry" element={<StockistExpiry />} />
         </Route>
@@ -120,6 +149,7 @@ export function StockistApp() {
         </Route>
         <Route element={<RequirePermission action="payment.approve" />}>
           <Route path="payments" element={<StockistPayments />} />
+          <Route path="settlements" element={<StockistSettlements />} />
           <Route path="invoices/:invoiceNo" element={<StockistInvoiceDetail />} />
         </Route>
         <Route element={<RequirePermission action="invoice.issue" />}>

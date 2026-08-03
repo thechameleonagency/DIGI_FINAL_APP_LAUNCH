@@ -33,6 +33,10 @@ export async function placeOrder(params: {
   notes?: string;
   preferredDate?: string;
   idempotencyKey: string;
+  /** PayFirst (default) allowed for any Active connection; Credit requires Circle. */
+  paymentMode?: 'PayFirst' | 'Credit' | 'Cash';
+  /** When set, only these product ids from the cart are ordered (multi-select checkout). */
+  productIds?: string[];
 }): Promise<Result<Order>> {
   const perm = assertCan(params.actor, params.pharmacy, 'order.place');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Order was not created.');
@@ -66,6 +70,15 @@ export async function placeOrder(params: {
   if (!conn || conn.status !== 'Active') {
     return fail('BusinessRule', 'ORD_NO_CONN', 'Active connection required to place an order.', 'Order was not created.');
   }
+  const paymentMode = params.paymentMode ?? 'PayFirst';
+  if (paymentMode === 'Credit' && conn.inCircle === false) {
+    return fail(
+      'BusinessRule',
+      'ORD_NOT_CIRCLE',
+      'Credit orders require Circle membership with this stockist. Use Pay First instead.',
+      'Order was not created.',
+    );
+  }
   const stockist = await db.businesses.get(params.stockistId);
   if (!stockist || stockist.accountStatus === 'Suspended' || stockist.verificationStatus !== 'Approved') {
     return fail('BusinessRule', 'ORD_STOCKIST_GATE', 'Stockist is not available for ordering.', 'Order was not created.');
@@ -79,15 +92,24 @@ export async function placeOrder(params: {
   if (!cart?.lines.length) {
     return fail('Validation', 'ORD_EMPTY', 'Cart is empty.', 'Order was not created.');
   }
+  const cartLines = params.productIds?.length
+    ? cart.lines.filter((l) => params.productIds!.includes(l.productId))
+    : cart.lines;
+  if (!cartLines.length) {
+    return fail('Validation', 'ORD_EMPTY', 'No selected cart lines to order.', 'Order was not created.');
+  }
 
   const lines: OrderLine[] = [];
-  for (const cl of cart.lines) {
+  for (const cl of cartLines) {
     const product = await db.products.get(cl.productId);
     if (!product) {
       return fail('BusinessRule', 'ORD_PROD_DELETED', 'A cart product no longer exists. Remove it and try again.', 'Order was not created.');
     }
     if (product.status !== 'Active') {
       return fail('BusinessRule', 'ORD_PROD_INACTIVE', `${product.name} is inactive.`, 'Order was not created.');
+    }
+    if (product.listedForSale === false) {
+      return fail('BusinessRule', 'ORD_NOT_LISTED', `${product.name} is not listed for sale.`, 'Order was not created.');
     }
     if (product.stockistId !== params.stockistId) {
       return fail('BusinessRule', 'ORD_PROD_STOCKIST', `${product.name} is not sold by this stockist.`, 'Order was not created.');
@@ -111,6 +133,7 @@ export async function placeOrder(params: {
       unitPrice: money.unitPrice,
       basePtr: priced.basePtr,
       commissionAmount: money.commissionAmount,
+      bankFeeAmount: money.bankFeeAmount,
       pricingClass: priced.pricingClass,
       commissionMode: priced.commissionMode,
       mrp: product.mrp,
@@ -122,14 +145,15 @@ export async function placeOrder(params: {
   }
 
   const totals = calcOrderTotals(lines);
-  if (conn.creditLimit != null && Number.isFinite(conn.creditLimit)) {
+  // Credit limit only applies to Credit (Circle) orders
+  if (paymentMode === 'Credit' && conn.creditLimit != null && Number.isFinite(conn.creditLimit)) {
     const invoices = await db.invoices.where('pharmacyId').equals(params.pharmacy.id).toArray();
     const outstanding = pairOutstanding(invoices, params.pharmacy.id, params.stockistId);
     if (outstanding + totals.grandTotal > conn.creditLimit) {
       return fail(
         'BusinessRule',
         'ORD_CREDIT_LIMIT',
-        'This order would exceed your credit limit with this stockist.',
+        'This order would exceed your credit limit with this stockist. Use Pay First or reduce the order.',
         'Order was not created.',
       );
     }
@@ -149,6 +173,7 @@ export async function placeOrder(params: {
     preferredDeliveryDate: params.preferredDate,
     notes: params.notes,
     source: 'Platform',
+    paymentMode,
     idempotencyKey: params.idempotencyKey,
     statusHistory: [{ from: 'Draft', to: 'Pending', at: ts, actorId: params.actor.id }],
     placedBy: params.actor.id,
@@ -160,7 +185,16 @@ export async function placeOrder(params: {
 
   await db.transaction('rw', db.orders, db.carts, async () => {
     await db.orders.add(order);
-    await db.carts.delete(cart.id);
+    if (params.productIds?.length) {
+      const remaining = cart.lines.filter((l) => !params.productIds!.includes(l.productId));
+      if (remaining.length) {
+        await db.carts.put({ ...cart, lines: remaining, updatedAt: ts });
+      } else {
+        await db.carts.delete(cart.id);
+      }
+    } else {
+      await db.carts.delete(cart.id);
+    }
   });
 
   await notifyBusinessUsers(
@@ -311,6 +345,7 @@ export async function recordManualOrder(params: {
       unitPrice: money.unitPrice,
       basePtr: priced.basePtr,
       commissionAmount: money.commissionAmount,
+      bankFeeAmount: money.bankFeeAmount,
       pricingClass: priced.pricingClass,
       commissionMode: priced.commissionMode,
       mrp: product.mrp,

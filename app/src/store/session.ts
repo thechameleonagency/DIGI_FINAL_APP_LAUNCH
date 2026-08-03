@@ -91,9 +91,13 @@ export function readPersistedSession(): PersistedSession | null {
 }
 
 export function clearPersistedSession() {
-  localStorage.removeItem(SESSION_STORAGE_KEY);
   try {
-    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    globalThis.localStorage?.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    /* ignore (node / private mode) */
+  }
+  try {
+    globalThis.sessionStorage?.removeItem(SESSION_STORAGE_KEY);
   } catch {
     /* ignore */
   }

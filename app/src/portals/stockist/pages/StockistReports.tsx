@@ -7,6 +7,11 @@ const tiles = [
   { id: 'gst-summary', title: 'GST summary', description: 'Output tax from issued invoices.' },
   { id: 'outstanding', title: 'Outstanding & aging', description: 'Receivables by pharmacy with aging band.' },
   { id: 'stock-aging', title: 'Stock aging', description: 'Batch quantities, expiry bands, and value at PTR.' },
+  {
+    id: 'schedule-compliance',
+    title: 'H / H1 / X / NDPS register',
+    description: 'Scheduled-drug B2B order lines for the period.',
+  },
 ] as const;
 
 export function StockistReports() {

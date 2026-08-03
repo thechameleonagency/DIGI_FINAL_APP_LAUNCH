@@ -162,6 +162,7 @@ export async function seedEdgeCasesPhase(): Promise<void> {
             pincode: pharmacyA.business.pincode,
             isDefault: true,
           }),
+          paymentMode: 'Credit',
           idempotencyKey: makeIdempotencyKey('world-edge-credit-over', pharmacyA.user.id),
         });
         if (over.ok) {
@@ -180,6 +181,48 @@ export async function seedEdgeCasesPhase(): Promise<void> {
           reason: 'Seed probe — restore credit limit after deny check',
         }),
       );
+    }
+  }
+
+  // --- Credit on Pay-First-only connection must fail ORD_NOT_CIRCLE ---
+  {
+    const pharmacyB = pharmacyByKey('pharmacyB');
+    const stockistB = stockistByKey('stockistB');
+    const productIds = ctx.productIdsByStockist.get(stockistB.business.id) ?? [];
+    const product = (await db.products.bulkGet(productIds)).find((p) => p && p.status === 'Active');
+    if (product) {
+      assertOk(
+        '11-notCircle.cart',
+        await setCartLine({
+          actor: pharmacyB.user,
+          pharmacy: pharmacyB.business,
+          stockistId: stockistB.business.id,
+          productId: product.id,
+          qty: Math.max(product.moq ?? 1, 1),
+        }),
+      );
+      const denied = await placeOrder({
+        actor: pharmacyB.user,
+        pharmacy: pharmacyB.business,
+        stockistId: stockistB.business.id,
+        address: await deliveryAddress(pharmacyB.business.id, {
+          id: 'seed-addr-not-circle',
+          label: 'Shop',
+          line1: pharmacyB.business.address,
+          city: pharmacyB.business.city,
+          state: pharmacyB.business.state,
+          pincode: pharmacyB.business.pincode,
+          isDefault: true,
+        }),
+        paymentMode: 'Credit',
+        idempotencyKey: makeIdempotencyKey('world-edge-not-circle', pharmacyB.user.id),
+      });
+      if (denied.ok) {
+        throw new Error('[worldSeed:11-notCircle] expected Credit on Pay-First connection to fail');
+      }
+      if (!denied.ok && denied.code !== 'ORD_NOT_CIRCLE') {
+        throw new Error(`[worldSeed:11-notCircle] expected ORD_NOT_CIRCLE, got ${denied.code}`);
+      }
     }
   }
 

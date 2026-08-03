@@ -2,7 +2,7 @@ import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-do
 import type { LucideIcon } from 'lucide-react';
 import { Bell, Heart, Menu, Settings, ShoppingCart, X } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '../../data/db';
 import type { Action } from '../../domain/permissions';
 import { exitImpersonation } from '../../services/impersonationService';
@@ -16,6 +16,7 @@ import { ThemeToggle } from '../components/AppearanceControls';
 import { Sheet } from '../components/Sheet';
 import { SuccessSummaryHost } from '../components/SuccessSummary';
 import { ToastHost } from '../components/primitives';
+import { hotkeysFromNav, useAppHotkeys, type HotkeyChord } from '../hooks/useAppHotkeys';
 import { BreadcrumbBar } from '../navigation/BreadcrumbBar';
 import { PharmacyCartSheet } from '../../portals/pharmacy/pages/PharmacyCartSheet';
 import { PharmacyWishlistSheet } from '../../portals/pharmacy/pages/PharmacyWishlistSheet';
@@ -31,6 +32,10 @@ export interface NavItem {
   requires?: Action;
   /** Pin to the bottom of the sidebar (e.g. Settings & data). */
   sticky?: boolean;
+  /** Display chip, e.g. Ctrl+O */
+  shortcut?: string;
+  /** Parsed chord for global hotkeys */
+  chord?: HotkeyChord;
 }
 
 export function AppShell({
@@ -131,6 +136,9 @@ export function AppShell({
   const mainNav = visibleNav.filter((item) => !item.sticky);
   const stickyNav = visibleNav.filter((item) => item.sticky);
 
+  const hotkeys = useMemo(() => hotkeysFromNav(visibleNav), [visibleNav]);
+  useAppHotkeys(hotkeys, !impersonation && portal !== 'admin');
+
   const paths =
     portal === 'pharmacy'
       ? { profile: '/pharmacy/profile', settings: '/pharmacy/settings', help: '/pharmacy/help' }
@@ -177,16 +185,18 @@ export function AppShell({
             const prevSection = idx > 0 ? mainNav[idx - 1]?.section : undefined;
             const showSection = item.section && item.section !== prevSection;
             return (
-              <div key={item.to}>
+              <div key={`${item.to}-${item.label}`}>
                 {showSection ? <div className="nav-section">{item.section}</div> : null}
                 <NavLink
                   to={item.to}
                   end={item.end}
                   className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
                   onClick={() => setSidebarOpen(false)}
+                  aria-keyshortcuts={item.shortcut}
                 >
                   <item.icon size={16} strokeWidth={1.75} />
-                  {item.label}
+                  <span className="nav-link-label">{item.label}</span>
+                  {item.shortcut ? <kbd className="kbd nav-kbd">{item.shortcut}</kbd> : null}
                 </NavLink>
               </div>
             );
@@ -202,7 +212,7 @@ export function AppShell({
               onClick={() => setSidebarOpen(false)}
             >
               <item.icon size={16} strokeWidth={1.75} />
-              {item.label}
+              <span className="nav-link-label">{item.label}</span>
             </NavLink>
           ))}
         </div>

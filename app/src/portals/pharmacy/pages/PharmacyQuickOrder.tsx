@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
@@ -12,6 +12,8 @@ import {
 } from '../../../services/quickOrderService';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
+import { SearchableSelect } from '../../../ui/components/SearchableSelect';
+import { ShortcutHints } from '../../../ui/components/ShortcutHints';
 import { Button, EmptyState, Field, Input, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -26,6 +28,8 @@ export function PharmacyQuickOrder() {
   const [matched, setMatched] = useState<EditMatched[]>([]);
   const [unmatched, setUnmatched] = useState<UnmatchedQuickLine[]>([]);
   const [parsed, setParsed] = useState(false);
+  const pasteRef = useRef<HTMLTextAreaElement>(null);
+  const firstQtyRef = useRef<HTMLInputElement>(null);
   const products = useLiveQuery(() => db.products.filter((p) => p.status === 'Active').toArray()) ?? [];
   const connections =
     useLiveQuery(() => db.connections.where({ pharmacyId: business.id, status: 'Active' }).toArray(), [business.id]) ??
@@ -39,6 +43,20 @@ export function PharmacyQuickOrder() {
     return conn && catOk;
   });
 
+  const productOptions = useMemo(
+    () =>
+      connectedProducts.map((p) => ({
+        value: p.id,
+        label: `${p.name} · ${stockists.find((s) => s.id === p.stockistId)?.name ?? '—'}`,
+        keywords: `${p.name} ${p.sku} ${p.brand}`,
+      })),
+    [connectedProducts, stockists],
+  );
+
+  useEffect(() => {
+    window.setTimeout(() => pasteRef.current?.focus(), 0);
+  }, []);
+
   const parse = () =>
     void run(async () => {
       const res = await resolveQuickOrder({ actor: user, pharmacy: business, text });
@@ -49,6 +67,7 @@ export function PharmacyQuickOrder() {
       setMatched(res.data.matched.map((m) => ({ ...m, include: true })));
       setUnmatched(res.data.unmatched);
       setParsed(true);
+      window.setTimeout(() => firstQtyRef.current?.focus(), 0);
     });
 
   const promoteUnmatched = (idx: number, productId: string) => {
@@ -125,19 +144,34 @@ export function PharmacyQuickOrder() {
         backTo="/pharmacy/buy"
         backLabel="Back to buy"
         actions={
-          <Link className="btn btn-secondary btn-sm" to="/pharmacy/smart-order">
-            Smart Order
-          </Link>
+          <ShortcutHints
+            hints={[
+              { keys: 'Ctrl+O', label: 'Create order' },
+              { keys: 'Ctrl+Enter', label: 'Parse & match' },
+            ]}
+            extra={
+              <Link className="btn btn-secondary btn-sm" to="/pharmacy/smart-order">
+                Smart Order
+              </Link>
+            }
+          />
         }
       />
 
       <div className="card card-pad stack">
         <Field label="Paste lines (one product per line)">
           <Textarea
+            ref={pasteRef}
             rows={8}
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={'Dolo 650 x 20\n20 Crocin\nAugmentin 625, 10'}
+            onKeyDown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && text.trim()) {
+                e.preventDefault();
+                void parse();
+              }
+            }}
           />
         </Field>
         <div className="row">
@@ -220,6 +254,7 @@ export function PharmacyQuickOrder() {
                         </td>
                         <td>
                           <Input
+                            ref={idx === 0 ? firstQtyRef : undefined}
                             type="number"
                             min={1}
                             value={m.qty}
@@ -256,19 +291,15 @@ export function PharmacyQuickOrder() {
                     </div>
                   </div>
                   <Field label="Pick product">
-                    <Select
-                      defaultValue=""
-                      onChange={(e) => {
-                        if (e.target.value) promoteUnmatched(idx, e.target.value);
+                    <SearchableSelect
+                      aria-label={`Match ${u.raw}`}
+                      options={productOptions}
+                      value=""
+                      placeholder="Search product…"
+                      onChange={(v) => {
+                        if (v) promoteUnmatched(idx, v);
                       }}
-                    >
-                      <option value="">Select…</option>
-                      {connectedProducts.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} · {stockists.find((s) => s.id === p.stockistId)?.name ?? '—'}
-                        </option>
-                      ))}
-                    </Select>
+                    />
                   </Field>
                   <Button size="sm" variant="secondary" onClick={() => setUnmatched((prev) => prev.filter((_, i) => i !== idx))}>
                     Discard

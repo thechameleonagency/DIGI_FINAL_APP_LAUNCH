@@ -322,6 +322,32 @@ export async function issueInvoice(params: {
     await db.orders.update(order.id, { invoiceId: invoice.id, updatedAt: ts });
   });
 
+  // Accrue platform fees — Offline/Manual deferred; Platform online collected on Razorpay pay
+  {
+    const { accruePlatformFees } = await import('./settlementService');
+    let commission = 0;
+    let bankFee = 0;
+    for (const l of order.lines) {
+      commission += l.commissionAmount ?? 0;
+      bankFee += l.bankFeeAmount ?? 0;
+    }
+    if (commission > 0 || bankFee > 0) {
+      const source =
+        order.source === 'Manual' || order.managedPharmacyId || order.paymentMode === 'Cash'
+          ? 'Offline'
+          : 'Online';
+      await accruePlatformFees({
+        stockistId: order.stockistId,
+        pharmacyId: order.pharmacyId,
+        orderId: order.id,
+        invoiceId: invoice.id,
+        source,
+        commission,
+        bankFee,
+      });
+    }
+  }
+
   await notifyBusinessUsers(
     order.pharmacyId,
     'N-027',

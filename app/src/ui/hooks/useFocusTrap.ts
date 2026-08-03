@@ -1,10 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** Trap Tab focus inside a dialog container; restore focus to the prior element on close. */
-export function useFocusTrap<T extends HTMLElement = HTMLElement>(active: boolean) {
+export function useFocusTrap<T extends HTMLElement = HTMLElement>(
+  active: boolean,
+  initialFocusRef?: RefObject<HTMLElement | null>,
+) {
   const containerRef = useRef<T | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
 
@@ -14,10 +17,21 @@ export function useFocusTrap<T extends HTMLElement = HTMLElement>(active: boolea
     const node = containerRef.current;
     if (!node) return;
 
-    const focusables = () => Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.hasAttribute('disabled'));
+    const focusables = () =>
+      Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.hasAttribute('disabled'));
 
-    const first = focusables()[0];
-    (first ?? node).focus();
+    const focusInitial = () => {
+      const pref = initialFocusRef?.current;
+      if (pref && node.contains(pref)) {
+        pref.focus();
+        return;
+      }
+      const first = focusables()[0];
+      (first ?? node).focus();
+    };
+
+    focusInitial();
+    const retry = initialFocusRef ? window.setTimeout(focusInitial, 0) : undefined;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
@@ -43,10 +57,11 @@ export function useFocusTrap<T extends HTMLElement = HTMLElement>(active: boolea
 
     node.addEventListener('keydown', onKeyDown);
     return () => {
+      if (retry != null) window.clearTimeout(retry);
       node.removeEventListener('keydown', onKeyDown);
       previousFocus.current?.focus?.();
     };
-  }, [active]);
+  }, [active, initialFocusRef]);
 
   return containerRef;
 }

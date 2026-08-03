@@ -4,17 +4,20 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
 import { parseNumberInput } from '../../../domain/utils/validation';
-import { updateConnectionCreditTerms } from '../../../services/connectionService';
+import { setConnectionCircle, updateConnectionCreditTerms } from '../../../services/connectionService';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, StatusBadge, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
+
+type Tab = 'Overview' | 'Orders' | 'Invoices' | 'Ledger' | 'Returns' | 'Credit';
 
 export function StockistPharmacyDetail() {
   const { pharmacyId } = useParams();
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const { busy, run } = useBusyAction();
+  const [tab, setTab] = useState<Tab>('Overview');
   const pharmacy = useLiveQuery(() => (pharmacyId ? db.businesses.get(pharmacyId) : undefined), [pharmacyId]);
   const connection = useLiveQuery(
     () =>
@@ -31,6 +34,11 @@ export function StockistPharmacyDetail() {
   const invoices =
     useLiveQuery(
       () => (pharmacyId ? db.invoices.where({ pharmacyId, stockistId: business.id }).toArray() : []),
+      [pharmacyId, business.id],
+    ) ?? [];
+  const returns =
+    useLiveQuery(
+      () => (pharmacyId ? db.returns.where({ pharmacyId, stockistId: business.id }).toArray() : []),
       [pharmacyId, business.id],
     ) ?? [];
 
@@ -66,7 +74,33 @@ export function StockistPharmacyDetail() {
           <div className="row">
             {canEditTerms ? (
               <Button size="sm" variant="secondary" onClick={openEditTerms}>
-                Edit terms
+                Edit credit terms
+              </Button>
+            ) : null}
+            {connection?.status === 'Active' ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  void run(async () => {
+                    const res = await setConnectionCircle({
+                      actor: user,
+                      stockist: business,
+                      connectionId: connection.id,
+                      inCircle: !connection.inCircle,
+                      creditDays: connection.creditDays ?? 30,
+                      creditLimit: connection.creditLimit ?? 100000,
+                      reason: connection.inCircle ? 'Removed from Circle' : 'Added to Circle',
+                    });
+                    pushToast(
+                      res.ok
+                        ? { tone: 'success', title: connection.inCircle ? 'Removed from Circle' : 'Added to Circle' }
+                        : { tone: 'error', title: res.message },
+                    );
+                  })
+                }
+              >
+                {connection.inCircle ? 'Remove from Circle' : 'Add to Circle'}
               </Button>
             ) : null}
             <Link className="btn btn-secondary btn-sm" to={`/stockist/messages?with=${pharmacy.id}`}>
@@ -97,15 +131,22 @@ export function StockistPharmacyDetail() {
         </div>
         <div className="card card-pad">
           <div className="muted" style={{ fontSize: 12 }}>
-            Last trade
+            Circle
           </div>
-          <strong>{lastTrade ? lastTrade.orderNo : '—'}</strong>
-          {lastTrade ? <div className="muted" style={{ fontSize: 12 }}>{new Date(lastTrade.placedAt).toLocaleDateString()}</div> : null}
+          <strong>{connection?.inCircle ? 'Credit enabled' : 'Pay-first only'}</strong>
         </div>
       </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {(['Overview', 'Orders', 'Invoices', 'Ledger', 'Returns', 'Credit'] as Tab[]).map((t) => (
+          <Button key={t} variant={tab === t ? 'primary' : 'secondary'} onClick={() => setTab(t)}>
+            {t}
+          </Button>
+        ))}
+      </div>
+      {tab === 'Overview' || tab === 'Credit' ? (
       <div className="card card-pad stack">
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <strong>Profile</strong>
+          <strong>Profile & credit</strong>
           {canEditTerms ? (
             <Button size="sm" variant="ghost" onClick={openEditTerms}>
               Edit terms
@@ -133,8 +174,10 @@ export function StockistPharmacyDetail() {
           ) : null}
         </div>
       </div>
+      ) : null}
+      {tab === 'Overview' || tab === 'Orders' ? (
       <div className="card card-pad">
-        <strong>Recent orders</strong>
+        <strong>Orders</strong>
         {!orders.length ? (
           <p className="muted">No orders yet.</p>
         ) : (
@@ -148,7 +191,7 @@ export function StockistPharmacyDetail() {
                 </tr>
               </thead>
               <tbody>
-                {orders.slice(0, 20).map((o) => (
+                {orders.slice(0, tab === 'Orders' ? 100 : 20).map((o) => (
                   <tr key={o.id}>
                     <td>
                       <Link to={`/stockist/orders/${o.orderNo}`}>{o.orderNo}</Link>
@@ -166,8 +209,15 @@ export function StockistPharmacyDetail() {
           </div>
         )}
       </div>
+      ) : null}
+      {tab === 'Overview' || tab === 'Invoices' || tab === 'Ledger' ? (
       <div className="card card-pad">
-        <strong>Invoices</strong>
+        <strong>{tab === 'Ledger' ? 'Ledger / invoices' : 'Invoices'}</strong>
+        {tab === 'Ledger' ? (
+          <p className="muted">
+            Outstanding <Money value={outstanding} />
+          </p>
+        ) : null}
         {!invoices.length ? (
           <p className="muted">No invoices yet.</p>
         ) : (
@@ -199,6 +249,36 @@ export function StockistPharmacyDetail() {
           </div>
         )}
       </div>
+      ) : null}
+      {tab === 'Returns' ? (
+        <div className="card card-pad">
+          <strong>Returns</strong>
+          {!returns.length ? (
+            <p className="muted">No returns.</p>
+          ) : (
+            <table className="data" style={{ width: '100%', marginTop: 10 }}>
+              <thead>
+                <tr>
+                  <th>Return</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {returns.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      <Link to={`/stockist/returns/${r.returnNo}`}>{r.returnNo}</Link>
+                    </td>
+                    <td>
+                      <StatusBadge status={r.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : null}
 
       <Modal
         open={editOpen}

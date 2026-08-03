@@ -10,11 +10,11 @@ import { hydrateCounters } from './counters';
 import { db } from './db';
 
 /** Stamp used by ensureEmptyWorkspace + workspace import to avoid stale wipe loops. */
-export const SEED_VERSION = 6;
+export const SEED_VERSION = 7;
 export const EMPTY_STATE_VERSION = SEED_VERSION;
 
 /** Bump to force a one-time world re-seed after clear. */
-export const WORLD_SEED_VERSION = 1;
+export const WORLD_SEED_VERSION = 3;
 
 /** Default platform policy row — configuration only, not demo accounts or trade data. */
 export function defaultPlatformSettings(): PlatformSettings {
@@ -35,6 +35,8 @@ export function defaultPlatformSettings(): PlatformSettings {
     genericCommissionPercent: 0.5,
     ethicalCommissionFlatPerProduct: 1,
     offlineManagedFlatPerLine: 1,
+    bankFeePercent: 2,
+    bankFeeBearer: 'Stockist',
     defaultGstPercent: 12,
   };
 }

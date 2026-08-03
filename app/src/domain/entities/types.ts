@@ -30,6 +30,8 @@ export type ConnectionStatus =
 export type ProductStatus = 'Active' | 'Inactive' | 'Discontinued';
 export type CatalogueStatus = 'Active' | 'Maintenance' | 'Inactive';
 export type BatchStatus = 'Available' | 'Quarantined' | 'Recalled' | 'Expired' | 'Depleted';
+/** Drug schedule for NDPS / H / H1 / X compliance registers. */
+export type ScheduleType = 'NONE' | 'H' | 'H1' | 'X' | 'NDPS';
 
 export type OrderStatus =
   | 'Draft'
@@ -70,6 +72,12 @@ export type PaymentStatus =
   | 'Rejected'
   | 'OnHold'
   | 'Cancelled';
+
+export type PaymentIntentStatus = 'Created' | 'Captured' | 'Failed' | 'Cancelled';
+export type SettlementStatus = 'Draft' | 'Paid' | 'Failed';
+export type PlatformFeeChargeStatus = 'Pending' | 'Collected' | 'Waived';
+export type PlatformFeeSource = 'Online' | 'Offline';
+export type OrderPaymentMode = 'PayFirst' | 'Credit' | 'Cash';
 
 export type ReturnStatus =
   | 'Draft'
@@ -217,6 +225,11 @@ export interface Connection {
   status: ConnectionStatus;
   requestedAt: string;
   respondedAt?: string;
+  /**
+   * Circle membership: when true, pharmacy may order on credit (creditLimit/creditDays).
+   * Any Active connection may still place Pay-First / Cash orders without Circle.
+   */
+  inCircle?: boolean;
   creditDays?: number;
   creditLimit?: number;
   customerPricingEnabled?: boolean;
@@ -251,7 +264,13 @@ export interface Product {
   /** Required for trade pricing — Generic % vs Ethical flat per line. */
   pricingClass: 'Generic' | 'Ethical';
   rxRequired?: boolean;
+  /** @deprecated Prefer scheduleType === 'NDPS' */
   narcotic?: boolean;
+  scheduleType?: ScheduleType;
+  /** When true, product appears in pharmacy catalogue browse (sellable). */
+  listedForSale?: boolean;
+  /** Product image file ids (StoredFile). */
+  imageIds?: string[];
   status: ProductStatus;
   description?: string;
   createdAt: string;
@@ -327,12 +346,14 @@ export interface OrderLine {
   packedQty?: number;
   deliveredQty?: number;
   receivedQty?: number;
-  /** Inclusive unit price shown to pharmacy (PTR + commission baked in). */
+  /** Inclusive unit price shown to pharmacy (PTR + commission + bank fee baked in). */
   unitPrice: number;
   /** Stockist PTR snapshot at order time. */
   basePtr?: number;
   /** Total commission for this line (not shown to pharmacy). */
   commissionAmount?: number;
+  /** Total bank/MDR fee for this line (not shown to pharmacy; stockist-borne). */
+  bankFeeAmount?: number;
   pricingClass?: 'Generic' | 'Ethical';
   commissionMode?: 'PlatformGeneric' | 'PlatformEthical' | 'OfflineManaged';
   mrp: number;
@@ -359,6 +380,8 @@ export interface Order {
   preferredDate?: string;
   notes?: string;
   source?: 'Platform' | 'Manual' | 'QuickInvoice';
+  /** PayFirst = Razorpay/prepaid; Credit = Circle credit; Cash = offline cash. */
+  paymentMode?: OrderPaymentMode;
   createdByBusinessId?: string;
   /** When order is for a stockist-managed offline pharmacy. */
   managedPharmacyId?: string;
@@ -655,6 +678,10 @@ export interface PlatformSettings {
   ethicalCommissionFlatPerProduct?: number;
   /** Offline/managed pharmacy flat ₹ per line (default 1). */
   offlineManagedFlatPerLine?: number;
+  /** Razorpay/MDR bank fee % applied on PTR base (default 2). Stockist-borne; baked into pharmacy-visible price. */
+  bankFeePercent?: number;
+  /** Who bears bank MDR — locked to Stockist for DigiSwasthya. */
+  bankFeeBearer?: 'Stockist' | 'Platform';
   /** Flag payments larger than this × pair average. */
   largePaymentMultiple?: number;
   /** CF-23 admin-editable Premium plan copy */
@@ -1002,3 +1029,125 @@ export interface Favourite {
   rating?: number;
   note?: string;
 }
+
+/** Pharmacy pays company via Razorpay (mock adapter). */
+export interface PaymentIntent {
+  id: string;
+  intentNo: string;
+  pharmacyId: string;
+  amount: number;
+  status: PaymentIntentStatus;
+  method: 'Razorpay';
+  /** Invoice ids being settled (optional for PayFirst order). */
+  invoiceIds: string[];
+  orderIds?: string[];
+  /** Per-stockist split of the capture. */
+  stockistSplits: { stockistId: string; amount: number }[];
+  razorpayMockId?: string;
+  failureReason?: string;
+  createdBy: string;
+  createdAt: string;
+  capturedAt?: string;
+  updatedAt: string;
+}
+
+/** Platform payout advice to a stockist after cutting commission + bank fees + deferred arrears. */
+export interface Settlement {
+  id: string;
+  settlementNo: string;
+  stockistId: string;
+  paymentIntentId: string;
+  status: SettlementStatus;
+  grossAmount: number;
+  commissionTotal: number;
+  bankFeeTotal: number;
+  deferredCollected: number;
+  netAmount: number;
+  feeChargeIds: string[];
+  lineBreakouts: {
+    invoiceId?: string;
+    orderId?: string;
+    gross: number;
+    commission: number;
+    bankFee: number;
+  }[];
+  createdAt: string;
+  paidAt?: string;
+  updatedAt: string;
+}
+
+/** Platform fee accrued on an order/invoice — collected online or deferred from offline. */
+export interface PlatformFeeCharge {
+  id: string;
+  stockistId: string;
+  pharmacyId: string;
+  orderId?: string;
+  invoiceId?: string;
+  source: PlatformFeeSource;
+  commission: number;
+  bankFee: number;
+  status: PlatformFeeChargeStatus;
+  settlementId?: string;
+  createdAt: string;
+  collectedAt?: string;
+  updatedAt: string;
+}
+
+/** Active platform counterfeit/banned alert (hub-style match against products). */
+export interface CounterfeitAlert {
+  id: string;
+  productName: string;
+  manufacturer?: string;
+  batchNumber?: string;
+  description: string;
+  alertType: 'counterfeit' | 'banned' | 'spurious' | 'nsq' | 'recalled';
+  active: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Pharmacy-owned offline supplier (local stockist not on Digi).
+ * No platform commission on pure offline supplier trade.
+ */
+export interface ManagedSupplier {
+  id: string;
+  pharmacyId: string;
+  name: string;
+  contact: string;
+  phone?: string;
+  email?: string;
+  gst?: string;
+  address?: string;
+  terms?: string;
+  note?: string;
+  active: boolean;
+  /** Optional invite to join Digi as stockist. */
+  inviteStatus?: 'None' | 'Sent' | 'Registered';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManagedSupplierBill {
+  id: string;
+  billNo: string;
+  pharmacyId: string;
+  supplierId: string;
+  date: string;
+  amount: number;
+  fileId?: string;
+  lines: {
+    productName: string;
+    qty: number;
+    unitCost: number;
+    batchNumber?: string;
+    expiryDate?: string;
+    mrp?: number;
+  }[];
+  notes?: string;
+  createdAt: string;
+}
+
+/** Alias for Circle mental model — ManagedPharmacy is a Circle credit member. */
+export type CirclePharmacy = ManagedPharmacy;

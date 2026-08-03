@@ -128,6 +128,7 @@ export async function respondConnection(params: {
     rejectReason: params.reason,
     creditDays: params.decision === 'Active' ? creditDays : conn.creditDays,
     creditLimit: params.decision === 'Active' ? creditLimit : conn.creditLimit,
+    inCircle: params.decision === 'Active' ? creditLimit != null && creditLimit > 0 : conn.inCircle,
     statusHistory: [...conn.statusHistory, { from: conn.status, to: params.decision, at: ts, actorId: params.actor.id, reason: params.reason }],
   });
   const updated = (await db.connections.get(conn.id))!;
@@ -182,6 +183,7 @@ export async function updateConnectionCreditTerms(params: {
   await db.connections.update(conn.id, {
     creditDays: params.creditDays,
     creditLimit: params.creditLimit,
+    inCircle: true,
     updatedAt: ts,
   });
   const updated = (await db.connections.get(conn.id))!;
@@ -195,6 +197,57 @@ export async function updateConnectionCreditTerms(params: {
     reason: params.reason.trim(),
     before,
     after: { creditDays: params.creditDays, creditLimit: params.creditLimit },
+  });
+  return ok(updated);
+}
+
+/** Add or remove Circle membership (credit eligibility) on an Active connection. */
+export async function setConnectionCircle(params: {
+  actor: User;
+  stockist: Business;
+  connectionId: string;
+  inCircle: boolean;
+  creditDays?: number;
+  creditLimit?: number;
+  reason: string;
+}): Promise<Result<Connection>> {
+  const perm = assertCan(params.actor, params.stockist, 'connection.respond');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Circle membership was not updated.');
+  if (!params.reason.trim()) {
+    return fail('Validation', 'CONN_CIRCLE_REASON', 'Reason is required.', 'Circle membership was not updated.');
+  }
+  const conn = await db.connections.get(params.connectionId);
+  if (!conn || conn.stockistId !== params.stockist.id) {
+    return fail('NotFound', 'CONN_MISSING', 'Connection not found.', 'Circle membership was not updated.');
+  }
+  if (conn.status !== 'Active') {
+    return fail('BusinessRule', 'CONN_CIRCLE_STATE', 'Only Active connections can join Circle.', 'Circle membership was not updated.');
+  }
+  if (params.inCircle) {
+    const limit = params.creditLimit ?? conn.creditLimit;
+    if (limit == null || !Number.isFinite(limit) || limit <= 0) {
+      return fail('Validation', 'CONN_CIRCLE_LIMIT', 'Credit limit is required to add to Circle.', 'Circle membership was not updated.');
+    }
+  }
+  const ts = nowIso();
+  const before = { inCircle: conn.inCircle, creditLimit: conn.creditLimit, creditDays: conn.creditDays };
+  await db.connections.update(conn.id, {
+    inCircle: params.inCircle,
+    creditDays: params.inCircle ? (params.creditDays ?? conn.creditDays ?? 30) : conn.creditDays,
+    creditLimit: params.inCircle ? (params.creditLimit ?? conn.creditLimit) : conn.creditLimit,
+    updatedAt: ts,
+  });
+  const updated = (await db.connections.get(conn.id))!;
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.stockist.id,
+    entityType: 'Connection',
+    entityId: conn.id,
+    action: params.inCircle ? 'connection.circleAdd' : 'connection.circleRemove',
+    reason: params.reason.trim(),
+    before,
+    after: { inCircle: updated.inCircle, creditLimit: updated.creditLimit, creditDays: updated.creditDays },
   });
   return ok(updated);
 }

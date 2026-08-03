@@ -31,12 +31,12 @@ export function StockistPartnerInvites() {
   return (
     <div className="stack">
       <PageHeader
-        title="Partner invites"
-        subtitle="Invite off-platform pharmacies to register — no pharmacy records are created by you"
+        title="Circle invites"
+        subtitle="Invite pharmacies to Digi Swasthya and your Circle"
         actions={
           <div className="row">
             <Link className="btn btn-secondary btn-sm" to="/stockist/pharmacies">
-              Pharmacies
+              Circle hub
             </Link>
             <Button size="sm" onClick={() => setInviteOpen(true)}>
               New invite

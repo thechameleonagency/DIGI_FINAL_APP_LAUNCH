@@ -38,6 +38,8 @@ function toDraft(s: PlatformSettings): Draft {
     genericCommissionPercent: s.genericCommissionPercent ?? 0.5,
     ethicalCommissionFlatPerProduct: s.ethicalCommissionFlatPerProduct ?? 1,
     offlineManagedFlatPerLine: s.offlineManagedFlatPerLine ?? 1,
+    bankFeePercent: s.bankFeePercent ?? 2,
+    bankFeeBearer: s.bankFeeBearer ?? 'Stockist',
     largePaymentMultiple: s.largePaymentMultiple ?? 3,
     defaultGstPercent: s.defaultGstPercent ?? 12,
     maintenanceMode: s.maintenanceMode ?? false,
@@ -216,6 +218,17 @@ export function AdminSettings() {
             />
             <p className="muted" style={{ margin: '0.35rem 0 0' }}>
               Baked into pharmacy-visible prices. Pharmacy never sees a commission breakout.
+            </p>
+          </Field>
+          <Field label="Bank / MDR fee %">
+            <Input
+              type="number"
+              step="0.1"
+              value={draft.bankFeePercent ?? 2}
+              onChange={(e) => setNum('bankFeePercent', e.target.value)}
+            />
+            <p className="muted" style={{ margin: '0.35rem 0 0' }}>
+              Stockist-borne. Included in pharmacy rates and cut from Razorpay settlements.
             </p>
           </Field>
           <Field label="Maintenance mode">

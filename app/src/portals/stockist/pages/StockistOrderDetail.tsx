@@ -19,6 +19,7 @@ import { OrderDeliveriesPanel } from '../../../ui/components/OrderDeliveriesPane
 import { PharmacyDeliveryPrefs } from '../../../ui/components/PharmacyDeliveryPrefs';
 import { PrintDocument } from '../../../ui/components/PrintDocument';
 import { Button, EmptyState, Field, Input, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { ShortcutHints } from '../../../ui/components/ShortcutHints';
 import { useBiz } from './useBiz';
 
 export function StockistOrderDetail() {
@@ -144,12 +145,24 @@ export function StockistOrderDetail() {
         backTo="/stockist/orders"
         backLabel="Back to orders"
         actions={
-          <Link
-            className="btn btn-secondary btn-sm"
-            to={`/stockist/support?new=1&entityType=Order&entityId=${encodeURIComponent(order.id)}&entityNo=${encodeURIComponent(order.orderNo)}`}
-          >
-            Get help with this order
-          </Link>
+          <ShortcutHints
+            hints={
+              canInvoice &&
+              !order.invoiceId &&
+              (order.status === 'Packed' ||
+                (billAhead && !['Cancelled', 'Rejected', 'Draft', 'Pending'].includes(order.status)))
+                ? [{ keys: 'Ctrl+I', label: 'Bulk bill' }]
+                : []
+            }
+            extra={
+              <Link
+                className="btn btn-secondary btn-sm"
+                to={`/stockist/support?new=1&entityType=Order&entityId=${encodeURIComponent(order.id)}&entityNo=${encodeURIComponent(order.orderNo)}`}
+              >
+                Get help with this order
+              </Link>
+            }
+          />
         }
       />
       <div className="row">

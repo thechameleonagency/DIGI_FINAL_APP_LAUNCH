@@ -64,8 +64,8 @@ export function StockistPharmaciesHub() {
   return (
     <div className="stack">
       <PageHeader
-        title="Pharmacies"
-        subtitle="Offline managed, invited, and platform-connected partners"
+        title="Circle"
+        subtitle="Credit Circle, invited, offline-managed, and platform-connected pharmacies"
         actions={
           <div className="row">
             <Link className="btn btn-secondary btn-sm" to="/stockist/invites">

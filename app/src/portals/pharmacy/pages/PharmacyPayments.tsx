@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
@@ -14,6 +14,7 @@ import { FileLink, FileUpload } from '../../../ui/components/FileUpload';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { ListToolbar, PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
+import { ShortcutHints } from '../../../ui/components/ShortcutHints';
 import {
   Button,
   EmptyState,
@@ -72,6 +73,7 @@ export function PharmacyPayments() {
   const [applyInvoiceId, setApplyInvoiceId] = useState('');
   const [applyAmount, setApplyAmount] = useState('');
   const [submitBanner, setSubmitBanner] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const applyCn = applyCnId ? credits.find((c) => c.id === applyCnId) : undefined;
   const cnInvoices = applyCn
     ? invoices.filter((i) => i.stockistId === applyCn.stockistId && i.outstanding > 0 && i.status !== 'Void')
@@ -124,9 +126,18 @@ export function PharmacyPayments() {
     setHighlightPayment(paymentFocus);
   }, [paymentFocus]);
 
+  useEffect(() => {
+    if (tab !== 'Outstanding') return;
+    window.setTimeout(() => searchRef.current?.focus(), 0);
+  }, [tab]);
+
   return (
     <div className="stack">
-      <PageHeader title="Payments" subtitle={`Outstanding ${formatINR(pharmacyOutstanding(invoices, business.id))}`} />
+      <PageHeader
+        title="Payments"
+        subtitle={`Outstanding ${formatINR(pharmacyOutstanding(invoices, business.id))}`}
+        actions={<ShortcutHints hints={[{ keys: 'Ctrl+I', label: 'Pay invoices' }]} />}
+      />
       {submitBanner ? (
         <div className="banner-strip success">
           {submitBanner}{' '}
@@ -150,6 +161,7 @@ export function PharmacyPayments() {
             query={invoiceQuery}
             onQuery={setInvoiceQuery}
             placeholder="Search invoice / stockist"
+            searchInputRef={searchRef}
             filters={[
               {
                 key: 'status',
@@ -304,6 +316,40 @@ export function PharmacyPayments() {
               </Field>
             </div>
             <FileUpload label="Upload payment proof" value={proofFileId} onChange={setProofFileId} />
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Button
+              variant="secondary"
+              disabled={submitting || selectedTotal <= 0}
+              onClick={() =>
+                void runSubmit(async () => {
+                  const invoiceIds = Object.entries(selected)
+                    .filter(([, amt]) => amt > 0)
+                    .map(([invoiceId]) => invoiceId);
+                  if (!invoiceIds.length) {
+                    pushToast({ tone: 'error', title: 'Select invoices to pay' });
+                    return;
+                  }
+                  const { payInvoicesViaRazorpay } = await import('../../../services/settlementService');
+                  const res = await payInvoicesViaRazorpay({
+                    actor: user,
+                    pharmacy: business,
+                    invoiceIds,
+                  });
+                  if (!res.ok) {
+                    pushToast({ tone: 'error', title: res.message, message: res.businessImpact });
+                    return;
+                  }
+                  setSelected({});
+                  pushToast({
+                    tone: 'success',
+                    title: `Paid ${formatINR(res.data.intent.amount)} via Razorpay`,
+                    message: 'Funds settled to Digi Swasthya. Stockists receive net after platform fees.',
+                  });
+                })
+              }
+            >
+              Pay with Razorpay
+            </Button>
             <Button
               disabled={submitting}
               onClick={() =>
@@ -382,6 +428,7 @@ export function PharmacyPayments() {
             >
               {submitting ? 'Submitting…' : 'Submit payment'}
             </Button>
+            </div>
           </div>
       </TabPanel>
       <TabPanel id="History" active={tab === 'History'}>

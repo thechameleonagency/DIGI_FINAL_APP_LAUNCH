@@ -199,9 +199,10 @@ export async function exportAdminReport(params: {
 export async function exportPharmacyReport(params: {
   actor: User;
   pharmacy: Business;
-  report: 'purchases' | 'gst-summary' | 'stock-aging' | 'outstanding';
+  report: 'purchases' | 'gst-summary' | 'stock-aging' | 'outstanding' | 'schedule-compliance';
   from?: string;
   to?: string;
+  scheduleType?: string;
 }): Promise<Result<ReportCsv>> {
   const perm = assertCan(params.actor, params.pharmacy, 'read.own');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Report was not exported.');
@@ -258,6 +259,42 @@ export async function exportPharmacyReport(params: {
     return ok({ filename: `pharmacy-stock-aging-${generatedAt.slice(0, 10)}.csv`, csv, filterSummary: filters, generatedAt });
   }
 
+  if (params.report === 'schedule-compliance') {
+    const want = (params.scheduleType || 'all').toUpperCase();
+    const sales = (await db.customerSales.where('pharmacyId').equals(pid).toArray()).filter((s) =>
+      inPeriod(s.createdAt, params.from, params.to),
+    );
+    const productIds = [...new Set(sales.flatMap((s) => s.lines.map((l) => l.productRef)))];
+    const products = await db.products.bulkGet(productIds);
+    const byId = new Map(products.filter(Boolean).map((p) => [p!.id, p!] as const));
+    const rows: (string | number)[][] = [];
+    for (const sale of sales) {
+      for (const line of sale.lines) {
+        const p = byId.get(line.productRef);
+        const sched = p?.scheduleType ?? (p?.narcotic ? 'NDPS' : 'NONE');
+        if (want !== 'ALL' && sched !== want) continue;
+        if (sched === 'NONE') continue;
+        rows.push([
+          sale.createdAt.slice(0, 10),
+          sale.saleNo,
+          line.productName,
+          sched,
+          line.qty,
+          sale.customerName,
+          sale.phone ?? '',
+        ]);
+      }
+    }
+    const csv = toCsv(header, ['date', 'saleNo', 'product', 'schedule', 'qty', 'customer', 'phone'], rows);
+    await auditExport(params.actor, params.pharmacy, params.report, filters);
+    return ok({
+      filename: `pharmacy-schedule-${want}-${generatedAt.slice(0, 10)}.csv`,
+      csv,
+      filterSummary: filters,
+      generatedAt,
+    });
+  }
+
   // outstanding by supplier
   const invoices = (await db.invoices.where('pharmacyId').equals(pid).toArray()).filter(
     (i) => i.status !== 'Void' && invoiceOutstanding(i) > 0,
@@ -280,9 +317,10 @@ export async function exportPharmacyReport(params: {
 export async function exportStockistReport(params: {
   actor: User;
   stockist: Business;
-  report: 'sales' | 'gst-summary' | 'outstanding' | 'stock-aging';
+  report: 'sales' | 'gst-summary' | 'outstanding' | 'stock-aging' | 'schedule-compliance';
   from?: string;
   to?: string;
+  scheduleType?: string;
 }): Promise<Result<ReportCsv>> {
   const perm = assertCan(params.actor, params.stockist, 'read.own');
   if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Report was not exported.');
@@ -349,6 +387,42 @@ export async function exportStockistReport(params: {
     const csv = toCsv(header, ['pharmacy', 'outstanding', 'aging_band', 'oldest_days'], rows);
     await auditExport(params.actor, params.stockist, params.report, filters);
     return ok({ filename: `stockist-outstanding-${generatedAt.slice(0, 10)}.csv`, csv, filterSummary: filters, generatedAt });
+  }
+
+  if (params.report === 'schedule-compliance') {
+    const want = (params.scheduleType || 'all').toUpperCase();
+    const orders = (await db.orders.where('stockistId').equals(sid).toArray()).filter((o) =>
+      inPeriod(o.placedAt, params.from, params.to),
+    );
+    const productIds = [...new Set(orders.flatMap((o) => o.lines.map((l) => l.productId)))];
+    const products = await db.products.bulkGet(productIds);
+    const byId = new Map(products.filter(Boolean).map((p) => [p!.id, p!] as const));
+    const rows: (string | number)[][] = [];
+    for (const order of orders) {
+      for (const line of order.lines) {
+        const p = byId.get(line.productId);
+        const sched = p?.scheduleType ?? (p?.narcotic ? 'NDPS' : 'NONE');
+        if (want !== 'ALL' && sched !== want) continue;
+        if (sched === 'NONE') continue;
+        rows.push([
+          order.placedAt.slice(0, 10),
+          order.orderNo,
+          line.productName,
+          line.sku,
+          sched,
+          line.qty,
+          nameOf(order.pharmacyId),
+        ]);
+      }
+    }
+    const csv = toCsv(header, ['date', 'orderNo', 'product', 'sku', 'schedule', 'qty', 'pharmacy'], rows);
+    await auditExport(params.actor, params.stockist, params.report, filters);
+    return ok({
+      filename: `stockist-schedule-${want}-${generatedAt.slice(0, 10)}.csv`,
+      csv,
+      filterSummary: filters,
+      generatedAt,
+    });
   }
 
   // stock aging

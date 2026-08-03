@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode, type Ref } from 'react';
 import { Download, Search } from 'lucide-react';
 import { Button, EmptyState, Input, LoadingState, Select } from './primitives';
 
@@ -193,6 +193,7 @@ export function ListToolbar({
   onExport,
   exportLabel = 'Export CSV',
   right,
+  searchInputRef,
 }: {
   query: string;
   onQuery: (v: string) => void;
@@ -211,6 +212,7 @@ export function ListToolbar({
   onExport?: () => void;
   exportLabel?: string;
   right?: ReactNode;
+  searchInputRef?: Ref<HTMLInputElement>;
 }) {
   return (
     <div className="list-toolbar">
@@ -221,6 +223,7 @@ export function ListToolbar({
         <div className="list-toolbar-search-field">
           <Search className="list-toolbar-search-icon" size={14} aria-hidden />
           <Input
+            ref={searchInputRef}
             value={query}
             onChange={(e) => onQuery(e.target.value)}
             placeholder={placeholder}

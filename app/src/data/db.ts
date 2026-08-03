@@ -8,6 +8,7 @@ import type {
   Cart,
   Catalogue,
   Connection,
+  CounterfeitAlert,
   CounterfeitReport,
   CreditNote,
   CustomerSale,
@@ -16,6 +17,8 @@ import type {
   Favourite,
   InventoryMovement,
   Invoice,
+  ManagedSupplier,
+  ManagedSupplierBill,
   Message,
   MessageThread,
   Notification,
@@ -23,8 +26,10 @@ import type {
   PartnerInvite,
   ManagedPharmacy,
   Payment,
+  PaymentIntent,
   PharmacyInventoryItem,
   PharmacyRoute,
+  PlatformFeeCharge,
   PlatformSettings,
   PriceChange,
   Product,
@@ -32,6 +37,7 @@ import type {
   PurchaseOrder,
   ReturnRequest,
   SeedMeta,
+  Settlement,
   SmartOrderRun,
   StockistRoute,
   StoredFile,
@@ -87,6 +93,12 @@ export class DigiSwasthyaDB extends Dexie {
   counterfeitReports!: Table<CounterfeitReport, string>;
   priceChanges!: Table<PriceChange, string>;
   favourites!: Table<Favourite, string>;
+  paymentIntents!: Table<PaymentIntent, string>;
+  settlements!: Table<Settlement, string>;
+  platformFeeCharges!: Table<PlatformFeeCharge, string>;
+  counterfeitAlerts!: Table<CounterfeitAlert, string>;
+  managedSuppliers!: Table<ManagedSupplier, string>;
+  managedSupplierBills!: Table<ManagedSupplierBill, string>;
 
   constructor() {
     super('DigiSwasthyaDB');
@@ -140,6 +152,16 @@ export class DigiSwasthyaDB extends Dexie {
       partnershipApplications: null,
       managedPharmacies: 'id, stockistId, status, phone, linkedBusinessId',
       partnerInvites: 'id, stockistId, phone, managedPharmacyId',
+    });
+    this.version(4).stores({
+      paymentIntents: 'id, pharmacyId, status, intentNo',
+      settlements: 'id, stockistId, status, paymentIntentId, settlementNo',
+      platformFeeCharges: 'id, stockistId, pharmacyId, status, orderId, invoiceId',
+      counterfeitAlerts: 'id, active, alertType',
+      managedSuppliers: 'id, pharmacyId, active, name',
+      managedSupplierBills: 'id, pharmacyId, supplierId, billNo',
+      products: 'id, stockistId, catalogueId, sku, category, brand, status, name, listedForSale, scheduleType',
+      connections: 'id, pharmacyId, stockistId, status, inCircle, [pharmacyId+stockistId]',
     });
   }
 }

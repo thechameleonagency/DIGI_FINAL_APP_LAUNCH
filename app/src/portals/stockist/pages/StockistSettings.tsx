@@ -27,19 +27,36 @@ export function StockistSettings() {
       ]
     : [
         {
-          title: 'Pharmacies',
+          title: 'Circle',
           items: [
-            { to: '/stockist/pharmacies', title: 'Pharmacies hub', description: 'Offline, invited, and platform partners' },
-            { to: '/stockist/invites', title: 'Invites', description: 'Share register links' },
-            { to: '/stockist/manual-order', title: 'Manual order', description: 'Record orders for partners' },
+            { to: '/stockist/pharmacies', title: 'Circle hub', description: 'Credit Circle, platform, invited, offline pharmacies' },
+            { to: '/stockist/invites', title: 'Circle invites', description: 'Invite pharmacies to Digi' },
+            { to: '/stockist/manual-order', title: 'Manual order', description: 'Record orders for Circle / offline' },
             { to: '/stockist/bulk-bill', title: 'Bulk bill', description: 'Issue invoices in batch' },
+          ],
+        },
+        {
+          title: 'Products & stock',
+          items: [
+            { to: '/stockist/products', title: 'Products', description: 'Catalogue + inventory + OCR import' },
+            { to: '/stockist/products?tab=price', title: 'Bulk price', description: 'Preview and apply PTR/MRP changes' },
+            { to: '/stockist/products?tab=import', title: 'Bill OCR import', description: 'Scan supplier bills into stock' },
+            { to: '/stockist/price-history', title: 'Price history', description: 'PTR/MRP change log' },
+          ],
+        },
+        {
+          title: 'Money',
+          items: [
+            { to: '/stockist/payments', title: 'Payments', description: 'Review pharmacy payments' },
+            { to: '/stockist/settlements', title: 'Settlements', description: 'Net payouts after commission & MDR' },
+            { to: '/stockist/credit-notes', title: 'Credit notes', description: 'Issued credits' },
+            { to: '/stockist/returns', title: 'Returns', description: 'Pharmacy returns' },
           ],
         },
         {
           title: 'Operations',
           items: [
             { to: '/stockist/procurement', title: 'Procurement', description: 'Suppliers, POs, and bills' },
-            { to: '/stockist/price-history', title: 'Price history', description: 'PTR/MRP change log' },
             { to: '/stockist/counterfeit', title: 'Counterfeit', description: 'Report suspect batches' },
             { to: '/stockist/upgrade', title: 'Premium', description: 'Plan upgrade' },
           ],
@@ -49,7 +66,7 @@ export function StockistSettings() {
           items: [
             { to: '/stockist/business', title: 'Business profile', description: 'Bank, PINs, holidays, documents' },
             { to: '/stockist/staff', title: 'Staff', description: 'Invite DeliveryStaff' },
-            { to: '/stockist/reports', title: 'Reports', description: 'Export stockist reports' },
+            { to: '/stockist/reports', title: 'Reports (GST / NDPS)', description: 'Export including H/H1/X/NDPS' },
           ],
         },
         {

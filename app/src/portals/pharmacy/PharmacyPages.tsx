@@ -15,6 +15,7 @@ export { PharmacyReturnDetail } from './pages/PharmacyReturnDetail';
 export { PharmacyInventory } from './pages/PharmacyInventory';
 export { PharmacyExpiry } from './pages/PharmacyExpiry';
 export { PharmacyConnections } from './pages/PharmacyConnections';
+export { PharmacyOfflineSuppliers } from './pages/PharmacyOfflineSuppliers';
 export { PharmacyLedger } from './pages/PharmacyLedger';
 export { PharmacyStockistDetail } from './pages/PharmacyStockistDetail';
 export { PharmacyAnalytics } from './pages/PharmacyAnalytics';

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
 import { db } from '../../../data/db';
@@ -18,6 +18,7 @@ import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
+import { ShortcutHints } from '../../../ui/components/ShortcutHints';
 import { Button, DeleteButton, EmptyState, Field, Input, Modal, Money, PageHeader, Select, StatusBadge, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -51,8 +52,10 @@ export function StockistCatalogue() {
   const { business, user } = useBiz();
   const { pushToast } = useUi();
   const canManage = useCan('catalogue.manage');
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const highlightId = params.get('highlight');
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const { items: products, loading: productsLoading } = useLiveArray(
     () => db.products.where('stockistId').equals(business.id).toArray(),
     [business.id],
@@ -86,6 +89,14 @@ export function StockistCatalogue() {
     setEditId(undefined);
     setForm(emptyForm);
   };
+
+  useEffect(() => {
+    if (params.get('new') !== '1' || !canManage) return;
+    setEditId(undefined);
+    setForm(emptyForm);
+    setProductModalOpen(true);
+    navigate('/stockist/catalogue', { replace: true });
+  }, [params, canManage, navigate]);
 
   const carts =
     useLiveQuery(() => db.carts.where('stockistId').equals(business.id).toArray(), [business.id]) ?? [];
@@ -353,6 +364,7 @@ export function StockistCatalogue() {
           <div className="row">
             {canManage ? (
               <>
+                <ShortcutHints hints={[{ keys: 'Ctrl+Shift+A', label: 'Add product' }]} />
                 <Button
                   size="sm"
                   onClick={() => {
@@ -480,6 +492,7 @@ export function StockistCatalogue() {
         open={productModalOpen}
         title={editId ? 'Edit product' : 'Add product'}
         onClose={closeProductModal}
+        initialFocusRef={nameInputRef}
         footer={
           <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <Button size="sm" variant="secondary" onClick={closeProductModal}>
@@ -616,7 +629,11 @@ export function StockistCatalogue() {
           <div className="grid-3">
           {(['name', 'sku', 'brand', 'category', 'packSize', 'hsn', 'manufacturer', 'genericName', 'composition'] as const).map((k) => (
             <Field key={k} label={catalogueFieldLabel(k)}>
-              <Input value={String(form[k] ?? '')} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} />
+              <Input
+                ref={k === 'name' ? nameInputRef : undefined}
+                value={String(form[k] ?? '')}
+                onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
+              />
             </Field>
           ))}
           <Field label="MRP *">

@@ -3,20 +3,15 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { cartTotals, pairOutstanding } from '../../../domain/calc';
-import type { Address } from '../../../domain/entities/types';
-import { localTodayKey } from '../../../domain/utils/dateKeys';
+import type { Address, Cart } from '../../../domain/entities/types';
 import { makeIdempotencyKey } from '../../../domain/utils/idempotency';
 import { formatINR } from '../../../domain/utils/money';
-import { removeDeliveryAddress, upsertDeliveryAddress } from '../../../services/authService';
-import { parseNumberInput } from '../../../domain/utils/validation';
-import { clearCart, getCart, setCartLine } from '../../../services/catalogueService';
+import { setCartLine } from '../../../services/catalogueService';
 import { placeOrder } from '../../../services/orderService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useUi } from '../../../store/ui';
-import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, Money, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
-import { StockistNameSelect } from './StockistNameSelect';
 
 function storefrontAddress(business: { id: string; address: string; city: string; state: string; pincode: string }): Address {
   return {
@@ -35,54 +30,23 @@ export function PharmacyCart() {
   const { pushToast } = useUi();
   const navigate = useNavigate();
   const liveBiz = useLiveQuery(() => db.businesses.get(business.id), [business.id]);
+  const carts =
+    useLiveQuery(() => db.carts.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
   const connections =
     useLiveQuery(() => db.connections.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
-  const activeConnections = connections.filter((c) => c.status === 'Active');
-  const [stockistId, setStockistId] = useState('');
+  const settings = useLiveQuery(() => db.platformSettings.get('platform'));
+  const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
+  const allProducts = useLiveQuery(() => db.products.toArray()) ?? [];
+  const invoices =
+    useLiveQuery(() => db.invoices.where('pharmacyId').equals(business.id).toArray(), [business.id]) ?? [];
+
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [paymentModeByStockist, setPaymentModeByStockist] = useState<Record<string, 'PayFirst' | 'Credit'>>({});
   const [notes, setNotes] = useState('');
   const [preferredDate, setPreferredDate] = useState('');
   const [addressId, setAddressId] = useState('');
   const [busy, setBusy] = useState(false);
-  const [priceConfirm, setPriceConfirm] = useState<string | null>(null);
-  const [clearConfirm, setClearConfirm] = useState(false);
-  const [addrForm, setAddrForm] = useState({ label: '', line1: '', city: '', state: '', pincode: '' });
-  const [addrOpen, setAddrOpen] = useState(false);
-  const [addrErrors, setAddrErrors] = useState<{
-    label?: string;
-    line1?: string;
-    city?: string;
-    state?: string;
-    pincode?: string;
-  }>({});
-  const [draftQty, setDraftQty] = useState<Record<string, string>>({});
-  const [qtyErrors, setQtyErrors] = useState<Record<string, string>>({});
-  const sid = stockistId || activeConnections[0]?.stockistId || '';
-  const [cart, setCart] = useState<Awaited<ReturnType<typeof getCart>> | null>(null);
-  const products =
-    useLiveQuery(
-      () => (sid ? db.products.where('stockistId').equals(sid).toArray() : []),
-      [sid],
-    ) ?? [];
-  const settings = useLiveQuery(() => db.platformSettings.get('platform'));
-  const stockistBiz = useLiveQuery(() => (sid ? db.businesses.get(sid) : undefined), [sid]);
-  const pairInvoices =
-    useLiveQuery(
-      () => (sid ? db.invoices.where({ pharmacyId: business.id, stockistId: sid }).toArray() : []),
-      [business.id, sid],
-    ) ?? [];
-  const conn = connections.find((c) => c.stockistId === sid);
-  const connected = conn?.status === 'Active';
-  const outstanding = sid ? pairOutstanding(pairInvoices, business.id, sid) : 0;
-  const creditLimit = conn?.creditLimit;
-  const creditDays = conn?.creditDays;
-  const holidayHit = useMemo(() => {
-    if (!preferredDate || !stockistBiz?.holidays?.length) return null;
-    for (const h of stockistBiz.holidays) {
-      const [date, label] = h.split('|').map((s) => s.trim());
-      if (date === preferredDate) return label || date;
-    }
-    return null;
-  }, [preferredDate, stockistBiz?.holidays]);
 
   const addresses = useMemo(() => {
     const book = liveBiz?.deliveryAddresses ?? business.deliveryAddresses ?? [];
@@ -91,541 +55,265 @@ export function PharmacyCart() {
   }, [liveBiz, business]);
 
   useEffect(() => {
-    if (sid) getCart(business.id, sid).then(setCart);
-    setDraftQty({});
-    setQtyErrors({});
-  }, [business.id, sid]);
-
-  const commitQty = async (productId: string, product: { moq: number; maxQty?: number } | undefined, raw: string) => {
-    if (!product) return;
-    const parsed = parseNumberInput(raw);
-    if (parsed.status === 'empty') {
-      // Empty field — revert; do not treat as remove
-      setDraftQty((d) => {
-        const next = { ...d };
-        delete next[productId];
-        return next;
-      });
-      setQtyErrors((e) => {
-        const next = { ...e };
-        delete next[productId];
-        return next;
-      });
-      return;
-    }
-    if (parsed.status === 'invalid' || parsed.value < 0 || !Number.isInteger(parsed.value)) {
-      setQtyErrors((e) => ({ ...e, [productId]: 'Enter a whole number' }));
-      return;
-    }
-    const qty = parsed.value;
-    if (qty === 0) {
-      setQtyErrors((e) => ({ ...e, [productId]: 'Use Remove to delete this line' }));
-      setDraftQty((d) => {
-        const next = { ...d };
-        delete next[productId];
-        return next;
-      });
-      return;
-    }
-    const res = await setCartLine({
-      actor: user,
-      pharmacy: business,
-      stockistId: sid,
-      productId,
-      qty,
-    });
-    if (!res.ok) {
-      setQtyErrors((e) => ({ ...e, [productId]: res.message }));
-      return;
-    }
-    setQtyErrors((e) => {
-      const next = { ...e };
-      delete next[productId];
-      return next;
-    });
-    setDraftQty((d) => {
-      const next = { ...d };
-      delete next[productId];
-      return next;
-    });
-    setCart(await getCart(business.id, sid));
-  };
-
-  useEffect(() => {
-    if (!addressId && addresses.length) {
-      setAddressId(addresses.find((a) => a.isDefault)?.id ?? addresses[0].id);
-    }
+    if (!addressId && addresses[0]) setAddressId(addresses[0].id);
   }, [addresses, addressId]);
 
-  const lines = (cart?.lines ?? []).map((l) => {
-    const p = products.find((x) => x.id === l.productId);
-    const inclusive = p ? priceForPlatformPharmacy(p, settings).unitPrice : 0;
-    const flag = !p
-      ? 'Deleted'
-      : p.status !== 'Active'
-        ? 'Inactive'
-        : !connected
-          ? 'Disconnected'
-          : p.maxQty != null && l.qty > p.maxQty
-            ? 'Over max'
-            : l.unitPriceAtAdd != null && Math.abs(l.unitPriceAtAdd - inclusive) > 0.009
-              ? 'Price changed'
-              : null;
-    return { ...l, product: p, inclusive, flag };
-  });
-  const totals = cartTotals(
-    lines
-      .filter((l) => l.product)
-      .map((l) => ({ qty: l.qty, unitPrice: l.inclusive, gstPercent: l.product!.gstPercent })),
-  );
-  const selectedAddress = addresses.find((a) => a.id === addressId) ?? addresses[0];
-  const blocking = lines.some((l) => l.flag === 'Deleted' || l.flag === 'Inactive' || l.flag === 'Disconnected' || l.flag === 'Over max');
-  const priceDiffs = lines.filter((l) => l.flag === 'Price changed' && l.product);
-  const maintenanceOn = !!settings?.maintenanceMode;
-  const creditOverLimit =
-    creditLimit != null && Number.isFinite(creditLimit) && outstanding + totals.grandTotal > creditLimit;
-
-  const submitOrder = async () => {
-    if (!selectedAddress) {
-      pushToast({ tone: 'error', title: 'Select a delivery address' });
-      return;
+  // Default-select all lines when carts load
+  useEffect(() => {
+    const next: Record<string, boolean> = {};
+    for (const c of carts) {
+      for (const l of c.lines) next[`${c.stockistId}:${l.productId}`] = true;
     }
-    if (blocking) {
-      pushToast({ tone: 'error', title: 'Fix flagged cart lines before placing' });
+    setSelected((prev) => ({ ...next, ...prev }));
+  }, [carts]);
+
+  const productMap = useMemo(() => new Map(allProducts.map((p) => [p.id, p])), [allProducts]);
+  const nameOf = (id: string) => businesses.find((b) => b.id === id)?.name ?? id;
+
+  const nonEmptyCarts = carts.filter((c) => c.lines.length > 0);
+
+  const toggleStockist = (cart: Cart, on: boolean) => {
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const l of cart.lines) next[`${cart.stockistId}:${l.productId}`] = on;
+      return next;
+    });
+  };
+
+  const placeSelected = async () => {
+    const address = addresses.find((a) => a.id === addressId) ?? addresses[0];
+    if (!address) {
+      pushToast({ tone: 'error', title: 'Add a delivery address' });
       return;
     }
     setBusy(true);
-    let address = selectedAddress;
-    if (address.id === 'storefront' && !(liveBiz?.deliveryAddresses ?? []).length) {
-      const saved = await upsertDeliveryAddress({
-        actor: user,
-        business,
-        address: { ...address, id: undefined, isDefault: true },
-      });
-      if (saved.ok) address = saved.data;
+    let placed = 0;
+    try {
+      for (const cart of nonEmptyCarts) {
+        const productIds = cart.lines
+          .filter((l) => selected[`${cart.stockistId}:${l.productId}`])
+          .map((l) => l.productId);
+        if (!productIds.length) continue;
+        const conn = connections.find((c) => c.stockistId === cart.stockistId && c.status === 'Active');
+        const mode = paymentModeByStockist[cart.stockistId] ?? (conn?.inCircle === false ? 'PayFirst' : 'Credit');
+        const res = await placeOrder({
+          actor: user,
+          pharmacy: business,
+          stockistId: cart.stockistId,
+          address,
+          notes,
+          preferredDate: preferredDate || undefined,
+          idempotencyKey: makeIdempotencyKey('placeOrder', user.id),
+          paymentMode: mode,
+          productIds,
+        });
+        if (!res.ok) {
+          pushToast({
+            tone: 'error',
+            title: `${nameOf(cart.stockistId)}: ${res.message}`,
+            message: res.businessImpact,
+          });
+          continue;
+        }
+        placed += 1;
+      }
+      if (placed) {
+        pushToast({ tone: 'success', title: `Placed ${placed} order(s)` });
+        navigate('/pharmacy/orders');
+      }
+    } finally {
+      setBusy(false);
     }
-    const res = await placeOrder({
-      actor: user,
-      pharmacy: business,
-      stockistId: sid,
-      address,
-      notes,
-      preferredDate: preferredDate || undefined,
-      idempotencyKey: makeIdempotencyKey('placeOrder', user.id),
-    });
-    setBusy(false);
-    setPriceConfirm(null);
-    if (!res.ok) {
-      pushToast({ tone: 'error', title: res.message, message: res.businessImpact });
-      if (res.existingId) navigate(`/pharmacy/orders`);
-      return;
-    }
-    // Single feedback: destination banner (no toast + modal stack)
-    navigate(`/pharmacy/orders/${res.data.orderNo}?placed=1`);
   };
+
+  if (!nonEmptyCarts.length) {
+    return (
+      <div className="stack">
+        <PageHeader title="Cart" subtitle="Multi-stockist checkout" />
+        <EmptyState title="Cart is empty" description="Add items from Buy or Smart Order." />
+        <Link className="btn btn-primary" to="/pharmacy/buy">
+          Browse catalogue
+        </Link>
+      </div>
+    );
+  }
+
+  let grandSelected = 0;
 
   return (
     <div className="stack">
       <PageHeader
-        title="Cart & checkout"
-        subtitle="Choose delivery address and review totals before placing"
-        actions={
-          lines.length ? (
-            <Button size="sm" variant="ghost" onClick={() => setClearConfirm(true)}>
-              Clear cart
-            </Button>
-          ) : null
-        }
+        title="Cart"
+        subtitle="Stacked by stockist — select lines, choose Pay First or Circle credit, place separate orders"
       />
-      <StockistNameSelect connections={activeConnections} value={sid} onChange={setStockistId} />
-      {!connected && sid ? (
-        <div className="banner-strip warning">Connection is not Active — cart lines are blocked until reconnect.</div>
-      ) : null}
-      <ConfirmDialog
-        open={clearConfirm}
-        title="Clear cart?"
-        tone="danger"
-        confirmLabel="Clear cart"
-        body={`Remove all ${lines.length} line${lines.length === 1 ? '' : 's'} for this stockist? Smart Order and quick-order work will be lost.`}
-        onClose={() => setClearConfirm(false)}
-        onConfirm={async () => {
-          const res = await clearCart({ actor: user, pharmacy: business, stockistId: sid });
-          if (res.ok) {
-            setCart(await getCart(business.id, sid));
-            pushToast({ tone: 'success', title: 'Cart cleared' });
-            setClearConfirm(false);
-          } else pushToast({ tone: 'error', title: res.message });
-        }}
-      />
-      <ConfirmDialog
-        open={!!priceConfirm}
-        title="Prices changed"
-        body={priceConfirm ?? ''}
-        confirmLabel="Accept new prices & place"
-        onClose={() => setPriceConfirm(null)}
-        onConfirm={() => void submitOrder()}
-      />
-      {!lines.length ? (
-        <EmptyState
-          title="Cart is empty"
-          description="Browse a connected catalogue to add products."
-          action={
-            <Link className="btn btn-primary" to="/pharmacy/buy">
-              Browse
-            </Link>
-          }
-        />
-      ) : (
-        <>
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Qty</th>
-                  <th>PTR</th>
-                  <th>Line</th>
-                  <th>Flag</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((l) => (
-                  <tr key={l.productId}>
-                    <td>{l.product?.name ?? 'Deleted product'}</td>
-                    <td>
-                      <div className="stack" style={{ gap: 2 }}>
-                        <Input
-                          type="number"
-                          style={{ width: 80 }}
-                          value={draftQty[l.productId] ?? String(l.qty)}
-                          disabled={!l.product || !connected}
-                          aria-invalid={!!qtyErrors[l.productId]}
-                          onChange={(e) => {
-                            setDraftQty((d) => ({ ...d, [l.productId]: e.target.value }));
-                            if (qtyErrors[l.productId]) {
-                              setQtyErrors((err) => {
-                                const next = { ...err };
-                                delete next[l.productId];
-                                return next;
-                              });
-                            }
-                          }}
-                          onBlur={() => {
-                            if (!l.product) return;
-                            const raw = draftQty[l.productId];
-                            if (raw === undefined) return;
-                            void commitQty(l.productId, l.product, raw);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key !== 'Enter' || !l.product) return;
-                            e.preventDefault();
-                            const raw = draftQty[l.productId] ?? String(l.qty);
-                            void commitQty(l.productId, l.product, raw);
-                            (e.target as HTMLInputElement).blur();
-                          }}
-                        />
-                        {qtyErrors[l.productId] ? (
-                          <span className="error" style={{ fontSize: 11 }}>
-                            {qtyErrors[l.productId]}
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td>
-                      {l.product ? (
-                        <>
-                          <Money value={l.inclusive} />
-                          {l.unitPriceAtAdd != null && Math.abs(l.unitPriceAtAdd - l.inclusive) > 0.009 ? (
-                            <div className="muted" style={{ fontSize: 11 }}>
-                              was <Money value={l.unitPriceAtAdd} />
-                            </div>
-                          ) : null}
-                        </>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td>
-                      {l.product ? (
-                        <Money
-                          value={
-                            cartTotals([
-                              { qty: l.qty, unitPrice: l.inclusive, gstPercent: l.product.gstPercent },
-                            ]).grandTotal
-                          }
-                        />
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td>{l.flag ? <span className="banner-strip warning" style={{ margin: 0, padding: '2px 8px' }}>{l.flag}</span> : '—'}</td>
-                    <td>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={async () => {
-                          if (!l.product) {
-                            // strip deleted line by rewriting cart without it
-                            const next = (cart?.lines ?? []).filter((x) => x.productId !== l.productId);
-                            if (cart) {
-                              await db.carts.put({ ...cart, lines: next, updatedAt: new Date().toISOString() });
-                              setCart(await getCart(business.id, sid));
-                            }
-                            return;
-                          }
-                          await setCartLine({
-                            actor: user,
-                            pharmacy: business,
-                            stockistId: sid,
-                            productId: l.productId,
-                            qty: 0,
-                          });
-                          setCart(await getCart(business.id, sid));
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
 
-          <div className="card card-pad stack">
-            <strong>Delivery address book</strong>
-            <Field label="Deliver to">
-              <Select value={selectedAddress?.id ?? ''} onChange={(e) => setAddressId(e.target.value)}>
-                {addresses.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label} — {a.line1}, {a.city} {a.pincode}
-                    {a.isDefault ? ' (default)' : ''}
+      {nonEmptyCarts.map((cart) => {
+        const conn = connections.find((c) => c.stockistId === cart.stockistId);
+        const inCircle = conn?.inCircle !== false && conn?.status === 'Active';
+        const outstanding = pairOutstanding(invoices, business.id, cart.stockistId);
+        const creditOk =
+          inCircle &&
+          (conn?.creditLimit == null ||
+            outstanding +
+              cart.lines
+                .filter((l) => selected[`${cart.stockistId}:${l.productId}`])
+                .reduce((s, l) => {
+                  const p = productMap.get(l.productId);
+                  if (!p) return s;
+                  return s + priceForPlatformPharmacy(p, settings).unitPrice * l.qty;
+                }, 0) <=
+              (conn.creditLimit ?? Infinity));
+        const mode = paymentModeByStockist[cart.stockistId] ?? (inCircle && creditOk ? 'Credit' : 'PayFirst');
+        const allOn = cart.lines.every((l) => selected[`${cart.stockistId}:${l.productId}`]);
+        const isExpanded = !!expanded[cart.stockistId];
+        const linesForTotals = cart.lines
+          .filter((l) => selected[`${cart.stockistId}:${l.productId}`])
+          .map((l) => {
+            const p = productMap.get(l.productId);
+            const unit = p ? priceForPlatformPharmacy(p, settings).unitPrice : l.unitPriceAtAdd ?? 0;
+            return { qty: l.qty, unitPrice: unit, gstPercent: p?.gstPercent ?? 12 };
+          });
+        const totals = cartTotals(linesForTotals as never);
+        grandSelected += totals.grandTotal;
+
+        return (
+          <div key={cart.id} className="card card-pad stack" style={{ position: 'relative' }}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <label className="row" style={{ gap: 8, alignItems: 'center' }}>
+                <input type="checkbox" checked={allOn} onChange={(e) => toggleStockist(cart, e.target.checked)} />
+                <strong>{nameOf(cart.stockistId)}</strong>
+                {inCircle ? <span className="chip">Circle</span> : <span className="chip">Pay-first</span>}
+              </label>
+              <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                <Select
+                  value={mode}
+                  onChange={(e) =>
+                    setPaymentModeByStockist((m) => ({
+                      ...m,
+                      [cart.stockistId]: e.target.value as 'PayFirst' | 'Credit',
+                    }))
+                  }
+                >
+                  <option value="PayFirst">Pay First (Razorpay)</option>
+                  <option value="Credit" disabled={!inCircle}>
+                    Credit (Circle)
                   </option>
-                ))}
-              </Select>
-            </Field>
-            {selectedAddress ? (
-              <div className="muted" style={{ fontSize: 13 }}>
-                {selectedAddress.line1}
-                {selectedAddress.line2 ? `, ${selectedAddress.line2}` : ''}, {selectedAddress.city},{' '}
-                {selectedAddress.state} {selectedAddress.pincode}
+                </Select>
+                <Money value={totals.grandTotal} />
               </div>
+            </div>
+            {!creditOk && mode === 'Credit' ? (
+              <div className="banner-strip warning">Credit limit exceeded — switch to Pay First or deselect lines.</div>
             ) : null}
-            {selectedAddress && selectedAddress.id !== 'storefront' ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={async () => {
-                  const res = await removeDeliveryAddress({ actor: user, business, addressId: selectedAddress.id });
-                  pushToast(
-                    res.ok
-                      ? { tone: 'success', title: 'Address removed' }
-                      : { tone: 'error', title: res.message },
-                  );
-                  setAddressId('');
-                }}
-              >
-                Remove selected address
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setAddrForm({ label: '', line1: '', city: '', state: '', pincode: '' });
-                setAddrErrors({});
-                setAddrOpen(true);
+            <div
+              style={{
+                maxHeight: isExpanded ? 'none' : 600,
+                overflow: isExpanded ? 'visible' : 'hidden',
+                position: 'relative',
               }}
             >
-              Add delivery address
-            </Button>
-          </div>
-
-          <Modal
-            open={addrOpen}
-            title="Add delivery address"
-            onClose={() => setAddrOpen(false)}
-            footer={
-              <>
-                <Button variant="secondary" onClick={() => setAddrOpen(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={async () => {
-                    const next: typeof addrErrors = {};
-                    if (!addrForm.label.trim()) next.label = 'Label is required';
-                    if (!addrForm.line1.trim()) next.line1 = 'Line 1 is required';
-                    if (!addrForm.city.trim()) next.city = 'City is required';
-                    if (!addrForm.state.trim()) next.state = 'State is required';
-                    if (!addrForm.pincode.trim()) next.pincode = 'Pincode is required';
-                    if (Object.keys(next).length) {
-                      setAddrErrors(next);
-                      return;
-                    }
-                    const res = await upsertDeliveryAddress({
-                      actor: user,
-                      business,
-                      address: { ...addrForm, isDefault: !(liveBiz?.deliveryAddresses ?? []).length },
-                    });
-                    if (!res.ok) {
-                      if (res.code === 'ADDR_FIELDS') {
-                        setAddrErrors({
-                          label: !addrForm.label.trim() ? 'Label is required' : undefined,
-                          line1: !addrForm.line1.trim() ? 'Line 1 is required' : undefined,
-                          city: !addrForm.city.trim() ? 'City is required' : undefined,
-                          state: !addrForm.state.trim() ? 'State is required' : undefined,
-                          pincode: !addrForm.pincode.trim() ? 'Pincode is required' : undefined,
-                        });
-                      } else {
-                        pushToast({ tone: 'error', title: res.message });
-                      }
-                      return;
-                    }
-                    setAddressId(res.data.id);
-                    setAddrForm({ label: '', line1: '', city: '', state: '', pincode: '' });
-                    setAddrErrors({});
-                    setAddrOpen(false);
-                    pushToast({ tone: 'success', title: 'Address saved' });
+              <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    <th />
+                    <th>Product</th>
+                    <th>Qty</th>
+                    <th>Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cart.lines.map((l) => {
+                    const p = productMap.get(l.productId);
+                    const unit = p ? priceForPlatformPharmacy(p, settings).unitPrice : l.unitPriceAtAdd ?? 0;
+                    const key = `${cart.stockistId}:${l.productId}`;
+                    return (
+                      <tr key={key}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={!!selected[key]}
+                            onChange={(e) => setSelected((s) => ({ ...s, [key]: e.target.checked }))}
+                          />
+                        </td>
+                        <td>{p?.name ?? l.productId}</td>
+                        <td>
+                          <Input
+                            type="number"
+                            style={{ width: 72 }}
+                            value={l.qty}
+                            onChange={async (e) => {
+                              const qty = Number(e.target.value) || 0;
+                              await setCartLine({
+                                actor: user,
+                                pharmacy: business,
+                                stockistId: cart.stockistId,
+                                productId: l.productId,
+                                qty,
+                              });
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <Money value={unit} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {!isExpanded && cart.lines.length > 6 ? (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: 72,
+                    background: 'linear-gradient(transparent, var(--surface, #fff))',
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'center',
+                    paddingBottom: 8,
                   }}
                 >
-                  Save address
-                </Button>
-              </>
-            }
-          >
-            <div className="grid-2">
-              <Field label="New label" error={addrErrors.label}>
-                <Input
-                  value={addrForm.label}
-                  onChange={(e) => {
-                    setAddrForm((f) => ({ ...f, label: e.target.value }));
-                    setAddrErrors((err) => ({ ...err, label: undefined }));
-                  }}
-                />
-              </Field>
-              <Field label="Line 1" error={addrErrors.line1}>
-                <Input
-                  value={addrForm.line1}
-                  onChange={(e) => {
-                    setAddrForm((f) => ({ ...f, line1: e.target.value }));
-                    setAddrErrors((err) => ({ ...err, line1: undefined }));
-                  }}
-                />
-              </Field>
-              <Field label="City" error={addrErrors.city}>
-                <Input
-                  value={addrForm.city}
-                  onChange={(e) => {
-                    setAddrForm((f) => ({ ...f, city: e.target.value }));
-                    setAddrErrors((err) => ({ ...err, city: undefined }));
-                  }}
-                />
-              </Field>
-              <Field label="State" error={addrErrors.state}>
-                <Input
-                  value={addrForm.state}
-                  onChange={(e) => {
-                    setAddrForm((f) => ({ ...f, state: e.target.value }));
-                    setAddrErrors((err) => ({ ...err, state: undefined }));
-                  }}
-                />
-              </Field>
-              <Field label="Pincode" error={addrErrors.pincode}>
-                <Input
-                  value={addrForm.pincode}
-                  onChange={(e) => {
-                    setAddrForm((f) => ({ ...f, pincode: e.target.value }));
-                    setAddrErrors((err) => ({ ...err, pincode: undefined }));
-                  }}
-                />
-              </Field>
+                  <Button variant="secondary" onClick={() => setExpanded((e) => ({ ...e, [cart.stockistId]: true }))}>
+                    View more
+                  </Button>
+                </div>
+              ) : null}
             </div>
-          </Modal>
-
-          <div className="card card-pad stack">
-            <strong>Checkout review</strong>
-            <Field label="Preferred delivery date">
-              <Input
-                type="date"
-                min={localTodayKey()}
-                value={preferredDate}
-                onChange={(e) => setPreferredDate(e.target.value)}
-              />
-            </Field>
-            {holidayHit ? (
-              <div className="banner-strip warning" style={{ fontSize: 13 }}>
-                {stockistBiz?.name ?? 'Stockist'} lists a holiday on this date ({holidayHit}). Ordering is still allowed —
-                delivery may be delayed.
-              </div>
+            {isExpanded ? (
+              <Button variant="secondary" onClick={() => setExpanded((e) => ({ ...e, [cart.stockistId]: false }))}>
+                Show less
+              </Button>
             ) : null}
-            <Field label="Notes">
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
-            </Field>
-            {maintenanceOn ? (
-              <div className="banner-strip warning" style={{ fontSize: 13 }}>
-                Platform maintenance is on — placing orders is paused until the banner clears.
-              </div>
-            ) : null}
-            {creditLimit != null ? (
-              <div
-                className={
-                  creditOverLimit ? 'banner-strip warning' : 'banner-strip info'
-                }
-                style={{ fontSize: 13 }}
-              >
-                Credit with {stockistBiz?.name ?? 'stockist'}
-                {creditDays != null ? ` · ${creditDays} days` : ''}: outstanding {formatINR(outstanding)} + this order{' '}
-                {formatINR(totals.grandTotal)} = {formatINR(outstanding + totals.grandTotal)} / limit{' '}
-                {formatINR(creditLimit)}
-                {creditOverLimit
-                  ? ` · ${formatINR(outstanding + totals.grandTotal - creditLimit)} over limit — place is blocked`
-                  : ''}
-              </div>
-            ) : (
-              <div className="muted" style={{ fontSize: 13 }}>
-                No credit limit set on this connection
-                {creditDays != null ? ` · terms ${creditDays} days` : ''}.
-              </div>
-            )}
-            <div className="stack" style={{ gap: 6 }}>
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <span>Subtotal</span>
-                <Money value={totals.subtotal} />
-              </div>
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <span>GST</span>
-                <Money value={totals.taxTotal} />
-              </div>
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <strong>Total</strong>
-                <strong>
-                  <Money value={totals.grandTotal} />
-                </strong>
-              </div>
-            </div>
-            <Button
-              disabled={busy || !selectedAddress || blocking || creditOverLimit || maintenanceOn}
-              onClick={() => {
-                if (priceDiffs.length) {
-                  setPriceConfirm(
-                    priceDiffs
-                      .map(
-                        (l) =>
-                          `${l.product!.name}: ${l.unitPriceAtAdd} → ${l.inclusive}`,
-                      )
-                      .join('\n'),
-                  );
-                  return;
-                }
-                void submitOrder();
-              }}
-            >
-              Place purchase order
-            </Button>
           </div>
-        </>
-      )}
+        );
+      })}
+
+      <div className="card card-pad stack">
+        <Field label="Delivery address">
+          <Select value={addressId} onChange={(e) => setAddressId(e.target.value)}>
+            {addresses.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label} — {a.line1}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Preferred date">
+          <Input type="date" value={preferredDate} onChange={(e) => setPreferredDate(e.target.value)} />
+        </Field>
+        <Field label="Notes">
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+        </Field>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <strong>Selected total {formatINR(grandSelected)}</strong>
+          <Button disabled={busy || grandSelected <= 0} onClick={() => void placeSelected()}>
+            {busy ? 'Placing…' : 'Place selected orders'}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

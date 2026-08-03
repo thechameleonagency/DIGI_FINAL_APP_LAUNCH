@@ -14,7 +14,7 @@ const DAY_FIELDS = [
 
 const HOUR_FIELDS = ['verificationSlaHours', 'orderSlaHours', 'paymentSlaHours'] as const;
 
-const PERCENT_FIELDS = ['genericCommissionPercent', 'defaultGstPercent'] as const;
+const PERCENT_FIELDS = ['genericCommissionPercent', 'defaultGstPercent', 'bankFeePercent'] as const;
 
 const MONEY_FLAT_FIELDS = ['ethicalCommissionFlatPerProduct', 'offlineManagedFlatPerLine', 'largePaymentMultiple'] as const;
 

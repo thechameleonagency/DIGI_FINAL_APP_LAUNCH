@@ -9,6 +9,7 @@ import {
   type InputHTMLAttributes,
   type ReactElement,
   type ReactNode,
+  type RefObject,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
@@ -46,13 +47,18 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return <input ref={ref} className="input" {...props} />;
 });
 
-export function Select({ className = '', ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={`select ${className}`.trim()} {...props} />;
-}
+export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select(
+  { className = '', ...props },
+  ref,
+) {
+  return <select ref={ref} className={`select ${className}`.trim()} {...props} />;
+});
 
-export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className="textarea" {...props} />;
-}
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea(props, ref) {
+    return <textarea ref={ref} className="textarea" {...props} />;
+  },
+);
 
 export function Field({
   label,
@@ -337,6 +343,8 @@ export function Modal({
   footer,
   /** Stack above other overlays (0 = base 50; ConfirmDialog uses 1 → 60). */
   layer = 0,
+  /** Prefer this control over the Close button when the dialog opens. */
+  initialFocusRef,
 }: {
   open: boolean;
   title: string;
@@ -344,8 +352,9 @@ export function Modal({
   onClose: () => void;
   footer?: ReactNode;
   layer?: number;
+  initialFocusRef?: RefObject<HTMLElement | null>;
 }) {
-  const panelRef = useFocusTrap<HTMLDivElement>(open);
+  const panelRef = useFocusTrap<HTMLDivElement>(open, initialFocusRef);
 
   useEffect(() => {
     if (!open) return;

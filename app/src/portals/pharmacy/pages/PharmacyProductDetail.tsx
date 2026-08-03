@@ -66,10 +66,35 @@ export function PharmacyProductDetail() {
           {product.hsn ? <div className="muted">HSN {product.hsn}</div> : null}
           {product.composition ? <div className="muted">Composition {product.composition}</div> : null}
           {product.description ? <div className="muted">{product.description}</div> : null}
+          {product.scheduleType && product.scheduleType !== 'NONE' ? (
+            <div className="banner-strip warning">Schedule {product.scheduleType} — prescription controls may apply.</div>
+          ) : null}
+          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+            <tbody>
+              <tr>
+                <td className="muted">HSN</td>
+                <td>{product.hsn || '—'}</td>
+                <td className="muted">Pack</td>
+                <td>{product.packSize}</td>
+              </tr>
+              <tr>
+                <td className="muted">Category</td>
+                <td>{product.category}</td>
+                <td className="muted">Class</td>
+                <td>{product.pricingClass}</td>
+              </tr>
+              <tr>
+                <td className="muted">MOQ</td>
+                <td>{product.moq}</td>
+                <td className="muted">Max</td>
+                <td>{product.maxQty ?? '—'}</td>
+              </tr>
+            </tbody>
+          </table>
           <div className="row" style={{ gap: 24 }}>
             <div>
               <div className="muted" style={{ fontSize: 12 }}>
-                Unit price
+                Unit price (incl. platform fees)
               </div>
               <strong>{canBuy ? <Money value={unitPrice} /> : 'Connect to see price'}</strong>
             </div>
@@ -87,9 +112,8 @@ export function PharmacyProductDetail() {
             </div>
           </div>
           <div className="muted" style={{ fontSize: 13 }}>
-            MOQ {product.moq}
-            {product.maxQty != null ? ` · Max ${product.maxQty}` : ''} ·{' '}
             {active ? `Available ${avail}` : avail > 0 ? 'In stock' : 'Out of stock'}
+            {product.listedForSale === false ? ' · Not listed for sale' : ''}
           </div>
           {!catalogueOk ? <div className="banner-strip warning">Catalogue is not Active — browsing/cart blocked.</div> : null}
           <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -156,8 +180,136 @@ export function PharmacyProductDetail() {
           <Link className="btn btn-secondary btn-sm" to={`/pharmacy/buy/${product.stockistId}`}>
             Browse catalogue
           </Link>
+          <Link className="btn btn-secondary btn-sm" to={`/pharmacy/stockists/${product.stockistId}`}>
+            Stockist details
+          </Link>
         </div>
       </div>
+      {batches.length > 0 ? (
+        <div className="card card-pad stack">
+          <strong>Batches</strong>
+          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th>Batch</th>
+                <th>Expiry</th>
+                <th>Available</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {batches.map((b) => (
+                <tr key={b.id}>
+                  <td>{b.batchNumber}</td>
+                  <td>{b.expiryDate}</td>
+                  <td>{Math.max(0, b.onHand - b.reserved)}</td>
+                  <td>
+                    <StatusBadge status={b.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      <MultiStockistPriceTable
+        pharmacyId={business.id}
+        productName={product.name}
+        brand={product.brand}
+        currentProductId={product.id}
+        settings={settings}
+      />
+    </div>
+  );
+}
+
+function MultiStockistPriceTable(props: {
+  pharmacyId: string;
+  productName: string;
+  brand: string;
+  currentProductId: string;
+  settings: import('../../../domain/entities/types').PlatformSettings | undefined;
+}) {
+  const peers =
+    useLiveQuery(async () => {
+      const conns = await db.connections
+        .where('pharmacyId')
+        .equals(props.pharmacyId)
+        .filter((c) => c.status === 'Active')
+        .toArray();
+      const rows: {
+        productId: string;
+        stockistId: string;
+        stockistName: string;
+        unitPrice: number;
+        available: number;
+      }[] = [];
+      for (const c of conns) {
+        const products = await db.products
+          .where('stockistId')
+          .equals(c.stockistId)
+          .filter(
+            (p) =>
+              p.status === 'Active' &&
+              p.listedForSale !== false &&
+              (p.name.toLowerCase() === props.productName.toLowerCase() ||
+                (p.brand === props.brand && p.name.toLowerCase().includes(props.productName.toLowerCase().split(' ')[0] ?? ''))),
+          )
+          .toArray();
+        const biz = await db.businesses.get(c.stockistId);
+        for (const p of products) {
+          const batches = await db.batches.where('productId').equals(p.id).toArray();
+          const avail = productAvailableSellable(batches);
+          rows.push({
+            productId: p.id,
+            stockistId: p.stockistId,
+            stockistName: biz?.name ?? p.stockistId,
+            unitPrice: priceForPlatformPharmacy(p, props.settings).unitPrice,
+            available: avail,
+          });
+        }
+      }
+      return rows.sort((a, b) => a.unitPrice - b.unitPrice);
+    }, [props.pharmacyId, props.productName, props.brand, props.settings]) ?? [];
+
+  if (peers.length < 2) return null;
+  const lowest = peers[0]?.unitPrice;
+  return (
+    <div className="card card-pad stack">
+      <strong>Prices across your stockists</strong>
+      <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+        <thead>
+          <tr>
+            <th>Stockist</th>
+            <th>Unit price</th>
+            <th>Available</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {peers.map((r) => (
+            <tr key={r.productId} style={r.productId === props.currentProductId ? { fontWeight: 600 } : undefined}>
+              <td>
+                {r.stockistName}
+                {r.unitPrice === lowest ? ' · Lowest' : ''}
+              </td>
+              <td>
+                <Money value={r.unitPrice} />
+              </td>
+              <td>{r.available}</td>
+              <td>
+                {r.productId !== props.currentProductId ? (
+                  <Link className="btn btn-secondary btn-sm" to={`/pharmacy/product/${r.productId}`}>
+                    View
+                  </Link>
+                ) : (
+                  <span className="muted">This offer</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

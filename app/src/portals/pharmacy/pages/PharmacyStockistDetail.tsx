@@ -1,4 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
+import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
@@ -8,10 +9,13 @@ import { useUi } from '../../../store/ui';
 import { Button, EmptyState, Field, Input, Kpi, Money, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
+type Tab = 'Overview' | 'Catalogue' | 'Orders' | 'Invoices' | 'Ledger';
+
 export function PharmacyStockistDetail() {
   const { stockistId } = useParams();
   const { business, user } = useBiz();
   const { pushToast } = useUi();
+  const [tab, setTab] = useState<Tab>('Overview');
   const stockist = useLiveQuery(() => (stockistId ? db.businesses.get(stockistId) : undefined), [stockistId]);
   const connection = useLiveQuery(
     () => (stockistId ? db.connections.where({ pharmacyId: business.id, stockistId }).first() : undefined),
@@ -31,6 +35,14 @@ export function PharmacyStockistDetail() {
     () => (stockistId ? db.catalogues.where('stockistId').equals(stockistId).first() : undefined),
     [stockistId],
   );
+  const products =
+    useLiveQuery(
+      () =>
+        stockistId
+          ? db.products.where('stockistId').equals(stockistId).filter((p) => p.listedForSale !== false).toArray()
+          : [],
+      [stockistId],
+    ) ?? [];
   const favourite = useLiveQuery(
     () =>
       stockistId
@@ -120,8 +132,20 @@ export function PharmacyStockistDetail() {
         <Kpi label="Outstanding" value={<Money value={outstanding} />} />
         <Kpi label="Orders" value={orders.length} />
         <Kpi label="Catalogue" value={catalogue?.status ?? '—'} />
-        <Kpi label="Connection" value={connection?.status ?? 'None'} />
+        <Kpi
+          label="Circle"
+          value={connection?.inCircle ? 'Credit' : connection?.status === 'Active' ? 'Pay-first' : connection?.status ?? 'None'}
+        />
       </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {(['Overview', 'Catalogue', 'Orders', 'Invoices', 'Ledger'] as Tab[]).map((t) => (
+          <Button key={t} variant={tab === t ? 'primary' : 'secondary'} onClick={() => setTab(t)}>
+            {t}
+          </Button>
+        ))}
+      </div>
+      {tab === 'Overview' ? (
+        <>
       <div className="card card-pad stack">
         <strong>Private rating</strong>
         <div className="muted" style={{ fontSize: 12 }}>
@@ -251,6 +275,107 @@ export function PharmacyStockistDetail() {
           </div>
         )}
       </div>
+        </>
+      ) : null}
+      {tab === 'Catalogue' ? (
+        <div className="card card-pad stack">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <strong>Listed products ({products.length})</strong>
+            {connection?.status === 'Active' ? (
+              <Link className="btn btn-primary btn-sm" to={`/pharmacy/buy/${stockist.id}`}>
+                Browse full catalogue
+              </Link>
+            ) : null}
+          </div>
+          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>SKU</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.slice(0, 40).map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <Link to={`/pharmacy/product/${p.id}`}>{p.name}</Link>
+                  </td>
+                  <td>{p.sku}</td>
+                  <td>
+                    <StatusBadge status={p.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {tab === 'Orders' ? (
+        <div className="card card-pad">
+          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Status</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o) => (
+                <tr key={o.id}>
+                  <td>
+                    <Link to={`/pharmacy/orders/${o.orderNo}`}>{o.orderNo}</Link>
+                  </td>
+                  <td>
+                    <StatusBadge status={o.status} />
+                  </td>
+                  <td>
+                    <Money value={o.grandTotal} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {tab === 'Invoices' ? (
+        <div className="card card-pad">
+          <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th>Invoice</th>
+                <th>Status</th>
+                <th>Outstanding</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map((i) => (
+                <tr key={i.id}>
+                  <td>
+                    <Link to={`/pharmacy/invoices/${i.invoiceNo}`}>{i.invoiceNo}</Link>
+                  </td>
+                  <td>
+                    <StatusBadge status={i.status} />
+                  </td>
+                  <td>
+                    <Money value={i.outstanding} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {tab === 'Ledger' && stockistId ? (
+        <div className="card card-pad stack">
+          <strong>Ledger</strong>
+          <p className="muted">Outstanding <Money value={outstanding} /></p>
+          <Link className="btn btn-secondary btn-sm" to={`/pharmacy/ledger/${stockistId}`}>
+            Open full ledger
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }

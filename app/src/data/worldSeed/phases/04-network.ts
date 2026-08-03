@@ -2,6 +2,7 @@ import {
   disconnectConnection,
   requestConnection,
   respondConnection,
+  setConnectionCircle,
 } from '../../../services/connectionService';
 import { setFavourite, setSupplierRating } from '../../../services/favouriteService';
 import { createManagedPharmacy } from '../../../services/managedPharmacyService';
@@ -16,6 +17,11 @@ import {
   type TraderKey,
 } from '../context';
 
+/**
+ * Activation terms:
+ * - Circle: pass creditLimit > 0 → respondConnection sets inCircle true (Credit allowed).
+ * - Pay-First-only: omit creditLimit → inCircle false (PayFirst orders only).
+ */
 type CreditTerms = { creditDays: number; creditLimit?: number };
 
 async function requestAndActivate(params: {
@@ -54,7 +60,7 @@ async function requestAndActivate(params: {
   ctx.connections.set(connectionKey(params.pharmacyKey, params.stockistKey), activated.data);
 }
 
-/** Phase 4 — Dense pharmacy×stockist network, favourites, managed pharmacies. */
+/** Phase 4 — Dense pharmacy×stockist network (Circle vs Pay-First), favourites, managed pharmacies. */
 export async function seedNetworkPhase(): Promise<void> {
   const ctx = getWorldCtx();
   const pharmacyA = pharmacyByKey('pharmacyA');
@@ -63,7 +69,7 @@ export async function seedNetworkPhase(): Promise<void> {
   const stockistA = stockistByKey('stockistA');
   const stockistB = stockistByKey('stockistB');
 
-  // Dense Active matrix with credit-term variety
+  // Circle pairs — creditLimit > 0 so inCircle === true
   await requestAndActivate({
     pharmacyKey: 'pharmacyA',
     stockistKey: 'stockistA',
@@ -80,28 +86,47 @@ export async function seedNetworkPhase(): Promise<void> {
     stockistKey: 'stockistA',
     terms: { creditDays: 45, creditLimit: 150_000 },
   });
+  // Pay-First-only — no creditLimit → inCircle false
   await requestAndActivate({
     pharmacyKey: 'pharmacyB',
     stockistKey: 'stockistB',
     terms: { creditDays: 7 },
   });
+  // Circle
   await requestAndActivate({
     pharmacyKey: 'pharmacyC',
     stockistKey: 'stockistA',
     terms: { creditDays: 21, creditLimit: 100_000 },
   });
+  // Pay-First-only cash path before reconnect demo (later becomes Circle with limit)
   await requestAndActivate({
     pharmacyKey: 'pharmacyC',
     stockistKey: 'stockistB',
     terms: { creditDays: 0 },
-    note: 'Cash terms',
+    note: 'Pay-First / cash terms',
   });
 
-  // Reject then re-request → Active (pharmacyA ↔ stockistA already Active — use a fresh path:
-  // disconnect one edge first is separate; for reject use a temporary: we already activated all.
-  // Instead: disconnect pharmacyC-stockistB, then do reject/re-request on a dedicated flow
-  // by requesting from pending? Pending can't connect. So: disconnect pharmacyC↔stockistB,
-  // request again, reject, re-request, activate.
+  // Exercise stockist "Add to Circle" API on an already-Circle edge (idempotent confirm)
+  {
+    const key = connectionKey('pharmacyA', 'stockistA');
+    const conn = ctx.connections.get(key)!;
+    const circled = assertOk(
+      '04-network.circle.set.A-A',
+      await setConnectionCircle({
+        actor: stockistA.user,
+        stockist: stockistA.business,
+        connectionId: conn.id,
+        inCircle: true,
+        creditDays: conn.creditDays ?? 30,
+        creditLimit: conn.creditLimit ?? 200_000,
+        reason: 'Seed — confirm Circle membership via setConnectionCircle',
+      }),
+    );
+    ctx.connections.set(key, circled.data);
+  }
+
+  // Reject then re-request → Active as Circle (creditLimit set on final activate).
+  // Disconnect pharmacyC↔stockistB (was Pay-First), request, reject, re-request, activate with limit.
   {
     const key = connectionKey('pharmacyC', 'stockistB');
     const existing = ctx.connections.get(key)!;

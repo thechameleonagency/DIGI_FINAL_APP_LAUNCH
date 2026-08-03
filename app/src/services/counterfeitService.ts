@@ -600,3 +600,74 @@ export async function resolveCounterfeitReport(params: {
 
   return ok(next);
 }
+
+/** Create a platform-wide counterfeit/banned product alert (hub-style). */
+export async function createCounterfeitAlert(params: {
+  actor: User;
+  platform: Business;
+  productName: string;
+  manufacturer?: string;
+  batchNumber?: string;
+  description: string;
+  alertType?: 'counterfeit' | 'banned' | 'spurious' | 'nsq' | 'recalled';
+}): Promise<Result<import('../domain/entities/types').CounterfeitAlert>> {
+  const perm = assertCan(params.actor, params.platform, 'counterfeit.review');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Alert was not created.');
+  const productName = params.productName.trim();
+  const description = params.description.trim();
+  if (!productName || description.length < 5) {
+    return fail('Validation', 'CF_ALERT', 'Product name and description are required.', 'Alert was not created.');
+  }
+  const ts = nowIso();
+  const alertRow: import('../domain/entities/types').CounterfeitAlert = {
+    id: newId(),
+    productName,
+    manufacturer: params.manufacturer?.trim(),
+    batchNumber: params.batchNumber?.trim(),
+    description,
+    alertType: params.alertType ?? 'counterfeit',
+    active: true,
+    createdBy: params.actor.id,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+  await db.counterfeitAlerts.add(alertRow);
+  await writeAudit({
+    actorId: params.actor.id,
+    actorName: params.actor.name,
+    businessId: params.platform.id,
+    entityType: 'CounterfeitAlert',
+    entityId: alertRow.id,
+    action: 'counterfeit.alertCreate',
+    after: alertRow,
+  });
+  return ok(alertRow);
+}
+
+/** Match product name against active alerts (case-insensitive contains). */
+export async function matchCounterfeitAlerts(
+  productName: string,
+): Promise<import('../domain/entities/types').CounterfeitAlert[]> {
+  const needle = productName.toLowerCase().trim();
+  if (!needle) return [];
+  const alerts = await db.counterfeitAlerts.filter((a) => a.active).toArray();
+  return alerts.filter((a) => {
+    const n = a.productName.toLowerCase();
+    return n.includes(needle) || needle.includes(n);
+  });
+}
+
+export async function setCounterfeitAlertActive(params: {
+  actor: User;
+  platform: Business;
+  alertId: string;
+  active: boolean;
+}): Promise<Result<import('../domain/entities/types').CounterfeitAlert>> {
+  const perm = assertCan(params.actor, params.platform, 'counterfeit.review');
+  if (!perm.allow) return fail('Permission', 'PERM_DENIED', perm.reason!, 'Alert was not updated.');
+  const existing = await db.counterfeitAlerts.get(params.alertId);
+  if (!existing) return fail('NotFound', 'CF_ALERT_MISSING', 'Alert not found.', 'Alert was not updated.');
+  const updated = { ...existing, active: params.active, updatedAt: nowIso() };
+  await db.counterfeitAlerts.put(updated);
+  return ok(updated);
+}
