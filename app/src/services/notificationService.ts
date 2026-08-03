@@ -46,6 +46,12 @@ export function resolveNotificationLink(
       return no || id ? `${base}/messages?thread=${encodeURIComponent(n.entityNo ?? id ?? '')}` : `${base}/messages`;
     case 'Announcement':
       return base;
+    case 'CounterfeitReport':
+      return `${base}/counterfeit`;
+    case 'Batch':
+      if (portal === 'stockist') return `${base}/inventory`;
+      if (portal === 'pharmacy') return `${base}/counterfeit`;
+      return `${base}/counterfeit`;
     default:
       return `${base}/notifications`;
   }

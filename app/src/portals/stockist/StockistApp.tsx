@@ -141,7 +141,7 @@ export function StockistApp() {
           <Route path="upgrade" element={<StockistUpgrade />} />
           <Route path="staff" element={<StockistStaff />} />
         </Route>
-        <Route element={<RequirePermission action="counterfeit.report" />}>
+        <Route element={<RequirePermission action="read.own" />}>
           <Route path="counterfeit" element={<StockistCounterfeit />} />
         </Route>
         <Route element={<RequirePermission action="order.accept" />}>

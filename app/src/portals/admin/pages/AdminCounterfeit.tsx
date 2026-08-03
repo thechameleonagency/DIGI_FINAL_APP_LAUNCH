@@ -47,6 +47,8 @@ export function AdminCounterfeit() {
   const [dismissError, setDismissError] = useState<string | undefined>();
   const [recallOpen, setRecallOpen] = useState(false);
 
+  const orders = useLiveQuery(() => db.orders.toArray()) ?? [];
+
   const nameOf = (id?: string) => (id ? businesses.find((b) => b.id === id)?.name ?? id.slice(0, 8) : '—');
   const productName = (id?: string) => (id ? products.find((p) => p.id === id)?.name ?? id.slice(0, 8) : '—');
   const batchNo = (id?: string) => (id ? batches.find((b) => b.id === id)?.batchNumber ?? id.slice(0, 8) : '—');
@@ -105,13 +107,28 @@ export function AdminCounterfeit() {
   const selected = selectedId ? rows.find((r) => r.id === selectedId) : undefined;
 
   const recallImpact = useMemo(() => {
-    if (!selected?.batchId) return { holders: 0, units: 0 };
-    const target = batches.filter((b) => b.id === selected.batchId);
-    return {
-      holders: new Set(target.map((b) => b.stockistId).filter(Boolean)).size,
-      units: target.reduce((s, b) => s + (b.onHand ?? 0), 0),
-    };
-  }, [selected, batches]);
+    if (!selected?.batchId) return { holders: 0, units: 0, openOrders: 0 };
+    const batch = batches.find((b) => b.id === selected.batchId);
+    const pharmacyIds = new Set<string>();
+    let networkUnits = batch?.onHand ?? 0;
+    let openOrders = 0;
+    const openStatuses = new Set(['Accepted', 'PartiallyAccepted', 'Allocated', 'Packed']);
+    for (const o of orders) {
+      let orderHasBatch = false;
+      for (const line of o.lines) {
+        for (const a of line.batchAllocations ?? []) {
+          if (a.batchId !== selected.batchId) continue;
+          orderHasBatch = true;
+          networkUnits += a.qty;
+        }
+      }
+      if (!orderHasBatch) continue;
+      pharmacyIds.add(o.pharmacyId);
+      if (openStatuses.has(o.status)) openOrders += 1;
+    }
+    const holders = (batch?.stockistId ? 1 : 0) + pharmacyIds.size;
+    return { holders, units: networkUnits, openOrders };
+  }, [selected, batches, orders]);
 
   const act = <T,>(fn: () => Promise<{ ok: true; data: T } | { ok: false; message: string }>, okTitle: string) =>
     void run(async () => {
@@ -146,23 +163,34 @@ export function AdminCounterfeit() {
               </p>
               <p style={{ margin: 0 }}>
                 Impact estimate: <strong>{recallImpact.holders}</strong> holder business(es),{' '}
-                <strong>{recallImpact.units}</strong> units on hand.
+                <strong>{recallImpact.units}</strong> units exposed (on hand + allocated),{' '}
+                <strong>{recallImpact.openOrders}</strong> open order(s) to adjust.
               </p>
             </div>
           ) : null
         }
         onClose={() => setRecallOpen(false)}
         onConfirm={(recallReason) =>
-          act(async () => {
+          void run(async () => {
             const res = await issueCounterfeitRecall({
               actor: user,
               platform: business,
               id: selected!.id,
               note: [note, recallReason].filter(Boolean).join(' — ') || recallReason,
             });
-            if (res.ok) setRecallOpen(false);
-            return res;
-          }, 'Recall issued')
+            if (!res.ok) {
+              pushToast({ tone: 'error', title: res.message });
+              return;
+            }
+            setRecallOpen(false);
+            setNote('');
+            const n = res.data.flaggedOrderIds.length;
+            pushToast({
+              tone: 'success',
+              title: 'Recall issued',
+              message: n ? `${n} open order(s) adjusted` : undefined,
+            });
+          })
         }
       />
 
@@ -332,26 +360,41 @@ export function AdminCounterfeit() {
 
             {selected.status === 'RecallIssued' ? (
               <div className="stack">
-                <Field label="Resolution note">
+                <Field label="Internal / resolution note">
                   <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
                 </Field>
-                <Button
-                  disabled={busy}
-                  onClick={() =>
-                    act(
-                      async () =>
-                        resolveCounterfeitReport({
-                          actor: user,
-                          platform: business,
-                          id: selected.id,
-                          note,
-                        }),
-                      'Resolved',
-                    )
-                  }
-                >
-                  Resolve
-                </Button>
+                <div className="row gap">
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      act(
+                        async () =>
+                          addCounterfeitNote({ actor: user, platform: business, id: selected.id, note }),
+                        'Note added',
+                      )
+                    }
+                  >
+                    Add note
+                  </Button>
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      act(
+                        async () =>
+                          resolveCounterfeitReport({
+                            actor: user,
+                            platform: business,
+                            id: selected.id,
+                            note,
+                          }),
+                        'Resolved',
+                      )
+                    }
+                  >
+                    Resolve
+                  </Button>
+                </div>
               </div>
             ) : null}
           </div>

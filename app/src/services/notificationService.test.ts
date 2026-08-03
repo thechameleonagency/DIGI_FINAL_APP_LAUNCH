@@ -44,6 +44,24 @@ describe('resolveNotificationLink', () => {
       ),
     ).toBe('/admin/payments/PAY-3');
   });
+
+  it('deep-links CounterfeitReport and Batch by portal', () => {
+    expect(
+      resolveNotificationLink({ entityType: 'CounterfeitReport', entityId: 'cf1', code: 'N-311' }, 'admin'),
+    ).toBe('/admin/counterfeit');
+    expect(
+      resolveNotificationLink({ entityType: 'CounterfeitReport', entityId: 'cf1', code: 'N-314' }, 'pharmacy'),
+    ).toBe('/pharmacy/counterfeit');
+    expect(
+      resolveNotificationLink({ entityType: 'Batch', entityId: 'b1', code: 'N-313' }, 'stockist'),
+    ).toBe('/stockist/inventory');
+    expect(
+      resolveNotificationLink({ entityType: 'Batch', entityId: 'b1', code: 'N-313' }, 'pharmacy'),
+    ).toBe('/pharmacy/counterfeit');
+    expect(
+      resolveNotificationLink({ entityType: 'Batch', entityId: 'b1', code: 'N-313' }, 'admin'),
+    ).toBe('/admin/counterfeit');
+  });
 });
 
 describe('notification fan-out prefs (T-1)', () => {

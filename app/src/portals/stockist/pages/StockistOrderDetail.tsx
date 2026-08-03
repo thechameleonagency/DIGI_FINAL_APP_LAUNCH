@@ -81,7 +81,7 @@ export function StockistOrderDetail() {
   if (!order) return <EmptyState title="Order not found" description="" />;
 
   const addr = order.deliveryAddress;
-  const cancellable = ['Pending', 'Accepted', 'PartiallyAccepted', 'Allocated'].includes(order.status);
+  const cancellable = ['Pending', 'Accepted', 'PartiallyAccepted', 'Allocated', 'Packed'].includes(order.status);
   const linesEditable = ['Pending', 'Accepted', 'PartiallyAccepted'].includes(order.status);
   const outstanding = pairOutstanding(pairInvoices, order.pharmacyId, business.id);
   const creditLimit = connection?.creditLimit;

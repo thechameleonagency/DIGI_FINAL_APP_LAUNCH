@@ -269,7 +269,7 @@ describe('Wave 11 — role × action matrix (UI / can alignment)', () => {
     expect(can('impersonate', sm).allow).toBe(false);
   });
 
-  it('suspended still allows read/support/verification.submit; blocks trade', () => {
+  it('suspended still allows read/support/verification.submit; blocks trade and counterfeit.report', () => {
     const ph = {
       businessType: 'Pharmacy' as const,
       role: 'Pharmacist' as const,
@@ -281,5 +281,7 @@ describe('Wave 11 — role × action matrix (UI / can alignment)', () => {
     expect(can('verification.submit', ph).allow).toBe(true);
     expect(can('order.place', ph).allow).toBe(false);
     expect(can('payment.submit', ph).allow).toBe(false);
+    expect(can('counterfeit.report', ph).allow).toBe(false);
+    expect(can('counterfeit.report', ph).reason).toMatch(/This action is blocked/);
   });
 });

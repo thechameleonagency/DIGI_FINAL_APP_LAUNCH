@@ -16,8 +16,6 @@ export const NOTIFICATION_MUTE_CATEGORIES = [
   'Announcement',
   'System',
   'UpgradeRequest',
-  'CounterfeitReport',
-  'Batch',
 ] as const;
 
 export function NotificationMutePreferences({

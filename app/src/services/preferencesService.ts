@@ -10,8 +10,13 @@ export type UiPreferences = NonNullable<User['uiPreferences']>;
 const THEME_KEY = 'ds.theme';
 const LOCAL_HINT_KEY = 'ds.localFirstHint';
 
-/** Categories that cannot be muted (action-required / account-critical). */
-export const CRITICAL_NOTIFICATION_CATEGORIES = ['Verification', 'Business'] as const;
+/** Categories that cannot be muted (action-required / account-critical). CF-30: recalls & reports. */
+export const CRITICAL_NOTIFICATION_CATEGORIES = [
+  'Verification',
+  'Business',
+  'CounterfeitReport',
+  'Batch',
+] as const;
 
 export function applyTheme(theme: ThemeMode): void {
   document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';

@@ -145,7 +145,7 @@ export function PharmacyApp() {
           <Route path="upgrade" element={<PharmacyUpgrade />} />
           <Route path="staff" element={<PharmacyStaff />} />
         </Route>
-        <Route element={<RequirePermission action="counterfeit.report" />}>
+        <Route element={<RequirePermission action="read.own" />}>
           <Route path="counterfeit" element={<PharmacyCounterfeit />} />
         </Route>
         <Route element={<RequirePermission action="order.place" />}>

@@ -6,6 +6,7 @@ import {
   needsWorldSeed,
 } from '../seed';
 import { db } from '../db';
+import { clearPersistedSession } from '../../store/session';
 import { startClock90DaysAgo } from './chronology';
 import { resetWorldCtx } from './context';
 import { seedPlatformPhase } from './phases/01-platform';
@@ -88,6 +89,7 @@ async function runWorldSeed(): Promise<void> {
 /** Clear workspace and run the full world seed pipeline. */
 export async function resetAndSeedWorld(): Promise<void> {
   if (inFlight) await inFlight;
+  clearPersistedSession();
   await clearWorkspaceForSeed();
   inFlight = runWorldSeed().finally(() => {
     inFlight = null;
@@ -97,6 +99,8 @@ export async function resetAndSeedWorld(): Promise<void> {
 
 /**
  * Seed once when worldSeedVersion is missing/outdated.
+ * Clears any leftover setup/partial data first (e.g. old SuperAdmin from /auth/setup)
+ * so phase 1 can create the cast `superadmin@digiswasthya.demo` account.
  * Safe to call from UI after paint — does not block App hydration.
  */
 export async function ensureWorldSeeded(): Promise<void> {
@@ -108,7 +112,12 @@ export async function ensureWorldSeeded(): Promise<void> {
     await inFlight;
     return;
   }
-  inFlight = runWorldSeed().finally(() => {
+  inFlight = (async () => {
+    // Wipe old platform admin / partial DB so createFirstSuperAdmin succeeds with cast creds.
+    clearPersistedSession();
+    await clearWorkspaceForSeed();
+    await runWorldSeed();
+  })().finally(() => {
     inFlight = null;
   });
   await inFlight;

@@ -177,7 +177,7 @@ export function can(action: Action, ctx: PermissionContext): { allow: boolean; r
   }
 
   if (ctx.accountStatus === 'Suspended' && !['read.own', 'read.platform', 'support.manage', 'verification.submit'].includes(action)) {
-    return { allow: false, reason: 'Business is suspended. Trade actions are blocked.' };
+    return { allow: false, reason: 'Business is suspended. This action is blocked.' };
   }
   if (ctx.accountStatus === 'Deactivated') {
     return { allow: false, reason: 'Business is deactivated.' };

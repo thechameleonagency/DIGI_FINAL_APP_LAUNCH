@@ -52,7 +52,7 @@ const order: Record<OrderStatus, OrderStatus[]> = {
   Rejected: [],
   Cancelled: [],
   Allocated: ['Packed', 'Cancelled'],
-  Packed: ['Dispatched'],
+  Packed: ['Dispatched', 'Allocated', 'Accepted', 'Cancelled'],
   Dispatched: ['Delivered', 'PartiallyDelivered', 'Packed'],
   PartiallyDelivered: ['Delivered', 'Closed'],
   Delivered: ['Closed'],
@@ -120,8 +120,8 @@ const batch: Record<BatchStatus, BatchStatus[]> = {
   Available: ['Quarantined', 'Recalled', 'Expired', 'Depleted'],
   Quarantined: ['Available', 'Recalled', 'Expired'],
   Recalled: [],
-  Expired: [],
-  Depleted: [],
+  Expired: ['Recalled'],
+  Depleted: ['Recalled'],
 };
 
 const product: Record<ProductStatus, ProductStatus[]> = {

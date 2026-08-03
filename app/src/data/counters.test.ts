@@ -43,4 +43,22 @@ describe('hydrateCounters (T-1 / F3)', () => {
     expect(getCounters()[`ORD-${y}`]).toBe(7);
     expect(nextNumber('ORD')).toBe(`ORD-${y}-0008`);
   });
+
+  it('floors CF counter from existing counterfeit report numbers', async () => {
+    const y = yearPrefix();
+    await db.counterfeitReports.put({
+      id: 'cf1',
+      reportNo: `CF-${y}-0003`,
+      reporterBusinessId: 'p',
+      description: 'Existing report for hydrate test',
+      evidenceFileIds: [],
+      status: 'Reported',
+      internalNotes: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await hydrateCounters();
+    expect(getCounters()[`CF-${y}`]).toBe(3);
+    expect(nextNumber('CF')).toBe(`CF-${y}-0004`);
+  });
 });

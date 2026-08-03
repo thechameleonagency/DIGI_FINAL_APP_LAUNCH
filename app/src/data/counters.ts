@@ -10,6 +10,7 @@ const DOC_SERIES: Array<{ prefix: string; table: keyof typeof db; field: string 
   { prefix: 'CN', table: 'creditNotes', field: 'creditNoteNo' },
   { prefix: 'TKT', table: 'supportTickets', field: 'ticketNo' },
   { prefix: 'SALE', table: 'customerSales', field: 'saleNo' },
+  { prefix: 'CF', table: 'counterfeitReports', field: 'reportNo' },
 ];
 
 /**

@@ -442,7 +442,17 @@ export async function createAndDispatchDelivery(params: {
 
   // Pre-validate consume plan (writes happen atomically with delivery create).
   for (const line of order.lines) {
-    for (const a of line.batchAllocations ?? []) {
+    const shipQty = line.packedQty ?? line.qty;
+    const allocs = line.batchAllocations ?? [];
+    if (shipQty > 0 && allocs.length === 0) {
+      return fail(
+        'BusinessRule',
+        'DEL_NO_ALLOC',
+        `Line ${line.productName} has no batch allocations — re-allocate after recall before dispatch.`,
+        'Delivery was not created.',
+      );
+    }
+    for (const a of allocs) {
       const batch = (await db.batches.get(a.batchId)) as Batch | undefined;
       if (!batch || batch.stockistId !== params.stockist.id) {
         return fail('NotFound', 'INV_BATCH', `Batch missing for ${line.productName}.`, 'Delivery was not created.');

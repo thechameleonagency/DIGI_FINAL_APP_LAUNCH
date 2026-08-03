@@ -22,6 +22,10 @@ function entityNoFromVars(vars?: Record<string, string>, entityType?: string): s
       return vars.ticketNo;
     case 'PurchaseOrder':
       return vars.poNo;
+    case 'CounterfeitReport':
+      return vars.reportNo;
+    case 'Batch':
+      return vars.batchNumber;
     default:
       return (
         vars.orderNo ||
@@ -31,6 +35,8 @@ function entityNoFromVars(vars?: Record<string, string>, entityType?: string): s
         vars.creditNoteNo ||
         vars.ticketNo ||
         vars.poNo ||
+        vars.reportNo ||
+        vars.batchNumber ||
         undefined
       );
   }

@@ -8,6 +8,8 @@ import { useBusyAction } from '../hooks/useBusyAction';
 import { FileUpload } from './FileUpload';
 import { Button, EmptyState, Field, Modal, PageHeader, Select, StatusBadge, Textarea } from './primitives';
 
+const MAX_EVIDENCE = 3;
+
 export function CounterfeitReportPage() {
   const { user, business, can } = useSession();
   const { pushToast } = useUi();
@@ -16,12 +18,17 @@ export function CounterfeitReportPage() {
   const [productId, setProductId] = useState('');
   const [batchId, setBatchId] = useState('');
   const [sellerBusinessId, setSellerBusinessId] = useState('');
-  const [evidenceFileId, setEvidenceFileId] = useState<string | undefined>();
+  const [evidenceFileIds, setEvidenceFileIds] = useState<(string | undefined)[]>([undefined]);
   const [reportOpen, setReportOpen] = useState(false);
 
   const products = useLiveQuery(() => db.products.toArray()) ?? [];
   const batches = useLiveQuery(() => db.batches.toArray()) ?? [];
   const businesses = useLiveQuery(() => db.businesses.toArray()) ?? [];
+  const connections =
+    useLiveQuery(
+      () => (business ? db.connections.filter((c) => c.status === 'Active').toArray() : []),
+      [business?.id],
+    ) ?? [];
   const mine =
     useLiveQuery(
       () =>
@@ -31,24 +38,70 @@ export function CounterfeitReportPage() {
       [business?.id],
     ) ?? [];
 
+  const connectedStockistIds = useMemo(() => {
+    if (!business || business.type !== 'Pharmacy') return new Set<string>();
+    return new Set(
+      connections.filter((c) => c.pharmacyId === business.id).map((c) => c.stockistId),
+    );
+  }, [connections, business]);
+
   const productOptions = useMemo(() => {
     if (!business) return [];
     if (business.type === 'Stockist') return products.filter((p) => p.stockistId === business.id);
-    return products;
-  }, [products, business]);
+    return products.filter((p) => connectedStockistIds.has(p.stockistId));
+  }, [products, business, connectedStockistIds]);
 
   const batchOptions = useMemo(() => {
-    if (!productId) return batches.slice(0, 50);
+    if (!productId) return [];
     return batches.filter((b) => b.productId === productId);
   }, [batches, productId]);
 
   const counterparties = useMemo(() => {
     if (!business) return [];
-    if (business.type === 'Pharmacy') return businesses.filter((b) => b.type === 'Stockist');
-    return businesses.filter((b) => b.type === 'Pharmacy');
-  }, [businesses, business]);
+    if (business.type === 'Pharmacy') {
+      return businesses.filter((b) => b.type === 'Stockist' && connectedStockistIds.has(b.id));
+    }
+    const pharmacyIds = new Set(
+      connections.filter((c) => c.stockistId === business.id).map((c) => c.pharmacyId),
+    );
+    return businesses.filter((b) => b.type === 'Pharmacy' && pharmacyIds.has(b.id));
+  }, [businesses, business, connections, connectedStockistIds]);
 
   const canReport = can('counterfeit.report');
+
+  const resetForm = () => {
+    setDescription('');
+    setProductId('');
+    setBatchId('');
+    setSellerBusinessId('');
+    setEvidenceFileIds([undefined]);
+  };
+
+  const onProductChange = (nextProductId: string) => {
+    setProductId(nextProductId);
+    setBatchId('');
+    if (nextProductId && business?.type === 'Pharmacy') {
+      const product = products.find((p) => p.id === nextProductId);
+      if (product && !sellerBusinessId) setSellerBusinessId(product.stockistId);
+    }
+  };
+
+  const onBatchChange = (nextBatchId: string) => {
+    setBatchId(nextBatchId);
+    if (!nextBatchId) return;
+    const batch = batches.find((b) => b.id === nextBatchId);
+    if (!batch) return;
+    if (!productId) setProductId(batch.productId);
+    if (!sellerBusinessId && business?.type === 'Pharmacy') setSellerBusinessId(batch.stockistId);
+  };
+
+  const setEvidenceAt = (index: number, fileId: string | undefined) => {
+    setEvidenceFileIds((prev) => {
+      const next = [...prev];
+      next[index] = fileId;
+      return next;
+    });
+  };
 
   const submit = () =>
     void run(async () => {
@@ -60,17 +113,13 @@ export function CounterfeitReportPage() {
         productId: productId || undefined,
         batchId: batchId || undefined,
         sellerBusinessId: sellerBusinessId || undefined,
-        evidenceFileIds: evidenceFileId ? [evidenceFileId] : [],
+        evidenceFileIds: evidenceFileIds.filter((id): id is string => Boolean(id)),
       });
       if (!res.ok) {
         pushToast({ tone: 'error', title: res.message });
         return;
       }
-      setDescription('');
-      setProductId('');
-      setBatchId('');
-      setSellerBusinessId('');
-      setEvidenceFileId(undefined);
+      resetForm();
       setReportOpen(false);
       pushToast({ tone: 'success', title: `Report ${res.data.reportNo} filed` });
     });
@@ -89,11 +138,7 @@ export function CounterfeitReportPage() {
             <Button
               size="sm"
               onClick={() => {
-                setDescription('');
-                setProductId('');
-                setBatchId('');
-                setSellerBusinessId('');
-                setEvidenceFileId(undefined);
+                resetForm();
                 setReportOpen(true);
               }}
             >
@@ -155,7 +200,7 @@ export function CounterfeitReportPage() {
           </Field>
           <div className="grid-2">
             <Field label="Product (optional)">
-              <Select value={productId} onChange={(e) => setProductId(e.target.value)}>
+              <Select value={productId} onChange={(e) => onProductChange(e.target.value)}>
                 <option value="">—</option>
                 {productOptions.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -165,8 +210,12 @@ export function CounterfeitReportPage() {
               </Select>
             </Field>
             <Field label="Batch (optional)">
-              <Select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
-                <option value="">—</option>
+              <Select
+                value={batchId}
+                onChange={(e) => onBatchChange(e.target.value)}
+                disabled={!productId}
+              >
+                <option value="">{productId ? '—' : 'Select a product first'}</option>
                 {batchOptions.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.batchNumber}
@@ -185,7 +234,26 @@ export function CounterfeitReportPage() {
               ))}
             </Select>
           </Field>
-          <FileUpload label="Evidence (optional)" value={evidenceFileId} onChange={setEvidenceFileId} />
+          <div className="stack">
+            {evidenceFileIds.map((fid, i) => (
+              <FileUpload
+                key={i}
+                label={i === 0 ? 'Evidence (optional)' : `Evidence ${i + 1}`}
+                value={fid}
+                onChange={(id) => setEvidenceAt(i, id)}
+              />
+            ))}
+            {evidenceFileIds.length < MAX_EVIDENCE && evidenceFileIds.some(Boolean) ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                type="button"
+                onClick={() => setEvidenceFileIds((prev) => [...prev, undefined])}
+              >
+                Add another file
+              </Button>
+            ) : null}
+          </div>
         </div>
       </Modal>
     </div>
