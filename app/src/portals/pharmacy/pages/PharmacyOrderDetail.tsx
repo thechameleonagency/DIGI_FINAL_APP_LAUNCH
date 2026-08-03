@@ -137,6 +137,8 @@ export function PharmacyOrderDetail() {
       <PageHeader
         title={order.orderNo}
         subtitle={`${stockist?.name ?? 'Stockist'} · ${order.status}${canRecordGrn ? ' · GRN pending' : order.grnRecordedAt ? ' · GRN recorded' : ''}`}
+        backTo="/pharmacy/orders"
+        backLabel="Back to orders"
         actions={
           <>
             <Button

@@ -86,6 +86,7 @@ export function AdminReturns() {
     searchKeys: [(r) => `${r.returnNo} ${r.orderNo} ${r.pharmacyName} ${r.stockistName} ${r.status}`],
     filters: [{ key: 'status', label: 'Status', options: statusOpts }],
     defaultSortKey: 'createdAt',
+    pageSize: 7,
   });
 
   return (

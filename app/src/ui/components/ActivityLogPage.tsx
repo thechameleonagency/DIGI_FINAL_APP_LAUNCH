@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AuditLog } from '../../domain/entities/types';
 import { exportOwnActivityCsv, listOwnActivity } from '../../services/activityLogService';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { useBusyAction } from '../hooks/useBusyAction';
-import { Button, EmptyState, Field, Input, PageHeader } from './primitives';
+import { DataListTable, ListToolbar, PaginationBar, useListControls } from './ListToolkit';
+import { Button, EmptyState, PageHeader } from './primitives';
 
 export function ActivityLogPage() {
   const { user, business } = useSession();
@@ -12,7 +13,6 @@ export function ActivityLogPage() {
   const { busy, run } = useBusyAction();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [action, setAction] = useState('');
   const [rows, setRows] = useState<AuditLog[]>([]);
 
   const refresh = () =>
@@ -21,7 +21,7 @@ export function ActivityLogPage() {
       const res = await listOwnActivity({
         actor: user,
         business,
-        filters: { from: from || undefined, to: to || undefined, action: action || undefined },
+        filters: { from: from || undefined, to: to || undefined },
       });
       if (!res.ok) {
         pushToast({ tone: 'error', title: res.message });
@@ -33,7 +33,44 @@ export function ActivityLogPage() {
   useEffect(() => {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, business?.id]);
+  }, [user?.id, business?.id, from, to]);
+
+  const columns = useMemo(
+    () => [
+      {
+        key: 'at',
+        label: 'When',
+        getValue: (r: AuditLog) => r.at,
+        render: (r: AuditLog) => new Date(r.at).toLocaleString(),
+      },
+      { key: 'actorName', label: 'Actor', getValue: (r: AuditLog) => r.actorName },
+      { key: 'action', label: 'Action', getValue: (r: AuditLog) => r.action },
+      {
+        key: 'target',
+        label: 'Target',
+        getValue: (r: AuditLog) => `${r.entityType} ${r.entityId}`,
+        render: (r: AuditLog) => (
+          <>
+            {r.entityType} · {r.entityId.slice(0, 8)}
+          </>
+        ),
+      },
+      {
+        key: 'reason',
+        label: 'Reason',
+        getValue: (r: AuditLog) => r.reason ?? '',
+        render: (r: AuditLog) => r.reason ?? '—',
+      },
+    ],
+    [],
+  );
+
+  const list = useListControls(rows, {
+    columns,
+    searchKeys: [(r) => `${r.actorName} ${r.action} ${r.entityType} ${r.entityId} ${r.reason ?? ''}`],
+    defaultSortKey: 'at',
+    pageSize: 7,
+  });
 
   if (!user || !business) return null;
 
@@ -43,80 +80,57 @@ export function ActivityLogPage() {
         title="Activity log"
         subtitle="Own-business audit trail only"
         actions={
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                const res = await exportOwnActivityCsv({
-                  actor: user,
-                  business,
-                  filters: { from: from || undefined, to: to || undefined, action: action || undefined },
-                });
-                if (!res.ok) {
-                  pushToast({ tone: 'error', title: res.message });
-                  return;
-                }
-                const blob = new Blob([res.data.csv], { type: 'text/csv;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = res.data.filename;
-                a.click();
-                URL.revokeObjectURL(url);
-                pushToast({ tone: 'success', title: 'Activity exported' });
-              })
-            }
-          >
-            Export CSV
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void refresh()}>
+            {busy ? 'Refreshing…' : 'Refresh'}
           </Button>
         }
       />
-      <div className="card card-pad grid-3">
-        <Field label="From">
-          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </Field>
-        <Field label="To">
-          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </Field>
-        <Field label="Action contains">
-          <Input value={action} onChange={(e) => setAction(e.target.value)} placeholder="e.g. order." />
-        </Field>
-      </div>
-      <Button type="button" onClick={() => void refresh()} disabled={busy}>
-        Refresh
-      </Button>
+      <ListToolbar
+        query={list.query}
+        onQuery={list.setQuery}
+        placeholder="Search actor / action / target / reason"
+        dateRange={{
+          from,
+          to,
+          onFrom: setFrom,
+          onTo: setTo,
+        }}
+        onExport={() =>
+          void run(async () => {
+            const res = await exportOwnActivityCsv({
+              actor: user,
+              business,
+              filters: { from: from || undefined, to: to || undefined },
+            });
+            if (!res.ok) {
+              pushToast({ tone: 'error', title: res.message });
+              return;
+            }
+            const blob = new Blob([res.data.csv], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = res.data.filename;
+            a.click();
+            URL.revokeObjectURL(url);
+            pushToast({ tone: 'success', title: 'Activity exported' });
+          })
+        }
+      />
       {!rows.length ? (
         <EmptyState title="No activity" description="Actions for this business appear here as they are audited." />
       ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Actor</th>
-                <th>Action</th>
-                <th>Target</th>
-                <th>Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td>{new Date(r.at).toLocaleString()}</td>
-                  <td>{r.actorName}</td>
-                  <td>{r.action}</td>
-                  <td>
-                    {r.entityType} · {r.entityId.slice(0, 8)}
-                  </td>
-                  <td>{r.reason ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <DataListTable
+            columns={columns}
+            loading={busy && !rows.length}
+            rows={list.pageRows}
+            sortKey={list.sortKey}
+            sortDir={list.sortDir}
+            onSort={list.toggleSort}
+          />
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        </>
       )}
     </div>
   );

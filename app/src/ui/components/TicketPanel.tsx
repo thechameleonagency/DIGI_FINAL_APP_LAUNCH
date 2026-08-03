@@ -96,11 +96,8 @@ export function TicketPanel({
         <PageHeader
           title={`${detail.ticketNo}: ${detail.subject}`}
           subtitle={`${detail.category} · ${detail.priority}`}
-          actions={
-            <Link className="btn btn-secondary btn-sm" to={basePath}>
-              Back
-            </Link>
-          }
+          backTo={basePath}
+          backLabel="Back to support"
         />
         <div className="row" style={{ gap: 8 }}>
           <StatusBadge status={detail.status} />

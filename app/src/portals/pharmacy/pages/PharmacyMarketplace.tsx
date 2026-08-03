@@ -10,6 +10,7 @@ import { isFavouritePinned } from '../../../services/favouriteService';
 import { priceForPlatformPharmacy } from '../../../services/pricingService';
 import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
+import { PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
 import { Button, EmptyState, Field, Input, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -88,6 +89,7 @@ export function PharmacyMarketplace({ embedded = false }: { embedded?: boolean }
       });
   }, [products, stockistById, activeCat, category, brand, city, q, connections, batches, favourites]);
 
+  const list = usePagedRows(rows, 7, `${q}|${category}|${brand}|${city}`);
   const categories = ['All', ...new Set(products.map((p) => p.category).filter(Boolean))].sort();
   const brands = ['All', ...new Set(products.map((p) => p.brand).filter(Boolean))].sort();
   const cities = ['All', ...new Set(stockists.map((s) => s.city).filter(Boolean))].sort();
@@ -145,135 +147,138 @@ export function PharmacyMarketplace({ embedded = false }: { embedded?: boolean }
           description="Approved stockists with Active catalogues will appear here. Prices stay gated until you connect."
         />
       ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Seller</th>
-                <th>Availability</th>
-                <th>Price / MOQ</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ p, s, conn, active, band }) => (
-                <tr key={p.id}>
-                  <td>
-                    <Link to={`/pharmacy/product/${p.id}`}>{p.name}</Link>
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      {p.brand} · {p.sku} · {p.packSize}
-                    </div>
-                  </td>
-                  <td>
-                    <Link to={`/pharmacy/stockists/${s.id}`}>{s.name}</Link>
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      {s.city}
-                    </div>
-                    {conn ? <StatusBadge status={conn.status} /> : <StatusBadge status="Disconnected" />}
-                  </td>
-                  <td>{band}</td>
-                  <td>
-                    {active ? (
-                      <>
-                        <div>{formatINR(priceForPlatformPharmacy(p, settings).unitPrice)}</div>
-                        <div className="muted" style={{ fontSize: 12 }}>
-                          MOQ {p.moq}
-                        </div>
-                      </>
-                    ) : (
-                      <span className="muted">Connect to see price</span>
-                    )}
-                  </td>
-                  <td>
-                    {active ? (
-                      canOrder ? (
-                        <div className="row" style={{ alignItems: 'center' }}>
-                          <Input
-                            type="number"
-                            style={{ width: 72 }}
-                            min={p.moq}
-                            value={qtys[p.id] ?? p.moq}
-                            onChange={(e) => setQtys((prev) => ({ ...prev, [p.id]: Number(e.target.value) }))}
-                          />
-                          <Button
-                            size="sm"
-                            disabled={!!pendingIds[p.id]}
-                            onClick={() => {
-                              setPendingIds((prev) => ({ ...prev, [p.id]: true }));
-                              void (async () => {
-                                const res = await setCartLine({
-                                  actor: user,
-                                  pharmacy: business,
-                                  stockistId: s.id,
-                                  productId: p.id,
-                                  qty: qtys[p.id] ?? p.moq,
-                                });
-                                pushToast(
-                                  res.ok
-                                    ? { tone: 'success', title: 'Added to cart' }
-                                    : { tone: 'error', title: res.message },
-                                );
-                                setPendingIds((prev) => {
-                                  const next = { ...prev };
-                                  delete next[p.id];
-                                  return next;
-                                });
-                              })();
-                            }}
-                          >
-                            {pendingIds[p.id] ? '…' : 'Add'}
-                          </Button>
-                        </div>
+        <>
+          <div className="table-wrap queue-responsive">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Seller</th>
+                  <th>Availability</th>
+                  <th>Price / MOQ</th>
+                  <th className="col-actions">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.pageRows.map(({ p, s, conn, active, band }) => (
+                  <tr key={p.id}>
+                    <td data-label="Product">
+                      <Link to={`/pharmacy/product/${p.id}`}>{p.name}</Link>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {p.brand} · {p.sku} · {p.packSize}
+                      </div>
+                    </td>
+                    <td data-label="Seller">
+                      <Link to={`/pharmacy/stockists/${s.id}`}>{s.name}</Link>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {s.city}
+                      </div>
+                      {conn ? <StatusBadge status={conn.status} /> : <StatusBadge status="Disconnected" />}
+                    </td>
+                    <td data-label="Availability">{band}</td>
+                    <td data-label="Price / MOQ">
+                      {active ? (
+                        <>
+                          <div>{formatINR(priceForPlatformPharmacy(p, settings).unitPrice)}</div>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            MOQ {p.moq}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="muted">Connect to see price</span>
+                      )}
+                    </td>
+                    <td className="col-actions" data-label="Action">
+                      {active ? (
+                        canOrder ? (
+                          <div className="table-row-actions">
+                            <Input
+                              type="number"
+                              style={{ width: 72 }}
+                              min={p.moq}
+                              value={qtys[p.id] ?? p.moq}
+                              onChange={(e) => setQtys((prev) => ({ ...prev, [p.id]: Number(e.target.value) }))}
+                            />
+                            <Button
+                              size="sm"
+                              disabled={!!pendingIds[p.id]}
+                              onClick={() => {
+                                setPendingIds((prev) => ({ ...prev, [p.id]: true }));
+                                void (async () => {
+                                  const res = await setCartLine({
+                                    actor: user,
+                                    pharmacy: business,
+                                    stockistId: s.id,
+                                    productId: p.id,
+                                    qty: qtys[p.id] ?? p.moq,
+                                  });
+                                  pushToast(
+                                    res.ok
+                                      ? { tone: 'success', title: 'Added to cart' }
+                                      : { tone: 'error', title: res.message },
+                                  );
+                                  setPendingIds((prev) => {
+                                    const next = { ...prev };
+                                    delete next[p.id];
+                                    return next;
+                                  });
+                                })();
+                              }}
+                            >
+                              {pendingIds[p.id] ? '…' : 'Add'}
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="muted" style={{ fontSize: 12 }}>
+                            View only
+                          </span>
+                        )
+                      ) : conn?.status === 'Requested' ? (
+                        <span className="muted" style={{ fontSize: 12 }}>
+                          Request pending
+                        </span>
+                      ) : canConnect ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={!!pendingIds[`conn-${s.id}`]}
+                          onClick={() => {
+                            const key = `conn-${s.id}`;
+                            setPendingIds((prev) => ({ ...prev, [key]: true }));
+                            void (async () => {
+                              const res = await requestConnection({
+                                actor: user,
+                                pharmacy: business,
+                                stockistId: s.id,
+                              });
+                              pushToast(
+                                res.ok
+                                  ? { tone: 'success', title: 'Connection requested' }
+                                  : { tone: 'error', title: res.message },
+                              );
+                              setPendingIds((prev) => {
+                                const next = { ...prev };
+                                delete next[key];
+                                return next;
+                              });
+                            })();
+                          }}
+                        >
+                          Request connection to see price and order
+                        </Button>
                       ) : (
                         <span className="muted" style={{ fontSize: 12 }}>
-                          View only
+                          Connect required
                         </span>
-                      )
-                    ) : conn?.status === 'Requested' ? (
-                      <span className="muted" style={{ fontSize: 12 }}>
-                        Request pending
-                      </span>
-                    ) : canConnect ? (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={!!pendingIds[`conn-${s.id}`]}
-                        onClick={() => {
-                          const key = `conn-${s.id}`;
-                          setPendingIds((prev) => ({ ...prev, [key]: true }));
-                          void (async () => {
-                            const res = await requestConnection({
-                              actor: user,
-                              pharmacy: business,
-                              stockistId: s.id,
-                            });
-                            pushToast(
-                              res.ok
-                                ? { tone: 'success', title: 'Connection requested' }
-                                : { tone: 'error', title: res.message },
-                            );
-                            setPendingIds((prev) => {
-                              const next = { ...prev };
-                              delete next[key];
-                              return next;
-                            });
-                          })();
-                        }}
-                      >
-                        Request connection to see price and order
-                      </Button>
-                    ) : (
-                      <span className="muted" style={{ fontSize: 12 }}>
-                        Connect required
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        </>
       )}
     </div>
   );

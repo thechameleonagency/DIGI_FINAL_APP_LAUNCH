@@ -85,6 +85,7 @@ export function AdminSupport() {
     ],
     defaultSortKey: 'updatedAt',
     initialFilters: statusFromUrl ? { status: statusFromUrl } : undefined,
+    pageSize: 7,
   });
 
   const detail = id ? tickets.find((t) => t.id === id) : undefined;
@@ -108,7 +109,7 @@ export function AdminSupport() {
     if (!detail) {
       return (
         <div className="stack">
-          <PageHeader title="Ticket detail" />
+          <PageHeader title="Ticket detail" backTo="/admin/support" backLabel="Back to support" />
           <EmptyState
             title="Ticket not found"
             description="Return to the support console."
@@ -147,11 +148,8 @@ export function AdminSupport() {
         <PageHeader
           title={`${detail.ticketNo}: ${detail.subject}`}
           subtitle={`${detailBiz?.name ?? 'Business'} · ${detail.category}`}
-          actions={
-            <Link className="btn btn-secondary btn-sm" to="/admin/support">
-              Back to queue
-            </Link>
-          }
+          backTo="/admin/support"
+          backLabel="Back to queue"
         />
         <div className="row" style={{ gap: 8 }}>
           <StatusBadge status={detail.status} />

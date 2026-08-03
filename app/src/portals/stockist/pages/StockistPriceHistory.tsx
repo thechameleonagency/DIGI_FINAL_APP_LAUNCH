@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { formatINR } from '../../../domain/utils/money';
+import { PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
 import { EmptyState, Field, Input, PageHeader, Select } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -35,6 +36,7 @@ export function StockistPriceHistory() {
       }),
     [changes, productId, dateFrom, dateTo],
   );
+  const list = usePagedRows(filtered, 7, `${productId}|${dateFrom}|${dateTo}`);
 
   return (
     <div className="stack">
@@ -68,40 +70,45 @@ export function StockistPriceHistory() {
       {!filtered.length ? (
         <EmptyState title="No price changes yet" description="Edit a product price or run bulk price update to build this trail." />
       ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Product</th>
-                <th>PTR</th>
-                <th>MRP</th>
-                <th>Source</th>
-                <th>By</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => (
-                <tr key={c.id}>
-                  <td className="muted">{new Date(c.at).toLocaleString()}</td>
-                  <td>
-                    <Link to={`/stockist/catalogue?highlight=${c.productId}`}>{nameOf(c.productId)}</Link>
-                  </td>
-                  <td>
-                    {formatINR(c.oldPtr)} → {formatINR(c.newPtr)}
-                  </td>
-                  <td>
-                    {c.oldMrp != null || c.newMrp != null
-                      ? `${formatINR(c.oldMrp ?? 0)} → ${formatINR(c.newMrp ?? 0)}`
-                      : '—'}
-                  </td>
-                  <td>{c.source}</td>
-                  <td>{actorName(c.actorId)}</td>
+        <>
+          <div className="table-wrap queue-responsive">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Product</th>
+                  <th>PTR</th>
+                  <th>MRP</th>
+                  <th>Source</th>
+                  <th>By</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {list.pageRows.map((c) => (
+                  <tr key={c.id}>
+                    <td className="muted" data-label="When">
+                      {new Date(c.at).toLocaleString()}
+                    </td>
+                    <td data-label="Product">
+                      <Link to={`/stockist/catalogue?highlight=${c.productId}`}>{nameOf(c.productId)}</Link>
+                    </td>
+                    <td data-label="PTR">
+                      {formatINR(c.oldPtr)} → {formatINR(c.newPtr)}
+                    </td>
+                    <td data-label="MRP">
+                      {c.oldMrp != null || c.newMrp != null
+                        ? `${formatINR(c.oldMrp ?? 0)} → ${formatINR(c.newMrp ?? 0)}`
+                        : '—'}
+                    </td>
+                    <td data-label="Source">{c.source}</td>
+                    <td data-label="By">{actorName(c.actorId)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        </>
       )}
     </div>
   );

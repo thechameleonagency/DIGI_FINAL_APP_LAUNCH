@@ -57,6 +57,8 @@ export function StockistManagedPharmacyDetail() {
       <PageHeader
         title={managed.name}
         subtitle={`${managed.phone}${managed.city ? ` · ${managed.city}` : ''}`}
+        backTo="/stockist/pharmacies"
+        backLabel="Back to pharmacies"
         actions={<StatusBadge status={managed.status} />}
       />
       <div className="card card-pad stack">

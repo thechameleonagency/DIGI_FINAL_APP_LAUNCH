@@ -67,6 +67,8 @@ export function PharmacyPaymentDetail() {
       <PageHeader
         title={payment.paymentNo}
         subtitle={`${stockist?.name ?? 'Stockist'} · ${payment.method}`}
+        backTo="/pharmacy/payments"
+        backLabel="Back to payments"
         actions={
           <div className="row">
             {canWithdraw ? (
@@ -79,9 +81,6 @@ export function PharmacyPaymentDetail() {
               to={`/pharmacy/support?new=1&entityType=Payment&entityId=${encodeURIComponent(payment.id)}&entityNo=${encodeURIComponent(payment.paymentNo)}`}
             >
               Get help with this payment
-            </Link>
-            <Link className="btn btn-secondary btn-sm" to="/pharmacy/payments?tab=History">
-              Back to history
             </Link>
           </div>
         }

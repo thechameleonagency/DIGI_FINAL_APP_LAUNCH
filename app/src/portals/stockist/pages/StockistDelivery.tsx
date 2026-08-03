@@ -22,7 +22,7 @@ import { FileLink, FileUpload } from '../../../ui/components/FileUpload';
 import { ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
 import { PharmacyDeliveryPrefs } from '../../../ui/components/PharmacyDeliveryPrefs';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
-import { Button, EmptyState, Field, Input, LoadingState, Modal, PageHeader, Select, StatusBadge, Tabs } from '../../../ui/components/primitives';
+import { Button, DeleteButton, EmptyState, Field, Input, LoadingState, Modal, PageHeader, Select, StatusBadge, Tabs } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 export function StockistDelivery() {
@@ -420,9 +420,9 @@ export function StockistDelivery() {
                   >
                     Assign stops
                   </Button>
-                  <Button size="sm" variant="danger" onClick={() => setDeleteRouteId(r.id)}>
+                  <DeleteButton size="sm" onClick={() => setDeleteRouteId(r.id)}>
                     Delete
-                  </Button>
+                  </DeleteButton>
                 </div>
               </div>
             ))
@@ -601,49 +601,56 @@ export function StockistDelivery() {
                     {!d.assignedTo ? <div className="muted">Unassigned — cannot execute</div> : null}
                     {d.scheduledDate ? <div className="muted">Scheduled {d.scheduledDate}</div> : null}
                   </div>
-                  {addrText ? (
-                    <a className="btn btn-secondary btn-sm" href={mapsDeepLink(addrText)} target="_blank" rel="noreferrer">
-                      Open in maps
-                    </a>
-                  ) : null}
-                  <div className="row">
-                    {d.status === 'Assigned' ? (
-                      <Button
-                        size="sm"
-                        disabled={!d.assignedTo}
-                        onClick={async () => {
-                          const res = await updateDeliveryStatus({
-                            actor: user,
-                            stockist: business,
-                            deliveryId: d.id,
-                            status: 'OutForDelivery',
-                          });
-                          pushToast(
-                            res.ok ? { tone: 'success', title: 'Out for delivery' } : { tone: 'error', title: res.message },
-                          );
-                        }}
-                      >
-                        Start
-                      </Button>
-                    ) : null}
-                    {d.status === 'OutForDelivery' ? (
-                      <>
+                  {addrText || d.status === 'Assigned' || d.status === 'OutForDelivery' ? (
+                    <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                      {addrText ? (
+                        <a
+                          className="btn btn-secondary btn-sm"
+                          href={mapsDeepLink(addrText)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open in maps
+                        </a>
+                      ) : null}
+                      {d.status === 'Assigned' ? (
                         <Button
                           size="sm"
-                          onClick={() => {
-                            setDeliverId(d.id);
-                            setPodFileId(d.podFileId);
-                            setReceivedBy(d.receivedBy ?? '');
+                          disabled={!d.assignedTo}
+                          onClick={async () => {
+                            const res = await updateDeliveryStatus({
+                              actor: user,
+                              stockist: business,
+                              deliveryId: d.id,
+                              status: 'OutForDelivery',
+                            });
+                            pushToast(
+                              res.ok ? { tone: 'success', title: 'Out for delivery' } : { tone: 'error', title: res.message },
+                            );
                           }}
                         >
-                          Delivered
+                          Start
                         </Button>
-                        <Button size="sm" variant="danger" onClick={() => setFailId(d.id)}>
-                          Failed
-                        </Button>
-                      </>
-                    ) : null}
-                  </div>
+                      ) : null}
+                      {d.status === 'OutForDelivery' ? (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setDeliverId(d.id);
+                              setPodFileId(d.podFileId);
+                              setReceivedBy(d.receivedBy ?? '');
+                            }}
+                          >
+                            Delivered
+                          </Button>
+                          <Button size="sm" variant="danger" onClick={() => setFailId(d.id)}>
+                            Failed
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               );
             })

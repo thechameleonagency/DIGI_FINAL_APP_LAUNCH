@@ -11,7 +11,7 @@ import {
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
+import { Button, DeleteButton, EmptyState, Field, Input, Modal, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type FormState = {
@@ -159,9 +159,9 @@ export function AdminAnnouncements() {
                   Unpublish
                 </Button>
               ) : null}
-              <Button size="sm" variant="danger" onClick={() => setDeleteId(a.id)}>
+              <DeleteButton size="sm" onClick={() => setDeleteId(a.id)}>
                 Delete
-              </Button>
+              </DeleteButton>
             </div>
           </div>
         ))

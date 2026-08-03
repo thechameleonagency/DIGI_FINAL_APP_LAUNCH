@@ -16,7 +16,7 @@ import { PaginationBar } from './ListToolkit';
 import { NotificationMutePreferences } from './NotificationMutePreferences';
 import { Button, EmptyState, LoadingState, PageHeader, Select, StatusBadge } from './primitives';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 7;
 
 function dayHeading(iso: string): string {
   const d = new Date(iso);
@@ -64,11 +64,11 @@ export function NotificationsPage({ portal }: { portal: 'pharmacy' | 'stockist' 
         title="Notifications"
         subtitle="Per-item read, filters, deep links, category mute preferences"
         actions={
-          <div className="row">
+          <div className="page-header-controls">
             <Select
+              className="select-sm"
               value={filter}
               onChange={(e) => setFilter(e.target.value as typeof filter)}
-              style={{ maxWidth: 140 }}
               aria-label="Filter notifications"
             >
               <option value="All">All</option>
@@ -113,7 +113,7 @@ export function NotificationsPage({ portal }: { portal: 'pharmacy' | 'stockist' 
                     {heading}
                   </div>
                 ) : null}
-                <div className="card card-pad stack">
+                <div className="card card-pad stack notification-item">
                   <button
                     type="button"
                     style={{
@@ -133,17 +133,17 @@ export function NotificationsPage({ portal }: { portal: 'pharmacy' | 'stockist' 
                       navigate(resolveNotificationLink(n, portal));
                     }}
                   >
-                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
                       <strong>{n.title}</strong>
                       <StatusBadge status={n.status} />
                     </div>
                     <div style={{ fontSize: 13.5, marginTop: 4 }}>{n.body}</div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
                       {new Date(n.createdAt).toLocaleString()}
                       {n.entityType ? ` · ${entityTypeLabel(n.entityType)}` : ''}
                     </div>
                   </button>
-                  <div className="row">
+                  <div className="row notification-item-actions">
                     {n.status !== 'Read' && n.status !== 'Archived' ? (
                       <Button size="sm" variant="secondary" onClick={() => void markRead(n.id, user.id)}>
                         Mark read

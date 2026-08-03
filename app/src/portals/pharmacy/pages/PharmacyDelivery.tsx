@@ -16,7 +16,7 @@ import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
-import { Button, EmptyState, Field, Input, LoadingState, Modal, PageHeader, Select, StatusBadge, Tabs } from '../../../ui/components/primitives';
+import { Button, DeleteButton, EmptyState, Field, Input, LoadingState, Modal, PageHeader, Select, StatusBadge, Tabs } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type Tab = 'areas' | 'routes' | 'board';
@@ -145,14 +145,13 @@ export function PharmacyDelivery() {
                   </div>
                 </div>
                 {canManage ? (
-                  <Button
+                  <DeleteButton
                     size="sm"
-                    variant="danger"
                     disabled={busy}
                     onClick={() => setDeleteAreaId(a.id)}
                   >
                     Delete
-                  </Button>
+                  </DeleteButton>
                 ) : null}
               </div>
             ))
@@ -248,9 +247,9 @@ export function PharmacyDelivery() {
                       </div>
                     </div>
                     {canManage ? (
-                      <Button size="sm" variant="danger" onClick={() => setDeleteRouteId(r.id)}>
+                      <DeleteButton size="sm" onClick={() => setDeleteRouteId(r.id)}>
                         Delete
-                      </Button>
+                      </DeleteButton>
                     ) : null}
                   </div>
                 </div>

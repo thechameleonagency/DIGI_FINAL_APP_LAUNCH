@@ -9,10 +9,13 @@ export function ProfileMenu({
   profilePath,
   settingsPath,
   helpPath,
+  variant = 'menu',
 }: {
   profilePath: string;
   settingsPath: string;
   helpPath: string;
+  /** `header` = MSS-style identity + Logout button. */
+  variant?: 'menu' | 'header';
 }) {
   const { user, business, clearSession } = useSession();
   const [open, setOpen] = useState(false);
@@ -29,6 +32,87 @@ export function ProfileMenu({
   }, [open]);
 
   if (!user || !business) return null;
+
+  const initials = user.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('');
+
+  if (variant === 'header') {
+    return (
+      <div ref={root} className="topbar-profile">
+        <button
+          type="button"
+          className="topbar-identity"
+          aria-label="Open profile menu"
+          aria-haspopup="true"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setOpen(false);
+          }}
+        >
+          <span className="topbar-identity-text">
+            <span className="topbar-identity-primary">{user.name}</span>
+            <span className="topbar-identity-secondary">
+              {user.role} · {business.name}
+            </span>
+          </span>
+          <span className="topbar-avatar" aria-hidden>
+            {initials || <User size={14} />}
+          </span>
+        </button>
+        {open ? (
+          <div className="topbar-profile-menu card card-pad">
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{user.name}</div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+              {user.role} · {business.name}
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+              {business.accountStatus === 'Suspended' ? <span className="badge badge-danger">Suspended</span> : null}
+              {business.plan === 'Premium' ? <span className="badge badge-success">Premium</span> : null}
+              {business.verificationStatus !== 'Approved' && business.type !== 'Platform' ? (
+                <span className="badge badge-warning">{business.verificationStatus}</span>
+              ) : null}
+            </div>
+            <div className="stack" style={{ gap: 4 }}>
+              <Link className="btn btn-ghost btn-sm" style={{ justifyContent: 'flex-start' }} to={profilePath} onClick={() => setOpen(false)}>
+                <User size={14} /> Profile
+              </Link>
+              <Link className="btn btn-ghost btn-sm" style={{ justifyContent: 'flex-start' }} to={settingsPath} onClick={() => setOpen(false)}>
+                <Settings size={14} /> Settings
+              </Link>
+              <Link className="btn btn-ghost btn-sm" style={{ justifyContent: 'flex-start' }} to={helpPath} onClick={() => setOpen(false)}>
+                <LifeBuoy size={14} /> Help
+              </Link>
+            </div>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm topbar-logout"
+          onClick={() => setSignOutOpen(true)}
+        >
+          <LogOut size={14} />
+          Logout
+        </button>
+        <ConfirmDialog
+          open={signOutOpen}
+          title="Sign out?"
+          body={`Sign out ${user.name} from ${business.name}?`}
+          confirmLabel="Sign out"
+          tone="danger"
+          onClose={() => setSignOutOpen(false)}
+          onConfirm={() => {
+            setSignOutOpen(false);
+            signOutToLogin(clearSession);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div ref={root} style={{ position: 'relative' }}>

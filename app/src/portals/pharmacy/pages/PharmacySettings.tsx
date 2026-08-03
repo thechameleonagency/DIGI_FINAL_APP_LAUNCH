@@ -11,6 +11,7 @@ export function PharmacySettings() {
         {
           title: 'Account',
           items: [
+            { to: '/pharmacy/appearance', title: 'Appearance', description: 'Theme and accent color' },
             { to: '/pharmacy/profile', title: 'Profile & preferences', description: 'Security and personal settings' },
             { to: '/pharmacy/notifications', title: 'Notifications', description: 'Inbox and alert history' },
             { to: '/pharmacy/delivery', title: 'Delivery board', description: 'Assigned customer delivery routes' },
@@ -56,6 +57,7 @@ export function PharmacySettings() {
         {
           title: 'Account',
           items: [
+            { to: '/pharmacy/appearance', title: 'Appearance', description: 'Theme and accent color' },
             { to: '/pharmacy/profile', title: 'Profile & preferences', description: 'Security and personal settings' },
             { to: '/pharmacy/notifications', title: 'Notifications', description: 'Inbox and alert history' },
           ],
@@ -71,7 +73,7 @@ export function PharmacySettings() {
 
   return (
     <div className="stack">
-      <PageHeader title="More" subtitle={isDeliveryStaff ? 'Delivery workspace shortcuts' : 'Account, shopping, and workspace shortcuts'} />
+      <PageHeader title="Settings & data" subtitle={isDeliveryStaff ? 'Delivery workspace shortcuts' : 'Account, shopping, and workspace shortcuts'} />
       <MoreHub sections={sections} />
       <p className="muted" style={{ fontSize: 13 }}>
         Demo OTP for password reset: 123456.

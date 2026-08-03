@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button, Field, Input, Modal, Textarea } from './primitives';
+import { Button, DeleteButton, Field, Input, Modal, Textarea } from './primitives';
 
 export type ConfirmDialogProps = {
   open: boolean;
@@ -70,6 +70,19 @@ export function ConfirmDialog({
   const reasonOk = !requireReason || reason.trim().length > 0;
   const passwordOk = !requirePassword || password.length > 0;
   const canConfirm = phraseOk && reasonOk && passwordOk;
+  const isDeleteConfirm = /^(Delete|Wipe)\b/i.test(confirmLabel);
+
+  const runConfirm = async () => {
+    setBusy(true);
+    try {
+      await onConfirm(
+        requireReason ? reason.trim() : undefined,
+        requirePassword ? password : undefined,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Modal
@@ -82,23 +95,19 @@ export function ConfirmDialog({
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             {cancelLabel}
           </Button>
-          <Button
-            variant={tone === 'danger' ? 'danger' : 'primary'}
-            disabled={!canConfirm || busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await onConfirm(
-                  requireReason ? reason.trim() : undefined,
-                  requirePassword ? password : undefined,
-                );
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? 'Working…' : confirmLabel}
-          </Button>
+          {isDeleteConfirm ? (
+            <DeleteButton disabled={!canConfirm || busy} onClick={() => void runConfirm()}>
+              {busy ? 'Working…' : confirmLabel}
+            </DeleteButton>
+          ) : (
+            <Button
+              variant={tone === 'danger' ? 'danger' : 'primary'}
+              disabled={!canConfirm || busy}
+              onClick={() => void runConfirm()}
+            >
+              {busy ? 'Working…' : confirmLabel}
+            </Button>
+          )}
         </div>
       }
     >

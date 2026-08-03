@@ -16,7 +16,7 @@ import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { MoreHub } from '../../../ui/components/MoreHub';
-import { Button, Field, Input, Modal, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
+import { Button, DeleteButton, Field, Input, Modal, PageHeader, Select, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type Draft = Omit<PlatformSettings, 'id' | 'lastPolicyRunAt' | 'premiumPlan'>;
@@ -89,47 +89,8 @@ export function AdminSettings() {
   return (
     <div className="stack">
       <PageHeader title="Settings" subtitle="Platform hub and policy settings" />
-      <MoreHub
-        sections={[
-          {
-            title: 'Finance',
-            items: [
-              { to: '/admin/payments', title: 'Payments', description: 'Read-only payments monitor across counterparties' },
-              { to: '/admin/reports', title: 'Reports', description: 'GMV and trade-commission exports' },
-              { to: '/admin/plans', title: 'Premium plans', description: 'Upgrade requests and plan config' },
-            ],
-          },
-          {
-            title: 'Trust',
-            items: [
-              { to: '/admin/verifications', title: 'Verifications', description: 'KYC / document review queue' },
-              { to: '/admin/counterfeit', title: 'Counterfeit', description: 'Suspect batch reports' },
-              { to: '/admin/suspensions', title: 'Suspensions', description: 'Account suspensions and reactivation' },
-              { to: '/admin/audit', title: 'Audit log', description: 'Platform audit export' },
-            ],
-          },
-          {
-            title: 'Content',
-            items: [
-              { to: '/admin/announcements', title: 'Announcements', description: 'Broadcast messages' },
-              { to: '/admin/banners', title: 'Banners', description: 'Portal banner strips' },
-              { to: '/admin/help', title: 'Help Center', description: 'Admin help content' },
-            ],
-          },
-          {
-            title: 'Platform',
-            items: [
-              { to: '/admin/analytics', title: 'Analytics', description: 'Platform KPIs' },
-              { to: '/admin/network', title: 'Network', description: 'Business directory and view-as' },
-              { to: '/admin/staff', title: 'Staff', description: 'Admin team roles' },
-              { to: '/admin/profile', title: 'Profile', description: 'Your admin profile' },
-              { to: '/admin/notifications', title: 'Notifications', description: 'Inbox' },
-            ],
-          },
-        ]}
-      />
 
-      <div style={{ marginTop: 8 }}>
+      <div>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Platform settings</h2>
         <p className="muted" style={{ margin: '4px 0 0', fontSize: 13.5 }}>
           Last policy run:{' '}
@@ -299,12 +260,58 @@ export function AdminSettings() {
             Import workspace
           </Button>
           {isSuperAdmin ? (
-            <Button variant="danger" onClick={() => setRebuildOpen(true)}>
+            <DeleteButton onClick={() => setRebuildOpen(true)}>
               Rebuild demo world
-            </Button>
+            </DeleteButton>
           ) : null}
         </div>
       </div>
+
+      <MoreHub
+        sections={[
+          {
+            title: 'Finance',
+            items: [
+              { to: '/admin/payments', title: 'Payments', description: 'Read-only payments monitor across counterparties' },
+              { to: '/admin/reports', title: 'Reports', description: 'GMV and trade-commission exports' },
+              { to: '/admin/plans', title: 'Premium plans', description: 'Upgrade requests and plan config' },
+            ],
+          },
+          {
+            title: 'Trust',
+            items: [
+              { to: '/admin/verifications', title: 'Verifications', description: 'KYC / document review queue' },
+              { to: '/admin/counterfeit', title: 'Counterfeit', description: 'Suspect batch reports' },
+              { to: '/admin/suspensions', title: 'Suspensions', description: 'Account suspensions and reactivation' },
+              { to: '/admin/audit', title: 'Audit log', description: 'Platform audit export' },
+            ],
+          },
+          {
+            title: 'Content',
+            items: [
+              { to: '/admin/announcements', title: 'Announcements', description: 'Broadcast messages' },
+              { to: '/admin/banners', title: 'Banners', description: 'Portal banner strips' },
+              { to: '/admin/help', title: 'Help Center', description: 'Admin help content' },
+            ],
+          },
+          {
+            title: 'Account',
+            items: [
+              { to: '/admin/appearance', title: 'Appearance', description: 'Theme and accent color' },
+              { to: '/admin/profile', title: 'Profile', description: 'Your admin profile' },
+              { to: '/admin/notifications', title: 'Notifications', description: 'Inbox' },
+            ],
+          },
+          {
+            title: 'Platform',
+            items: [
+              { to: '/admin/analytics', title: 'Analytics', description: 'Platform KPIs' },
+              { to: '/admin/network', title: 'Network', description: 'Business directory and view-as' },
+              { to: '/admin/staff', title: 'Staff', description: 'Admin team roles' },
+            ],
+          },
+        ]}
+      />
 
       <ConfirmDialog
         open={rebuildOpen}

@@ -100,6 +100,7 @@ export function AdminPayments() {
     searchKeys: [(p) => `${p.paymentNo} ${p.reference ?? ''} ${p.status} ${p.pharmacyName} ${p.stockistName}`],
     filters: [{ key: 'status', label: 'Status', options: statusOpts }],
     defaultSortKey: 'paymentNo',
+    pageSize: 7,
   });
 
   if (paymentNo) {
@@ -108,7 +109,7 @@ export function AdminPayments() {
     if (!payment) {
       return (
         <div className="stack">
-          <PageHeader title="Payment detail" />
+          <PageHeader title="Payment detail" backTo="/admin/payments" backLabel="Back to payments" />
           <EmptyState
             title="Payment not found"
             description="Return to the payments monitor."
@@ -126,11 +127,8 @@ export function AdminPayments() {
         <PageHeader
           title={payment.paymentNo}
           subtitle={`${nameOf(payment.pharmacyId)} → ${nameOf(payment.stockistId)} · read-only`}
-          actions={
-            <Link className="btn btn-secondary btn-sm" to="/admin/payments">
-              Back to payments
-            </Link>
-          }
+          backTo="/admin/payments"
+          backLabel="Back to payments"
         />
         <div className="row" style={{ gap: 8 }}>
           <StatusBadge status={payment.status} />

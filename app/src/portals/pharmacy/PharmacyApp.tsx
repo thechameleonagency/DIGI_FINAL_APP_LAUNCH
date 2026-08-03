@@ -17,6 +17,7 @@ import {
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequirePermission } from '../../app/guards';
 import { AnnouncementsArchivePage } from '../../ui/components/AnnouncementsArchivePage';
+import { AppearancePage } from '../../ui/components/AppearanceControls';
 import { NotFoundPage } from '../../ui/components/NotFoundPage';
 import { AppShell } from '../../ui/layout/AppShell';
 import {
@@ -74,7 +75,7 @@ const nav = [
   { to: '/pharmacy/inventory', label: 'Inventory', icon: Warehouse, section: 'Stock', requires: 'inventory.adjust' as const },
   { to: '/pharmacy/delivery', label: 'Delivery', icon: Truck, section: 'Stock', requires: 'delivery.update' as const },
   { to: '/pharmacy/messages', label: 'Messages', icon: MessageSquare, section: 'Workspace', requires: 'order.place' as const },
-  { to: '/pharmacy/settings', label: 'More', icon: Settings, section: 'Workspace' },
+  { to: '/pharmacy/settings', label: 'Settings & data', icon: Settings, sticky: true },
 ];
 
 const mobileNav = [
@@ -83,7 +84,7 @@ const mobileNav = [
   { to: '/pharmacy/orders', label: 'Orders', icon: ClipboardList, requires: 'order.place' as const },
   { to: '/pharmacy/delivery', label: 'Delivery', icon: Truck, requires: 'delivery.update' as const },
   { to: '/pharmacy/payments', label: 'Pay', icon: CreditCard, requires: 'payment.submit' as const },
-  { to: '/pharmacy/settings', label: 'More', icon: Settings },
+  { to: '/pharmacy/settings', label: 'Settings', icon: Settings },
 ];
 
 export function PharmacyApp() {
@@ -161,6 +162,7 @@ export function PharmacyApp() {
           <Route path="delivery-preferences" element={<PharmacyDeliveryPreferences />} />
         </Route>
         <Route path="settings" element={<PharmacySettings />} />
+        <Route path="appearance" element={<AppearancePage />} />
         <Route path="profile" element={<PharmacyProfile />} />
         <Route path="more" element={<PharmacySettings />} />
         <Route path="*" element={<NotFoundPage homeTo="/pharmacy" />} />

@@ -1,19 +1,22 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
-import { Bell, Heart, Menu, ShoppingCart, X } from 'lucide-react';
+import { Bell, Heart, Menu, Settings, ShoppingCart, X } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef, useState } from 'react';
 import { db } from '../../data/db';
 import type { Action } from '../../domain/permissions';
 import { exitImpersonation } from '../../services/impersonationService';
+import { markRead, resolveNotificationLink } from '../../services/notificationService';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { OnboardingWalkthrough } from '../components/OnboardingWalkthrough';
 import { ProfileMenu } from '../components/ProfileMenu';
+import { ThemeToggle } from '../components/AppearanceControls';
 import { Sheet } from '../components/Sheet';
 import { SuccessSummaryHost } from '../components/SuccessSummary';
 import { ToastHost } from '../components/primitives';
+import { BreadcrumbBar } from '../navigation/BreadcrumbBar';
 import { PharmacyCartSheet } from '../../portals/pharmacy/pages/PharmacyCartSheet';
 import { PharmacyWishlistSheet } from '../../portals/pharmacy/pages/PharmacyWishlistSheet';
 
@@ -26,6 +29,8 @@ export interface NavItem {
   section?: string;
   /** When set, nav item is hidden unless session.can(requires) (F6). */
   requires?: Action;
+  /** Pin to the bottom of the sidebar (e.g. Settings & data). */
+  sticky?: boolean;
 }
 
 export function AppShell({
@@ -42,9 +47,13 @@ export function AppShell({
   const { user, business, can, impersonation, endImpersonation, rolePreview, setRolePreview } = useSession();
   const { toasts, dismissToast, sidebarOpen, setSidebarOpen, pushToast } = useUi();
   const navigate = useNavigate();
+  const location = useLocation();
   const [sheet, setSheet] = useState<'cart' | 'wishlist' | null>(null);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifWrapRef = useRef<HTMLDivElement | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
   const maintenanceOn = !!useLiveQuery(() => db.platformSettings.get('platform'))?.maintenanceMode;
+  const notificationsPath = `/${portal}/notifications`;
 
   useEffect(() => {
     const el = mainRef.current;
@@ -52,10 +61,55 @@ export function AppShell({
     if (impersonation) el.setAttribute('inert', '');
     else el.removeAttribute('inert');
   }, [impersonation]);
+
+  useEffect(() => {
+    setNotifOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!notifWrapRef.current?.contains(e.target as Node)) setNotifOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [notifOpen]);
+
   const unread = useLiveQuery(
     async () => (user ? db.notifications.where({ userId: user.id, status: 'Unread' }).count() : 0),
     [user?.id],
   );
+  const previewNotes =
+    useLiveQuery(
+      () =>
+        user
+          ? db.notifications
+              .where('userId')
+              .equals(user.id)
+              .filter((n) => n.status !== 'Archived')
+              .reverse()
+              .sortBy('createdAt')
+              .then((rows) => rows.slice(0, 5))
+          : [],
+      [user?.id],
+    ) ?? [];
+
+  const openNotificationsPage = () => {
+    setNotifOpen(false);
+    navigate(notificationsPath);
+  };
+
+  const onBellClick = () => {
+    if (location.pathname === notificationsPath) {
+      setNotifOpen(false);
+      return;
+    }
+    if (notifOpen) {
+      openNotificationsPage();
+      return;
+    }
+    setNotifOpen(true);
+  };
   const cartCount = useLiveQuery(
     async () => {
       if (portal !== 'pharmacy' || !business) return 0;
@@ -74,6 +128,8 @@ export function AppShell({
   const visibleMobile = impersonation
     ? mobileNav
     : mobileNav.filter((item) => !item.requires || can(item.requires));
+  const mainNav = visibleNav.filter((item) => !item.sticky);
+  const stickyNav = visibleNav.filter((item) => item.sticky);
 
   const paths =
     portal === 'pharmacy'
@@ -99,19 +155,26 @@ export function AppShell({
   return (
     <div className={`app-shell${impersonation ? ' impersonation-readonly' : ''}`}>
       <aside className={`sidebar${sidebarOpen ? ' sidebar-open' : ''}`}>
-        <div className="sidebar-brand row" style={{ justifyContent: 'space-between' }}>
-          <span>DigiSwasthya</span>
-          <button className="btn btn-ghost btn-sm sidebar-close" aria-label="Close menu" onClick={() => setSidebarOpen(false)}>
-            <X size={16} />
-          </button>
-        </div>
-        <div style={{ padding: '0 18px 12px', fontSize: 12, color: 'var(--muted)' }}>
-          {title}
-          <div style={{ fontWeight: 600, color: 'var(--text)', marginTop: 2 }}>{business?.name}</div>
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-row">
+            <span className="sidebar-logo-mark" aria-hidden>
+              D
+            </span>
+            <div className="sidebar-brand-copy">
+              <span className="sidebar-logo-text">DigiSwasthya</span>
+              <span className="sidebar-brand-meta">
+                {title}
+                {business?.name ? ` · ${business.name}` : ''}
+              </span>
+            </div>
+            <button className="btn btn-ghost btn-sm sidebar-close" aria-label="Close menu" onClick={() => setSidebarOpen(false)}>
+              <X size={16} />
+            </button>
+          </div>
         </div>
         <nav className="sidebar-nav">
-          {visibleNav.map((item, idx) => {
-            const prevSection = idx > 0 ? visibleNav[idx - 1]?.section : undefined;
+          {mainNav.map((item, idx) => {
+            const prevSection = idx > 0 ? mainNav[idx - 1]?.section : undefined;
             const showSection = item.section && item.section !== prevSection;
             return (
               <div key={item.to}>
@@ -122,81 +185,127 @@ export function AppShell({
                   className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
                   onClick={() => setSidebarOpen(false)}
                 >
-                  <item.icon size={16} />
+                  <item.icon size={16} strokeWidth={1.75} />
                   {item.label}
                 </NavLink>
               </div>
             );
           })}
         </nav>
-        <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{user?.name}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{user?.role}</div>
+        <div className="sidebar-footer">
+          {stickyNav.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) => `nav-link sidebar-sticky-link${isActive ? ' active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <item.icon size={16} strokeWidth={1.75} />
+              {item.label}
+            </NavLink>
+          ))}
         </div>
       </aside>
       {sidebarOpen ? <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} /> : null}
       <div className="main-col">
         <header className="topbar">
-          <div className="row" style={{ flex: 1, minWidth: 0 }}>
+          <div className="topbar-left">
             <button className="btn btn-ghost menu-toggle" aria-label="Menu" onClick={() => setSidebarOpen(true)}>
               <Menu size={18} />
             </button>
-            <span className="topbar-badges row" style={{ gap: 6 }}>
-              {business?.accountStatus === 'Suspended' ? <span className="badge badge-danger">Suspended</span> : null}
-              {business?.plan === 'Premium' ? <span className="badge badge-success">Premium</span> : null}
-              {business?.verificationStatus !== 'Approved' && business?.type !== 'Platform' ? (
-                <span className="badge badge-warning">{business?.verificationStatus}</span>
-              ) : null}
-            </span>
+            <BreadcrumbBar portal={portal} variant="inline" />
+          </div>
+          <div className="topbar-center">
             <GlobalSearch portal={portal} />
           </div>
-          <div className="row">
+          <div className="topbar-right">
             {user && business ? <OnboardingWalkthrough user={user} business={business} /> : null}
             {showTradeTopbar ? (
               <>
                 <button
-                  className="btn btn-secondary btn-sm"
+                  className="topbar-icon-btn"
                   aria-label="Wishlist"
                   type="button"
                   onClick={() => setSheet('wishlist')}
-                  style={{ position: 'relative' }}
                 >
                   <Heart size={16} />
-                  {(wishCount ?? 0) > 0 ? (
-                    <span className="topbar-count-badge">{wishCount}</span>
-                  ) : null}
+                  {(wishCount ?? 0) > 0 ? <span className="topbar-count-badge">{wishCount}</span> : null}
                 </button>
                 <button
-                  className="btn btn-secondary btn-sm"
+                  className="topbar-icon-btn"
                   aria-label="Cart"
                   type="button"
                   onClick={() => setSheet('cart')}
-                  style={{ position: 'relative' }}
                 >
                   <ShoppingCart size={16} />
-                  {(cartCount ?? 0) > 0 ? (
-                    <span className="topbar-count-badge">{cartCount}</span>
-                  ) : null}
+                  {(cartCount ?? 0) > 0 ? <span className="topbar-count-badge">{cartCount}</span> : null}
                 </button>
               </>
             ) : null}
-            <button
-              className="btn btn-secondary btn-sm"
-              aria-label="Notifications"
-              onClick={() => navigate('notifications')}
-              style={{ position: 'relative' }}
-            >
-              <Bell size={16} />
-              {(unread ?? 0) > 0 ? (
-                <span className="topbar-count-badge">{unread}</span>
+            <ThemeToggle />
+            <Link to={paths.settings} className="topbar-icon-btn" aria-label="Settings">
+              <Settings size={16} />
+            </Link>
+            <div className="notif-bell-wrap" ref={notifWrapRef}>
+              <button
+                className="topbar-icon-btn"
+                aria-label="Notifications"
+                aria-expanded={notifOpen}
+                type="button"
+                onClick={onBellClick}
+              >
+                <Bell size={16} />
+                {(unread ?? 0) > 0 ? <span className="topbar-count-badge">{unread}</span> : null}
+              </button>
+              {notifOpen ? (
+                <div className="notif-preview" role="dialog" aria-label="Notification preview">
+                  <div className="notif-preview-head">
+                    <strong>Notifications</strong>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={openNotificationsPage}>
+                      View all
+                    </button>
+                  </div>
+                  {!previewNotes.length ? (
+                    <div className="muted" style={{ fontSize: 13, padding: '8px 4px' }}>
+                      No notifications yet.
+                    </div>
+                  ) : (
+                    <div className="notif-preview-list">
+                      {previewNotes.map((n) => (
+                        <button
+                          key={n.id}
+                          type="button"
+                          className="notif-preview-item"
+                          onClick={async () => {
+                            if (user) await markRead(n.id, user.id);
+                            setNotifOpen(false);
+                            navigate(resolveNotificationLink(n, portal));
+                          }}
+                        >
+                          <strong>{n.title}</strong>
+                          <span className="muted">{n.body}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <button type="button" className="btn btn-primary btn-sm" style={{ width: '100%' }} onClick={openNotificationsPage}>
+                    Open notifications
+                  </button>
+                </div>
               ) : null}
-            </button>
+            </div>
             {impersonation ? (
               <button className="btn btn-primary btn-sm" type="button" onClick={() => void exitViewAs()}>
                 Exit to admin
               </button>
             ) : (
-              <ProfileMenu profilePath={paths.profile} settingsPath={paths.settings} helpPath={paths.help} />
+              <ProfileMenu
+                variant="header"
+                profilePath={paths.profile}
+                settingsPath={paths.settings}
+                helpPath={paths.help}
+              />
             )}
           </div>
         </header>

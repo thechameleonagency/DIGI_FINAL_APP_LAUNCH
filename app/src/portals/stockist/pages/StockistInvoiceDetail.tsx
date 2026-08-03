@@ -44,6 +44,8 @@ export function StockistInvoiceDetail() {
       <PageHeader
         title={invoice.invoiceNo}
         subtitle={pharmacy?.name}
+        backTo="/stockist/payments"
+        backLabel="Back to payments"
         actions={
           <>
             {order ? (

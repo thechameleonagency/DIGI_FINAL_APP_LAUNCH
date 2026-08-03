@@ -34,12 +34,9 @@ export const useUi = create<UiState>((set, get) => ({
     set((s) => ({
       toasts: [...s.toasts, { ...t, id }],
     }));
-    // Success/info auto-clear; errors stay until dismissed (warnings clear too — less sticky than errors).
-    if (t.tone !== 'error') {
-      window.setTimeout(() => {
-        if (get().toasts.some((x) => x.id === id)) get().dismissToast(id);
-      }, AUTO_DISMISS_MS);
-    }
+    window.setTimeout(() => {
+      if (get().toasts.some((x) => x.id === id)) get().dismissToast(id);
+    }, AUTO_DISMISS_MS);
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),

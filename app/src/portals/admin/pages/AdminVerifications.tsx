@@ -145,7 +145,7 @@ export function AdminVerifications() {
     if (!detail || !detailBiz) {
       return (
         <div className="stack">
-          <PageHeader title="Verification detail" />
+          <PageHeader title="Verification detail" backTo="/admin/verifications" backLabel="Back to queue" />
           <EmptyState
             title="Verification not found"
             description="Return to the queue."
@@ -163,11 +163,8 @@ export function AdminVerifications() {
         <PageHeader
           title={detailBiz.name}
           subtitle={`${detailBiz.type} · ${detail.status} · ${daysPending(detail.submittedAt ?? detail.createdAt)} days pending`}
-          actions={
-            <Link className="btn btn-secondary btn-sm" to="/admin/verifications">
-              Back to queue
-            </Link>
-          }
+          backTo="/admin/verifications"
+          backLabel="Back to queue"
         />
         <div className="card card-pad stack">
           <strong>Profile</strong>

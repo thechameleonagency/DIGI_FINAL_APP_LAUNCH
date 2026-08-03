@@ -6,7 +6,7 @@ import { formatINR } from '../../domain/utils/money';
 import { Button, EmptyState, Field, Input, LoadingState, Select } from '../../ui/components/primitives';
 import { resolveCatalogueSharePhase } from './catalogueShare';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 7;
 
 /** CF-21: public read-only catalogue — MRP/pack only; never PTR or stock. */
 export function CatalogueSharePage() {

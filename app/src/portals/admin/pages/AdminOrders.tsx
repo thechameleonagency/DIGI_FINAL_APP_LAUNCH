@@ -90,6 +90,7 @@ export function AdminOrders() {
     searchKeys: [(o) => `${o.orderNo} ${o.status} ${o.pharmacyName} ${o.stockistName}`],
     filters: [{ key: 'status', label: 'Status', options: statusOpts }],
     defaultSortKey: 'placedAt',
+    pageSize: 7,
   });
 
   if (orderNo) {
@@ -98,7 +99,7 @@ export function AdminOrders() {
     if (!order) {
       return (
         <div className="stack">
-          <PageHeader title="Order detail" />
+          <PageHeader title="Order detail" backTo="/admin/orders" backLabel="Back to orders" />
           <EmptyState
             title="Order not found"
             description="Return to the platform orders list."
@@ -117,11 +118,8 @@ export function AdminOrders() {
         <PageHeader
           title={order.orderNo}
           subtitle={`${nameOf(order.pharmacyId)} → ${nameOf(order.stockistId)} · read-only`}
-          actions={
-            <Link className="btn btn-secondary btn-sm" to="/admin/orders">
-              Back to orders
-            </Link>
-          }
+          backTo="/admin/orders"
+          backLabel="Back to orders"
         />
         <div className="row" style={{ gap: 8 }}>
           <StatusBadge status={order.status} />

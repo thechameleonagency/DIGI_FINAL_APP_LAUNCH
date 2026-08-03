@@ -109,14 +109,9 @@ export function ReturnDetail({
       <PageHeader
         title={ret.returnNo}
         subtitle={`${pharmacy?.name ?? 'Pharmacy'} → ${stockist?.name ?? 'Stockist'}`}
-        actions={
-          <div className="row" style={{ gap: 8 }}>
-            {actions}
-            <Link className="btn btn-secondary btn-sm" to={listPath}>
-              Back to returns
-            </Link>
-          </div>
-        }
+        backTo={listPath}
+        backLabel="Back to returns"
+        actions={actions}
       />
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <StatusBadge status={ret.status} />

@@ -10,7 +10,7 @@ import {
 } from '../../../services/bannerService';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
-import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { Button, DeleteButton, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type FormState = {
@@ -150,9 +150,9 @@ export function AdminBanners() {
               >
                 {b.active ? 'Pause' : 'Go live'}
               </Button>
-              <Button size="sm" variant="danger" onClick={() => setDeleteId(b.id)}>
+              <DeleteButton size="sm" onClick={() => setDeleteId(b.id)}>
                 Delete
-              </Button>
+              </DeleteButton>
             </div>
           </div>
         ))

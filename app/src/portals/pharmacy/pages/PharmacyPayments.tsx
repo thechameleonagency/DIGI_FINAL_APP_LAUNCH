@@ -13,7 +13,7 @@ import { useUi } from '../../../store/ui';
 import { FileLink, FileUpload } from '../../../ui/components/FileUpload';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { useLiveArray } from '../../../ui/hooks/useLiveArray';
-import { ListToolbar } from '../../../ui/components/ListToolkit';
+import { ListToolbar, PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
 import {
   Button,
   EmptyState,
@@ -110,6 +110,9 @@ export function PharmacyPayments() {
         duePast: !!i.dueDate && localDayKey(i.dueDate) < today,
       }));
   }, [openInvoices, statusFilter, invoiceQuery, stockists]);
+  const invoiceList = usePagedRows(visibleInvoices, 7, `${statusFilter}|${invoiceQuery}`);
+  const paymentList = usePagedRows(payments);
+  const creditList = usePagedRows(credits);
   const selectedEntries = Object.entries(selected).filter(([, amt]) => amt > 0);
   const selectedTotal = selectedEntries.reduce((s, [, amt]) => s + amt, 0);
   const selectedCount = selectedEntries.length;
@@ -174,96 +177,104 @@ export function PharmacyPayments() {
               }
             />
           ) : (
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Invoice</th>
-                    <th>Stockist</th>
-                    <th>Due</th>
-                    <th>Status</th>
-                    <th>Total</th>
-                    <th>Outstanding</th>
-                    <th>Allocate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleInvoices.map((i) => (
-                    <tr key={i.id}>
-                      <td>
-                        <Link to={`/pharmacy/invoices/${i.invoiceNo}`}>{i.invoiceNo}</Link>
-                      </td>
-                      <td>
-                        <Link to={`/pharmacy/ledger/${i.stockistId}`}>{i.stockistLabel}</Link>
-                      </td>
-                      <td>
-                        <span
-                          style={{
-                            fontSize: 13,
-                            color: i.duePast ? 'var(--danger, #b42318)' : undefined,
-                            fontWeight: i.duePast ? 600 : undefined,
-                          }}
-                        >
-                          {i.dueLabel}
-                        </span>
-                      </td>
-                      <td>
-                        <StatusBadge status={i.status} />
-                      </td>
-                      <td>
-                        <Money value={i.grandTotal} />
-                      </td>
-                      <td>
-                        <Money value={i.outstanding} />
-                      </td>
-                      <td>
-                        <div className="stack" style={{ gap: 4 }}>
-                          <div className="row">
-                            <Input
-                              type="number"
-                              style={{ width: 120 }}
-                              min={0}
-                              max={i.outstanding}
-                              step="0.01"
-                              value={selected[i.id] ?? ''}
-                              placeholder="0"
-                              onChange={(e) => {
-                                const parsed = parseNumberInput(e.target.value);
-                                if (parsed.status === 'empty') {
-                                  setSelected((s) => {
-                                    const next = { ...s };
-                                    delete next[i.id];
-                                    return next;
-                                  });
-                                  return;
-                                }
-                                if (parsed.status === 'invalid') return;
-                                setSelected((s) => ({
-                                  ...s,
-                                  [i.id]: Math.min(Math.max(0, parsed.value), i.outstanding),
-                                }));
-                              }}
-                            />
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              type="button"
-                              onClick={() => setSelected((s) => ({ ...s, [i.id]: i.outstanding }))}
-                            >
-                              Fill full amount
-                            </Button>
-                          </div>
-                          <span className="muted" style={{ fontSize: 11 }}>
-                            Remaining{' '}
-                            <Money value={Math.max(0, i.outstanding - (selected[i.id] ?? 0))} />
-                          </span>
-                        </div>
-                      </td>
+            <>
+              <div className="table-wrap queue-responsive">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Invoice</th>
+                      <th>Stockist</th>
+                      <th>Due</th>
+                      <th>Status</th>
+                      <th>Total</th>
+                      <th>Outstanding</th>
+                      <th>Allocate</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {invoiceList.pageRows.map((i) => (
+                      <tr key={i.id}>
+                        <td data-label="Invoice">
+                          <Link to={`/pharmacy/invoices/${i.invoiceNo}`}>{i.invoiceNo}</Link>
+                        </td>
+                        <td data-label="Stockist">
+                          <Link to={`/pharmacy/ledger/${i.stockistId}`}>{i.stockistLabel}</Link>
+                        </td>
+                        <td data-label="Due">
+                          <span
+                            style={{
+                              fontSize: 13,
+                              color: i.duePast ? 'var(--danger, #b42318)' : undefined,
+                              fontWeight: i.duePast ? 600 : undefined,
+                            }}
+                          >
+                            {i.dueLabel}
+                          </span>
+                        </td>
+                        <td data-label="Status">
+                          <StatusBadge status={i.status} />
+                        </td>
+                        <td data-label="Total">
+                          <Money value={i.grandTotal} />
+                        </td>
+                        <td data-label="Outstanding">
+                          <Money value={i.outstanding} />
+                        </td>
+                        <td data-label="Allocate">
+                          <div className="stack" style={{ gap: 4 }}>
+                            <div className="row">
+                              <Input
+                                type="number"
+                                style={{ width: 120 }}
+                                min={0}
+                                max={i.outstanding}
+                                step="0.01"
+                                value={selected[i.id] ?? ''}
+                                placeholder="0"
+                                onChange={(e) => {
+                                  const parsed = parseNumberInput(e.target.value);
+                                  if (parsed.status === 'empty') {
+                                    setSelected((s) => {
+                                      const next = { ...s };
+                                      delete next[i.id];
+                                      return next;
+                                    });
+                                    return;
+                                  }
+                                  if (parsed.status === 'invalid') return;
+                                  setSelected((s) => ({
+                                    ...s,
+                                    [i.id]: Math.min(Math.max(0, parsed.value), i.outstanding),
+                                  }));
+                                }}
+                              />
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                type="button"
+                                onClick={() => setSelected((s) => ({ ...s, [i.id]: i.outstanding }))}
+                              >
+                                Fill full amount
+                              </Button>
+                            </div>
+                            <span className="muted" style={{ fontSize: 11 }}>
+                              Remaining{' '}
+                              <Money value={Math.max(0, i.outstanding - (selected[i.id] ?? 0))} />
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <PaginationBar
+                page={invoiceList.page}
+                pageCount={invoiceList.pageCount}
+                total={invoiceList.total}
+                onPage={invoiceList.setPage}
+              />
+            </>
           )}
           {!visibleInvoices.length && openInvoices.length ? (
             <EmptyState title="No invoices match" description="Empty filter result is not an error." />
@@ -387,58 +398,68 @@ export function PharmacyPayments() {
             }
           />
         ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Payment</th>
-                  <th>Status</th>
-                  <th>Method</th>
-                  <th>Amount</th>
-                  <th>Reference</th>
-                  <th>Proof</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.map((p) => (
-                  <tr
-                    key={p.id}
-                    id={`payment-${p.paymentNo}`}
-                    style={
-                      highlightPayment === p.paymentNo
-                        ? { outline: '2px solid var(--accent)', outlineOffset: -2 }
-                        : undefined
-                    }
-                    ref={
-                      highlightPayment === p.paymentNo
-                        ? (el) => {
-                            el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                          }
-                        : undefined
-                    }
-                  >
-                    <td>
-                      <Link to={`/pharmacy/payments/${encodeURIComponent(p.paymentNo)}`}>{p.paymentNo}</Link>
-                      {p.recordedBy === 'Stockist' ? (
-                        <div className="muted" style={{ fontSize: 11 }}>
-                          Recorded by stockist
-                        </div>
-                      ) : null}
-                    </td>
-                    <td>
-                      <StatusBadge status={p.status} />
-                    </td>
-                    <td>{p.method}</td>
-                    <td>
-                      <Money value={p.amount} />
-                    </td>
-                    <td>{p.reference ?? '—'}</td>
-                    <td>{p.proofFileId ? <FileLink fileId={p.proofFileId} /> : <span className="muted">None</span>}</td>
+          <>
+            <div className="table-wrap queue-responsive">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Payment</th>
+                    <th>Status</th>
+                    <th>Method</th>
+                    <th>Amount</th>
+                    <th>Reference</th>
+                    <th>Proof</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {paymentList.pageRows.map((p) => (
+                    <tr
+                      key={p.id}
+                      id={`payment-${p.paymentNo}`}
+                      style={
+                        highlightPayment === p.paymentNo
+                          ? { outline: '2px solid var(--accent)', outlineOffset: -2 }
+                          : undefined
+                      }
+                      ref={
+                        highlightPayment === p.paymentNo
+                          ? (el) => {
+                              el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                            }
+                          : undefined
+                      }
+                    >
+                      <td data-label="Payment">
+                        <Link to={`/pharmacy/payments/${encodeURIComponent(p.paymentNo)}`}>{p.paymentNo}</Link>
+                        {p.recordedBy === 'Stockist' ? (
+                          <div className="muted" style={{ fontSize: 11 }}>
+                            Recorded by stockist
+                          </div>
+                        ) : null}
+                      </td>
+                      <td data-label="Status">
+                        <StatusBadge status={p.status} />
+                      </td>
+                      <td data-label="Method">{p.method}</td>
+                      <td data-label="Amount">
+                        <Money value={p.amount} />
+                      </td>
+                      <td data-label="Reference">{p.reference ?? '—'}</td>
+                      <td data-label="Proof">
+                        {p.proofFileId ? <FileLink fileId={p.proofFileId} /> : <span className="muted">None</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <PaginationBar
+              page={paymentList.page}
+              pageCount={paymentList.pageCount}
+              total={paymentList.total}
+              onPage={paymentList.setPage}
+            />
+          </>
         )}
       </TabPanel>
       <TabPanel id="Credits" active={tab === 'Credits'}>
@@ -518,44 +539,52 @@ export function PharmacyPayments() {
               }
             />
           ) : (
-            credits.map((c) => {
-              const srcReturn = returns.find((r) => r.id === c.returnId);
-              return (
-                <div key={c.id} className="card card-pad stack">
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <div>
-                      <strong>{c.creditNoteNo}</strong>
-                      <div className="muted" style={{ fontSize: 12 }}>
-                        {c.source ?? 'Return'}
-                        {srcReturn ? ` · ${srcReturn.returnNo}` : ''} · Remaining <Money value={c.remaining} />
+            <>
+              {creditList.pageRows.map((c) => {
+                const srcReturn = returns.find((r) => r.id === c.returnId);
+                return (
+                  <div key={c.id} className="card card-pad stack">
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <div>
+                        <strong>{c.creditNoteNo}</strong>
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          {c.source ?? 'Return'}
+                          {srcReturn ? ` · ${srcReturn.returnNo}` : ''} · Remaining <Money value={c.remaining} />
+                        </div>
                       </div>
+                      <StatusBadge status={c.status} />
                     </div>
-                    <StatusBadge status={c.status} />
+                    {c.applications.length ? (
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        Applied:{' '}
+                        {c.applications.map((a) => `${a.invoiceNo} (${a.amount})`).join(', ')}
+                      </div>
+                    ) : (
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        No applications yet
+                      </div>
+                    )}
+                    <Button
+                      size="sm"
+                      disabled={c.remaining <= 0}
+                      onClick={() => {
+                        setApplyCnId(c.id);
+                        setApplyInvoiceId('');
+                        setApplyAmount(String(c.remaining));
+                      }}
+                    >
+                      Apply to invoice…
+                    </Button>
                   </div>
-                  {c.applications.length ? (
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      Applied:{' '}
-                      {c.applications.map((a) => `${a.invoiceNo} (${a.amount})`).join(', ')}
-                    </div>
-                  ) : (
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      No applications yet
-                    </div>
-                  )}
-                  <Button
-                    size="sm"
-                    disabled={c.remaining <= 0}
-                    onClick={() => {
-                      setApplyCnId(c.id);
-                      setApplyInvoiceId('');
-                      setApplyAmount(String(c.remaining));
-                    }}
-                  >
-                    Apply to invoice…
-                  </Button>
-                </div>
-              );
-            })
+                );
+              })}
+              <PaginationBar
+                page={creditList.page}
+                pageCount={creditList.pageCount}
+                total={creditList.total}
+                onPage={creditList.setPage}
+              />
+            </>
           )}
         </div>
       </TabPanel>

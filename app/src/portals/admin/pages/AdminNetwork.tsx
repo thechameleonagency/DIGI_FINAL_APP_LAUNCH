@@ -50,6 +50,7 @@ export function AdminNetwork() {
     ],
     defaultSortKey: 'name',
     defaultSortDir: 'asc',
+    pageSize: 7,
   });
   return (
     <div className="stack">

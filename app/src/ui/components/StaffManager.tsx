@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
 import type { Business, OperationalRole, User } from '../../domain/entities/types';
@@ -19,8 +19,9 @@ import {
 } from '../../services/staffService';
 import { useUi } from '../../store/ui';
 import { ConfirmDialog } from './ConfirmDialog';
+import { PaginationBar, usePagedRows } from './ListToolkit';
 import { RolePreviewControls } from './RolePreviewControls';
-import { Button, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from './primitives';
+import { Button, DeleteButton, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from './primitives';
 
 function primaryRoleFor(business: Business): OperationalRole {
   if (business.type === 'Stockist') return 'Stockist';
@@ -113,6 +114,11 @@ export function StaffManager({
   } | null>(null);
   const overrideActions = overrideActionsFor(business);
   const demotedLabel = demotedRoleLabel(business);
+  const sortedStaff = useMemo(
+    () => [...staff].sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email)),
+    [staff],
+  );
+  const list = usePagedRows(sortedStaff);
   const overrideTarget = overrideUserId ? staff.find((s) => s.id === overrideUserId) : undefined;
   const transferTarget = transferTargetId ? staff.find((s) => s.id === transferTargetId) : undefined;
   const suspendTarget = suspendTargetId ? staff.find((s) => s.id === suspendTargetId) : undefined;
@@ -328,179 +334,183 @@ export function StaffManager({
           }
         />
       ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Email</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {staff.map((s) => (
-                <tr key={s.id}>
-                  <td>{s.name}</td>
-                  <td>
-                    {isPrimaryUser(s, business) ? (
-                      s.role
-                    ) : (
-                      <Select
-                        value={s.role}
-                        onChange={(e) => {
-                          const to = e.target.value as OperationalRole;
-                          if (to === s.role) return;
-                          setRoleChange({ userId: s.id, name: s.name, from: s.role, to });
-                        }}
-                      >
-                        {inviteRoles.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </Select>
-                    )}
-                  </td>
-                  <td><StatusBadge status={s.status} /></td>
-                  <td>
-                    {s.email}
-                    {s.inviteToken ? (
-                      <div className="muted" style={{ fontSize: 11 }}>
-                        Invite:{' '}
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={async () => {
-                            const url = `${window.location.origin}/auth/invite/${s.inviteToken}`;
-                            await navigator.clipboard.writeText(url);
-                            pushToast({ tone: 'info', title: 'Invite link copied' });
+        <>
+          <div className="table-wrap queue-responsive">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Email</th>
+                  <th className="col-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.pageRows.map((s) => (
+                  <tr key={s.id}>
+                    <td data-label="Name">{s.name}</td>
+                    <td data-label="Role">
+                      {isPrimaryUser(s, business) ? (
+                        s.role
+                      ) : (
+                        <Select
+                          className="select-sm"
+                          value={s.role}
+                          onChange={(e) => {
+                            const to = e.target.value as OperationalRole;
+                            if (to === s.role) return;
+                            setRoleChange({ userId: s.id, name: s.name, from: s.role, to });
                           }}
                         >
-                          Copy link
-                        </button>
-                        {s.inviteExpiresAt ? ` · expires ${new Date(s.inviteExpiresAt).toLocaleDateString()}` : ''}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td>
-                    <div className="row" style={{ flexWrap: 'wrap', gap: 4 }}>
-                      {s.status === 'Active' && !isPrimaryUser(s, business) ? (
-                        <Button size="sm" variant="secondary" onClick={() => setSuspendTargetId(s.id)}>
-                          Suspend
-                        </Button>
-                      ) : null}
-                      {s.status === 'Suspended' ? (
-                        <Button size="sm" onClick={async () => {
-                          const res = await reactivateStaff({ actor, business, userId: s.id });
-                          pushToast(res.ok ? { tone: 'success', title: 'Reactivated' } : { tone: 'error', title: res.message });
-                        }}>Reactivate</Button>
-                      ) : null}
-                      {s.status === 'Invited' ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="secondary"
+                          {inviteRoles.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                        </Select>
+                      )}
+                    </td>
+                    <td data-label="Status">
+                      <StatusBadge status={s.status} />
+                    </td>
+                    <td data-label="Email">
+                      {s.email}
+                      {s.inviteToken ? (
+                        <div className="muted" style={{ fontSize: 11 }}>
+                          Invite:{' '}
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
                             onClick={async () => {
-                              const res = await resendInvite({ actor, business, userId: s.id });
-                              if (!res.ok) {
-                                pushToast({ tone: 'error', title: res.message });
-                                return;
-                              }
-                              const url = `${window.location.origin}/auth/invite/${res.data.inviteToken}`;
+                              const url = `${window.location.origin}/auth/invite/${s.inviteToken}`;
                               await navigator.clipboard.writeText(url);
-                              pushToast({
-                                tone: 'success',
-                                title: 'Invite resent',
-                                message: 'New link copied to clipboard.',
-                              });
+                              pushToast({ tone: 'info', title: 'Invite link copied' });
                             }}
                           >
-                            Resend
+                            Copy link
+                          </button>
+                          {s.inviteExpiresAt ? ` · expires ${new Date(s.inviteExpiresAt).toLocaleDateString()}` : ''}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="col-actions" data-label="Actions">
+                      <div className="table-row-actions">
+                        {s.status === 'Active' && !isPrimaryUser(s, business) ? (
+                          <Button size="sm" variant="secondary" onClick={() => setSuspendTargetId(s.id)}>
+                            Suspend
                           </Button>
+                        ) : null}
+                        {s.status === 'Suspended' ? (
                           <Button
                             size="sm"
-                            variant="ghost"
                             onClick={async () => {
-                              const res = await revokeInvite({ actor, business, userId: s.id });
+                              const res = await reactivateStaff({ actor, business, userId: s.id });
                               pushToast(
-                                res.ok ? { tone: 'info', title: 'Invite revoked' } : { tone: 'error', title: res.message },
+                                res.ok
+                                  ? { tone: 'success', title: 'Reactivated' }
+                                  : { tone: 'error', title: res.message },
                               );
                             }}
                           >
-                            Revoke
+                            Reactivate
                           </Button>
-                        </>
-                      ) : null}
-                      {!isPrimaryUser(s, business) && s.status !== 'Removed' ? (
-                        <details
-                          style={{ position: 'relative' }}
-                          open={actionsOpenId === s.id}
-                          onToggle={(e) => {
-                            const open = (e.target as HTMLDetailsElement).open;
-                            setActionsOpenId(open ? s.id : null);
-                          }}
-                        >
-                          <summary className="btn btn-ghost btn-sm" style={{ listStyle: 'none', cursor: 'pointer' }}>
-                            More
-                          </summary>
-                          <div
-                            className="card card-pad stack"
-                            style={{
-                              position: 'absolute',
-                              right: 0,
-                              zIndex: 5,
-                              minWidth: 140,
-                              marginTop: 4,
-                              gap: 4,
-                            }}
-                          >
-                            {s.status === 'Active' ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  setOverrideUserId(s.id);
-                                  setDraftOverrides({ ...(s.permissionOverrides ?? {}) });
-                                  setActionsOpenId(null);
-                                }}
-                              >
-                                Overrides
-                              </Button>
-                            ) : null}
-                            {isPrimaryUser(actor, business) && s.status === 'Active' ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  setTransferTargetId(s.id);
-                                  setActionsOpenId(null);
-                                }}
-                              >
-                                Make primary
-                              </Button>
-                            ) : null}
+                        ) : null}
+                        {s.status === 'Invited' ? (
+                          <>
                             <Button
                               size="sm"
-                              variant="danger"
-                              onClick={() => {
-                                setRemoveTargetId(s.id);
-                                setActionsOpenId(null);
+                              variant="secondary"
+                              onClick={async () => {
+                                const res = await resendInvite({ actor, business, userId: s.id });
+                                if (!res.ok) {
+                                  pushToast({ tone: 'error', title: res.message });
+                                  return;
+                                }
+                                const url = `${window.location.origin}/auth/invite/${res.data.inviteToken}`;
+                                await navigator.clipboard.writeText(url);
+                                pushToast({
+                                  tone: 'success',
+                                  title: 'Invite resent',
+                                  message: 'New link copied to clipboard.',
+                                });
                               }}
                             >
-                              Remove
+                              Resend
                             </Button>
-                          </div>
-                        </details>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={async () => {
+                                const res = await revokeInvite({ actor, business, userId: s.id });
+                                pushToast(
+                                  res.ok
+                                    ? { tone: 'info', title: 'Invite revoked' }
+                                    : { tone: 'error', title: res.message },
+                                );
+                              }}
+                            >
+                              Revoke
+                            </Button>
+                          </>
+                        ) : null}
+                        {!isPrimaryUser(s, business) && s.status !== 'Removed' ? (
+                          <details
+                            className="table-actions-menu"
+                            open={actionsOpenId === s.id}
+                            onToggle={(e) => {
+                              const open = (e.target as HTMLDetailsElement).open;
+                              setActionsOpenId(open ? s.id : null);
+                            }}
+                          >
+                            <summary className="btn btn-ghost btn-sm">More</summary>
+                            <div className="table-actions-panel">
+                              {s.status === 'Active' ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setOverrideUserId(s.id);
+                                    setDraftOverrides({ ...(s.permissionOverrides ?? {}) });
+                                    setActionsOpenId(null);
+                                  }}
+                                >
+                                  Overrides
+                                </Button>
+                              ) : null}
+                              {isPrimaryUser(actor, business) && s.status === 'Active' ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setTransferTargetId(s.id);
+                                    setActionsOpenId(null);
+                                  }}
+                                >
+                                  Make primary
+                                </Button>
+                              ) : null}
+                              <DeleteButton
+                                size="sm"
+                                onClick={() => {
+                                  setRemoveTargetId(s.id);
+                                  setActionsOpenId(null);
+                                }}
+                              >
+                                Remove
+                              </DeleteButton>
+                            </div>
+                          </details>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        </>
       )}
       <Modal
         open={inviteOpen}

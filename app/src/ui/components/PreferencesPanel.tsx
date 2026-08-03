@@ -3,11 +3,10 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Link } from 'react-router-dom';
 import { db } from '../../data/db';
 import { requestWalkthroughReplay } from '../../content/help';
+import { portalFor } from '../../domain/permissions';
 import {
   readStoredLocalFirstHint,
-  readStoredTheme,
   saveUiPreferences,
-  type ThemeMode,
 } from '../../services/preferencesService';
 import { readPersistedSession, useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
@@ -26,7 +25,6 @@ export function PreferencesPanel({
   const { user, business, clearSession } = useSession();
   const { pushToast } = useUi();
   const liveUser = useLiveQuery(() => (user ? db.users.get(user.id) : undefined), [user?.id]);
-  const [theme, setTheme] = useState<ThemeMode>(readStoredTheme());
   const [language, setLanguage] = useState<'en'>('en');
   const [localHint, setLocalHint] = useState(readStoredLocalFirstHint());
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -36,7 +34,6 @@ export function PreferencesPanel({
 
   useEffect(() => {
     if (!liveUser?.uiPreferences) return;
-    if (liveUser.uiPreferences.theme) setTheme(liveUser.uiPreferences.theme);
     if (liveUser.uiPreferences.language) setLanguage(liveUser.uiPreferences.language);
     if (liveUser.uiPreferences.showLocalFirstHint != null) {
       setLocalHint(liveUser.uiPreferences.showLocalFirstHint);
@@ -45,7 +42,9 @@ export function PreferencesPanel({
 
   if (!user || !business) return null;
 
-  const persistUi = async (patch: { theme?: ThemeMode; language?: 'en'; showLocalFirstHint?: boolean }) => {
+  const appearancePath = `/${portalFor(business.type)}/appearance`;
+
+  const persistUi = async (patch: { language?: 'en'; showLocalFirstHint?: boolean }) => {
     await saveUiPreferences({ userId: user.id, patch });
     pushToast({ tone: 'success', title: 'Preferences saved' });
   };
@@ -56,19 +55,12 @@ export function PreferencesPanel({
 
       <div className="card card-pad stack">
         <strong>Appearance</strong>
-        <Field label="Theme">
-          <Select
-            value={theme}
-            onChange={(e) => {
-              const t = e.target.value as ThemeMode;
-              setTheme(t);
-              void persistUi({ theme: t });
-            }}
-          >
-            <option value="light">Light (default)</option>
-            <option value="dark">Dark</option>
-          </Select>
-        </Field>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          Theme and accent color live in the Appearance module.
+        </p>
+        <Link className="btn btn-secondary btn-sm" to={appearancePath} style={{ width: 'fit-content' }}>
+          Open Appearance
+        </Link>
         <Field label="Language">
           <Select
             value={language}

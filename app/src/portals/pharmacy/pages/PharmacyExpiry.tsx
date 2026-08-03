@@ -7,6 +7,7 @@ import type { PharmacyInventoryItem } from '../../../domain/entities/types';
 import { stockAdjust } from '../../../services/inventoryService';
 import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
+import { PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
 import { Button, EmptyState, Field, Input, Kpi, Modal, PageHeader, StatusBadge, Tabs } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -37,6 +38,7 @@ export function PharmacyExpiry() {
     Healthy: enriched.filter((x) => x.bandName === 'Healthy'),
   };
   const filtered = band === 'All' ? enriched : enriched.filter((x) => x.bandName === band);
+  const list = usePagedRows(filtered, 7, band);
   const riskUnits = [...tiles.Expired, ...tiles.Critical, ...tiles.Near].reduce((s, x) => s + x.value, 0);
 
   const openWriteOff = (item: PharmacyInventoryItem, bandName: string) => {
@@ -78,50 +80,53 @@ export function PharmacyExpiry() {
       {!filtered.length ? (
         <EmptyState title="No batches in this band" description="Stock received via GRN or Add medicine appears here." />
       ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Batch</th>
-                <th>Expiry</th>
-                <th>On hand</th>
-                <th>Band</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(({ i, bandName }) => (
-                <tr key={i.id}>
-                  <td>{i.productName}</td>
-                  <td>{i.batchNumber ?? '—'}</td>
-                  <td>{i.expiryDate ?? '—'}</td>
-                  <td>{i.onHand}</td>
-                  <td>
-                    <StatusBadge status={bandName} />
-                  </td>
-                  <td>
-                    <div className="row">
-                      {canAdjust ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={i.onHand <= 0}
-                          onClick={() => openWriteOff(i, bandName)}
-                        >
-                          Write off
-                        </Button>
-                      ) : null}
-                      <Link className="btn btn-ghost btn-sm" to="/pharmacy/returns">
-                        Mark return
-                      </Link>
-                    </div>
-                  </td>
+        <>
+          <div className="table-wrap queue-responsive">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Batch</th>
+                  <th>Expiry</th>
+                  <th>On hand</th>
+                  <th>Band</th>
+                  <th className="col-actions" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {list.pageRows.map(({ i, bandName }) => (
+                  <tr key={i.id}>
+                    <td data-label="Product">{i.productName}</td>
+                    <td data-label="Batch">{i.batchNumber ?? '—'}</td>
+                    <td data-label="Expiry">{i.expiryDate ?? '—'}</td>
+                    <td data-label="On hand">{i.onHand}</td>
+                    <td data-label="Band">
+                      <StatusBadge status={bandName} />
+                    </td>
+                    <td className="col-actions" data-label="Actions">
+                      <div className="table-row-actions">
+                        {canAdjust ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={i.onHand <= 0}
+                            onClick={() => openWriteOff(i, bandName)}
+                          >
+                            Write off
+                          </Button>
+                        ) : null}
+                        <Link className="btn btn-ghost btn-sm" to="/pharmacy/returns">
+                          Mark return
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        </>
       )}
 
       <Modal

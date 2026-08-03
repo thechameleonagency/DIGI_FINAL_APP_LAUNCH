@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { isAnnouncementVisible } from '../../services/announcementService';
 import { db } from '../../data/db';
@@ -27,12 +26,10 @@ export function AnnouncementStrip({
   audience,
   placement,
   limit = 3,
-  archivePath,
 }: {
   audience: 'Pharmacy' | 'Stockist' | 'Admin';
   placement: string;
   limit?: number;
-  archivePath?: string;
 }) {
   const { user } = useSession();
   const items = useLiveQuery(() => db.announcements.toArray()) ?? [];
@@ -52,14 +49,7 @@ export function AnnouncementStrip({
       .slice(0, limit);
   }, [items, audience, placement, dismissed, limit]);
 
-  if (!visible.length && !archivePath) return null;
-  if (!visible.length) {
-    return archivePath ? (
-      <div className="muted" style={{ fontSize: 12 }}>
-        <Link to={archivePath}>Announcement archive</Link>
-      </div>
-    ) : null;
-  }
+  if (!visible.length) return null;
 
   return (
     <div className="stack">
@@ -86,11 +76,6 @@ export function AnnouncementStrip({
           </div>
         </div>
       ))}
-      {archivePath ? (
-        <div className="muted" style={{ fontSize: 12 }}>
-          <Link to={archivePath}>Announcement archive</Link>
-        </div>
-      ) : null}
     </div>
   );
 }

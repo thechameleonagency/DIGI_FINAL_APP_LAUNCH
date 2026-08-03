@@ -83,7 +83,7 @@ export function AdminAudit() {
     ],
     defaultSortKey: 'when',
     defaultSortDir: 'desc',
-    pageSize: 50,
+    pageSize: 7,
   });
 
   const open = expanded ? rows.find((r) => r.id === expanded) : undefined;

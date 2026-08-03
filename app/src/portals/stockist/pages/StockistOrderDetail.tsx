@@ -141,6 +141,8 @@ export function StockistOrderDetail() {
       <PageHeader
         title={order.orderNo}
         subtitle={`${order.status} · ${pharmacy?.name ?? order.pharmacyId}`}
+        backTo="/stockist/orders"
+        backLabel="Back to orders"
         actions={
           <Link
             className="btn btn-secondary btn-sm"

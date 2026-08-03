@@ -174,6 +174,7 @@ export interface User {
   /** CF-30 UI preferences (persist with user) */
   uiPreferences?: {
     theme?: 'light' | 'dark';
+    accent?: 'blue' | 'green' | 'grey' | 'orange' | 'red';
     language?: 'en';
     showLocalFirstHint?: boolean;
   };

@@ -22,6 +22,7 @@ import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileUpload } from '../../../ui/components/FileUpload';
 import {
   Button,
+  DeleteButton,
   EmptyState,
   Field,
   Input,
@@ -213,13 +214,12 @@ export function StockistProcurement() {
                     {!s.active ? ' · inactive' : ''}
                   </div>
                 </div>
-                <Button
+                <DeleteButton
                   size="sm"
-                  variant="danger"
                   onClick={() => setRemoveSupplierId(s.id)}
                 >
                   Remove
-                </Button>
+                </DeleteButton>
               </div>
             ))
           )}
@@ -575,9 +575,9 @@ export function StockistProcurement() {
                       Qty {line.qty} · cost {line.expectedCost}
                     </div>
                   </div>
-                  <Button size="sm" variant="danger" onClick={() => setPoLines(poLines.filter((_, i) => i !== idx))}>
+                  <DeleteButton size="sm" onClick={() => setPoLines(poLines.filter((_, i) => i !== idx))}>
                     Remove
-                  </Button>
+                  </DeleteButton>
                 </div>
               ))}
             </div>
@@ -707,9 +707,9 @@ export function StockistProcurement() {
                           Qty {line.qty} · batch {line.batchNumber} · exp {line.expiryDate}
                         </div>
                       </div>
-                      <Button size="sm" variant="danger" onClick={() => setRecvLines(recvLines.filter((_, i) => i !== idx))}>
+                      <DeleteButton size="sm" onClick={() => setRecvLines(recvLines.filter((_, i) => i !== idx))}>
                         Remove
-                      </Button>
+                      </DeleteButton>
                     </div>
                   ))}
                 </div>

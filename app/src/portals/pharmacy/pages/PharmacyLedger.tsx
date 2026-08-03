@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { pairOutstanding } from '../../../domain/calc';
+import { PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
 import { EmptyState, Kpi, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
@@ -62,6 +63,7 @@ export function PharmacyLedger() {
     }
     return list.sort((a, b) => b.at.localeCompare(a.at));
   }, [invoices, payments, creditNotes]);
+  const list = usePagedRows(entries);
 
   if (!stockistId) {
     return <EmptyState title="Pick a stockist" description="Open ledger from a connection or stockist profile." />;
@@ -87,32 +89,40 @@ export function PharmacyLedger() {
       {!entries.length ? (
         <EmptyState title="No ledger entries" description="Trade with this stockist to build the ledger." />
       ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Entry</th>
-                <th>Amount</th>
-                <th>Meta</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((e) => (
-                <tr key={e.id}>
-                  <td className="muted">{new Date(e.at).toLocaleString()}</td>
-                  <td>{e.label}</td>
-                  <td style={{ color: e.signed < 0 ? 'var(--success, #166534)' : undefined }}>
-                    <Money value={e.signed} />
-                  </td>
-                  <td>
-                    <StatusBadge status={e.meta} />
-                  </td>
+        <>
+          <div className="table-wrap queue-responsive">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Entry</th>
+                  <th>Amount</th>
+                  <th>Meta</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {list.pageRows.map((e) => (
+                  <tr key={e.id}>
+                    <td className="muted" data-label="When">
+                      {new Date(e.at).toLocaleString()}
+                    </td>
+                    <td data-label="Entry">{e.label}</td>
+                    <td
+                      data-label="Amount"
+                      style={{ color: e.signed < 0 ? 'var(--success, #166534)' : undefined }}
+                    >
+                      <Money value={e.signed} />
+                    </td>
+                    <td data-label="Meta">
+                      <StatusBadge status={e.meta} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        </>
       )}
     </div>
   );

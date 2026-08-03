@@ -5,7 +5,7 @@ import { availableQty } from '../../../domain/calc';
 import { formatINR } from '../../../domain/utils/money';
 import { stockistAnalytics, type AnalyticsBundle } from '../../../services/analyticsService';
 import { useUi } from '../../../store/ui';
-import { Button, EmptyState, Field, Kpi, Money, PageHeader, Select } from '../../../ui/components/primitives';
+import { Button, EmptyState, Kpi, Money, PageHeader, Select } from '../../../ui/components/primitives';
 import { chartColors } from '../../../ui/chartTheme';
 import { db } from '../../../data/db';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -133,15 +133,21 @@ export function StockistAnalytics() {
         title="Stockist analytics"
         subtitle="Sales, collections, inventory, and operations — recomputed from source documents"
         actions={
-          <div className="row">
-            <Field label="Period">
-              <Select value={period} onChange={(e) => setPeriod(e.target.value as PeriodKey)}>
+          <div className="page-header-controls">
+            <div className="header-period">
+              <label htmlFor="stockist-analytics-period">Period</label>
+              <Select
+                id="stockist-analytics-period"
+                className="select-sm"
+                value={period}
+                onChange={(e) => setPeriod(e.target.value as PeriodKey)}
+              >
                 <option value="7">Last 7 days</option>
                 <option value="14">Last 14 days</option>
                 <option value="30">Last 30 days</option>
                 <option value="90">Last 90 days</option>
               </Select>
-            </Field>
+            </div>
             <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={loading}>
               {loading ? 'Recomputing…' : 'Recompute'}
             </Button>

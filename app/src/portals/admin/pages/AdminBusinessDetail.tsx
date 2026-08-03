@@ -67,7 +67,7 @@ export function AdminBusinessDetail() {
   if (!biz || biz.type === 'Platform') {
     return (
       <div className="stack">
-        <PageHeader title="Business detail" />
+        <PageHeader title="Business detail" backTo="/admin/network" backLabel="Back to network" />
         <EmptyState
           title="Business not found"
           description="Return to the network directory."
@@ -135,11 +135,8 @@ export function AdminBusinessDetail() {
       <PageHeader
         title={biz.name}
         subtitle={`${biz.type} · ${biz.city}, ${biz.state}`}
-        actions={
-          <Link className="btn btn-secondary btn-sm" to="/admin/network">
-            Back to network
-          </Link>
-        }
+        backTo="/admin/network"
+        backLabel="Back to network"
       />
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>

@@ -122,6 +122,8 @@ export function PharmacyQuickOrder() {
       <PageHeader
         title="Quick Order"
         subtitle="Paste a product list — matched lines go to cart only. Unmatched lines are never dropped silently."
+        backTo="/pharmacy/buy"
+        backLabel="Back to buy"
         actions={
           <Link className="btn btn-secondary btn-sm" to="/pharmacy/smart-order">
             Smart Order
@@ -142,9 +144,9 @@ export function PharmacyQuickOrder() {
           <Button disabled={busy || !text.trim()} onClick={() => void parse()}>
             {busy ? 'Working…' : 'Parse & match'}
           </Button>
-          <Button variant="secondary" type="button" onClick={() => navigate(-1)}>
+          <Link className="btn btn-secondary" to="/pharmacy/buy">
             Cancel
-          </Button>
+          </Link>
         </div>
       </div>
 

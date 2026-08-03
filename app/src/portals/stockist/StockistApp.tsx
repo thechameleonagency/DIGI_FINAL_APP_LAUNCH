@@ -17,6 +17,7 @@ import {
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequirePermission } from '../../app/guards';
 import { AnnouncementsArchivePage } from '../../ui/components/AnnouncementsArchivePage';
+import { AppearancePage } from '../../ui/components/AppearanceControls';
 import { NotFoundPage } from '../../ui/components/NotFoundPage';
 import { AppShell } from '../../ui/layout/AppShell';
 import {
@@ -71,7 +72,7 @@ const nav = [
   { to: '/stockist/credit-notes', label: 'Credit notes', icon: FileText, section: 'Money', requires: 'credit.issue' as const },
   { to: '/stockist/analytics', label: 'Analytics', icon: BarChart3, section: 'Workspace', requires: 'order.accept' as const },
   { to: '/stockist/messages', label: 'Messages', icon: MessageSquare, section: 'Workspace', requires: 'order.accept' as const },
-  { to: '/stockist/settings', label: 'More', icon: Settings, section: 'Workspace' },
+  { to: '/stockist/settings', label: 'Settings & data', icon: Settings, sticky: true },
 ];
 
 const mobileNav = [
@@ -79,7 +80,7 @@ const mobileNav = [
   { to: '/stockist/orders', label: 'Orders', icon: ClipboardList, requires: 'order.accept' as const },
   { to: '/stockist/delivery', label: 'Delivery', icon: Truck, requires: 'delivery.update' as const },
   { to: '/stockist/payments', label: 'Pay', icon: CreditCard, requires: 'payment.approve' as const },
-  { to: '/stockist/settings', label: 'More', icon: Settings },
+  { to: '/stockist/settings', label: 'Settings', icon: Settings },
 ];
 
 export function StockistApp() {
@@ -156,6 +157,7 @@ export function StockistApp() {
           <Route path="business" element={<StockistBusiness />} />
         </Route>
         <Route path="profile" element={<StockistProfile />} />
+        <Route path="appearance" element={<AppearancePage />} />
         <Route path="settings" element={<StockistSettings />} />
         <Route path="*" element={<NotFoundPage homeTo="/stockist" />} />
       </Route>

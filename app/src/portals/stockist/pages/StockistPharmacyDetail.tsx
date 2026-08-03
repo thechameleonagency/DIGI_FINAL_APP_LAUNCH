@@ -60,6 +60,8 @@ export function StockistPharmacyDetail() {
       <PageHeader
         title={pharmacy.name}
         subtitle={`${pharmacy.city} · ${connection?.status ?? 'No connection'}`}
+        backTo="/stockist/pharmacies"
+        backLabel="Back to pharmacies"
         actions={
           <div className="row">
             {canEditTerms ? (
@@ -197,9 +199,6 @@ export function StockistPharmacyDetail() {
           </div>
         )}
       </div>
-      <Link className="btn btn-secondary" to="/stockist/pharmacies">
-        Back to pharmacies
-      </Link>
 
       <Modal
         open={editOpen}

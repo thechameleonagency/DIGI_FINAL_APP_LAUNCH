@@ -6,6 +6,7 @@ import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { useBusyAction } from '../hooks/useBusyAction';
 import { FileUpload } from './FileUpload';
+import { PaginationBar, usePagedRows } from './ListToolkit';
 import { Button, EmptyState, Field, Modal, PageHeader, Select, StatusBadge, Textarea } from './primitives';
 
 const MAX_EVIDENCE = 3;
@@ -127,6 +128,7 @@ export function CounterfeitReportPage() {
   if (!user || !business) return null;
 
   const history = [...mine].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const list = usePagedRows(history);
 
   return (
     <div className="stack">
@@ -153,30 +155,33 @@ export function CounterfeitReportPage() {
       {!history.length ? (
         <EmptyState title="No reports yet" description="Your filed reports and their status appear here." />
       ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Report</th>
-                <th>When</th>
-                <th>Status</th>
-                <th>Outcome</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.reportNo ?? r.id.slice(0, 8)}</td>
-                  <td>{new Date(r.createdAt).toLocaleString()}</td>
-                  <td>
-                    <StatusBadge status={r.status} />
-                  </td>
-                  <td>{r.decisionReason ?? r.outcome ?? '—'}</td>
+        <>
+          <div className="table-wrap queue-responsive">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Report</th>
+                  <th>When</th>
+                  <th>Status</th>
+                  <th>Outcome</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {list.pageRows.map((r) => (
+                  <tr key={r.id}>
+                    <td data-label="Report">{r.reportNo ?? r.id.slice(0, 8)}</td>
+                    <td data-label="When">{new Date(r.createdAt).toLocaleString()}</td>
+                    <td data-label="Status">
+                      <StatusBadge status={r.status} />
+                    </td>
+                    <td data-label="Outcome">{r.decisionReason ?? r.outcome ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <PaginationBar page={list.page} pageCount={list.pageCount} total={list.total} onPage={list.setPage} />
+        </>
       )}
 
       <Modal

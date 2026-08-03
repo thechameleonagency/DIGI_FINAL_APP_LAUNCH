@@ -17,6 +17,7 @@ export function StockistSettings() {
         {
           title: 'Account',
           items: [
+            { to: '/stockist/appearance', title: 'Appearance', description: 'Theme and accent color' },
             { to: '/stockist/profile', title: 'Profile & preferences', description: 'Security and personal settings' },
             { to: '/stockist/notifications', title: 'Notifications', description: 'Inbox and alert history' },
             { to: '/stockist/support', title: 'Support', description: 'Raise and track tickets' },
@@ -54,6 +55,7 @@ export function StockistSettings() {
         {
           title: 'Account',
           items: [
+            { to: '/stockist/appearance', title: 'Appearance', description: 'Theme and accent color' },
             { to: '/stockist/profile', title: 'Profile & preferences', description: 'Security and personal settings' },
             { to: '/stockist/notifications', title: 'Notifications', description: 'Inbox and alert history' },
             { to: '/stockist/activity', title: 'Activity', description: 'Audit trail for this workspace' },
@@ -66,7 +68,7 @@ export function StockistSettings() {
   return (
     <div className="stack">
       <PageHeader
-        title="More"
+        title="Settings & data"
         subtitle={isDeliveryStaff ? `${business.name} — delivery workspace` : `${business.name} — workspace shortcuts`}
       />
       <MoreHub sections={sections} />

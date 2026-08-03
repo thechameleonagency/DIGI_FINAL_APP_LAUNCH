@@ -49,14 +49,14 @@ export function NotificationMutePreferences({
         Muted categories are skipped when new notifications are created. Critical alerts
         ({critical.map(notificationCategoryLabel).join(', ') || 'none'}) cannot be muted.
       </p>
-      <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+      <div className="mute-categories-grid">
         {NOTIFICATION_MUTE_CATEGORIES.map((c) => {
           const locked = critical.includes(c);
           const label = notificationCategoryLabel(c);
           return (
             <label
               key={c}
-              style={{ fontSize: 13, opacity: locked ? 0.55 : 1 }}
+              style={{ opacity: locked ? 0.55 : 1 }}
               title={locked ? 'This category cannot be muted' : undefined}
             >
               <input
@@ -64,9 +64,11 @@ export function NotificationMutePreferences({
                 checked={muted.includes(c)}
                 disabled={locked}
                 onChange={() => void toggleMute(c)}
-              />{' '}
-              Mute {label}
-              {locked ? <span className="muted"> (required)</span> : null}
+              />
+              <span>
+                Mute {label}
+                {locked ? <span className="muted"> (required)</span> : null}
+              </span>
             </label>
           );
         })}

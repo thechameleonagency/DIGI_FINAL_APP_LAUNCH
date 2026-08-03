@@ -1,8 +1,11 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Download, Search } from 'lucide-react';
 import { Button, EmptyState, Input, LoadingState, Select } from './primitives';
 
 export type SortDir = 'asc' | 'desc';
+
+/** Default rows per page for queue tables across portals. */
+export const LIST_PAGE_SIZE = 7;
 
 export interface ListColumn<T> {
   key: string;
@@ -37,6 +40,21 @@ export function exportCsv(filename: string, headers: string[], rows: (string | n
   URL.revokeObjectURL(url);
 }
 
+/** Client-side page slice for raw tables that are not on useListControls. */
+export function usePagedRows<T>(rows: T[], pageSize = LIST_PAGE_SIZE, resetKey?: string | number) {
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    setPage(0);
+  }, [resetKey, pageSize]);
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize) || 1);
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = useMemo(
+    () => rows.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    [rows, safePage, pageSize],
+  );
+  return { page: safePage, pageCount, setPage, pageRows, total: rows.length };
+}
+
 export function useListControls<T>(
   rows: T[],
   opts: {
@@ -57,7 +75,7 @@ export function useListControls<T>(
   const [sortKey, setSortKey] = useState(opts.defaultSortKey ?? opts.columns[0]?.key ?? '');
   const [sortDir, setSortDir] = useState<SortDir>(opts.defaultSortDir ?? 'desc');
   const [page, setPage] = useState(0);
-  const pageSize = opts.pageSize ?? 25;
+  const pageSize = opts.pageSize ?? LIST_PAGE_SIZE;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -195,22 +213,24 @@ export function ListToolbar({
   right?: ReactNode;
 }) {
   return (
-    <div className="row" style={{ marginBottom: 12, alignItems: 'flex-end' }}>
-      <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
-        <Search size={14} style={{ position: 'absolute', left: 10, top: 13, color: 'var(--muted)' }} />
-        <Input
-          value={query}
-          onChange={(e) => onQuery(e.target.value)}
-          placeholder={placeholder}
-          style={{ paddingLeft: 32 }}
-          aria-label="Search list"
-        />
+    <div className="list-toolbar">
+      <div className="list-toolbar-search">
+        <span className="list-toolbar-label" aria-hidden>
+          &nbsp;
+        </span>
+        <div className="list-toolbar-search-field">
+          <Search className="list-toolbar-search-icon" size={14} aria-hidden />
+          <Input
+            value={query}
+            onChange={(e) => onQuery(e.target.value)}
+            placeholder={placeholder}
+            aria-label="Search list"
+          />
+        </div>
       </div>
       {(filters ?? []).map((f) => (
-        <div key={f.key} style={{ minWidth: 140 }}>
-          <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
-            {f.label}
-          </label>
+        <div key={f.key} className="list-toolbar-filter">
+          <label className="list-toolbar-label">{f.label}</label>
           <Select value={filterValues?.[f.key] ?? 'All'} onChange={(e) => onFilter?.(f.key, e.target.value)} aria-label={f.label}>
             <option value="All">All</option>
             {f.options.map((o) => (
@@ -223,10 +243,8 @@ export function ListToolbar({
       ))}
       {dateRange ? (
         <>
-          <div style={{ minWidth: 150 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
-              {dateRange.fromLabel ?? 'From'}
-            </label>
+          <div className="list-toolbar-filter">
+            <label className="list-toolbar-label">{dateRange.fromLabel ?? 'From'}</label>
             <Input
               type="date"
               value={dateRange.from}
@@ -234,10 +252,8 @@ export function ListToolbar({
               aria-label={dateRange.fromLabel ?? 'From date'}
             />
           </div>
-          <div style={{ minWidth: 150 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
-              {dateRange.toLabel ?? 'To'}
-            </label>
+          <div className="list-toolbar-filter">
+            <label className="list-toolbar-label">{dateRange.toLabel ?? 'To'}</label>
             <Input
               type="date"
               value={dateRange.to}
@@ -248,11 +264,16 @@ export function ListToolbar({
         </>
       ) : null}
       {onExport ? (
-        <Button type="button" variant="secondary" size="sm" onClick={onExport}>
-          <Download size={14} /> {exportLabel}
-        </Button>
+        <div className="list-toolbar-action-wrap">
+          <span className="list-toolbar-label" aria-hidden>
+            &nbsp;
+          </span>
+          <Button type="button" variant="secondary" className="list-toolbar-action" onClick={onExport}>
+            <Download size={14} /> {exportLabel}
+          </Button>
+        </div>
       ) : null}
-      {right}
+      {right ? <div className="list-toolbar-right">{right}</div> : null}
     </div>
   );
 }
@@ -268,6 +289,7 @@ export function DataListTable<T extends { id: string }>({
   onRowClick,
   loading = false,
   activeRowId,
+  mobileCards = true,
 }: {
   columns: ListColumn<T>[];
   rows: T[];
@@ -280,6 +302,8 @@ export function DataListTable<T extends { id: string }>({
   loading?: boolean;
   /** Visually mark the active/selected row (detail sheet, highlight deep-link). */
   activeRowId?: string | null;
+  /** Stack rows as cards on small screens (default on). */
+  mobileCards?: boolean;
 }) {
   if (loading) {
     return <LoadingState />;
@@ -288,7 +312,7 @@ export function DataListTable<T extends { id: string }>({
     return <EmptyState title={emptyTitle} description={emptyDescription} />;
   }
   return (
-    <div className={`table-wrap${onRowClick ? ' queue-responsive' : ''}`}>
+    <div className={`table-wrap${mobileCards ? ' queue-responsive' : ''}`}>
       <table className="data">
         <thead>
           <tr>
@@ -302,8 +326,7 @@ export function DataListTable<T extends { id: string }>({
                 {c.sortable !== false && onSort ? (
                   <button
                     type="button"
-                    className="btn btn-ghost btn-sm"
-                    style={{ padding: 0, height: 'auto', fontWeight: 600, color: 'inherit' }}
+                    className="btn btn-ghost btn-sm table-sort"
                     onClick={() => onSort(c.key)}
                   >
                     {c.label}
@@ -323,6 +346,7 @@ export function DataListTable<T extends { id: string }>({
               <tr
                 key={row.id}
                 data-row-id={row.id}
+                className={active ? 'is-active' : undefined}
                 aria-selected={active || undefined}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 onKeyDown={
@@ -337,14 +361,7 @@ export function DataListTable<T extends { id: string }>({
                 }
                 tabIndex={onRowClick ? 0 : undefined}
                 role={onRowClick ? 'button' : undefined}
-                style={{
-                  cursor: onRowClick ? 'pointer' : undefined,
-                  background: active
-                    ? 'color-mix(in srgb, var(--accent) 12%, var(--surface))'
-                    : undefined,
-                  outline: active ? '1px solid var(--accent)' : undefined,
-                  outlineOffset: active ? -1 : undefined,
-                }}
+                style={{ cursor: onRowClick ? 'pointer' : undefined }}
               >
                 {columns.map((c) => (
                   <td key={c.key} data-label={c.label}>
@@ -372,7 +389,7 @@ export function PaginationBar({
   onPage: (p: number) => void;
 }) {
   return (
-    <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
+    <div className="pagination-bar">
       <span className="muted" style={{ fontSize: 12 }}>
         {total} result{total === 1 ? '' : 's'} · page {page + 1} of {pageCount}
       </span>

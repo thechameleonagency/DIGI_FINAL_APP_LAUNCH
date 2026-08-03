@@ -16,10 +16,12 @@ import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { FileLink, FileUpload } from '../../../ui/components/FileUpload';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, LoadingState, Money, Modal, PageHeader, Select, StatusBadge } from '../../../ui/components/primitives';
+import { Button, EmptyState, Field, Input, LoadingState, Money, Modal, PageHeader, Select, StatusBadge, TabPanel, Tabs } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 const METHODS: Payment['method'][] = ['Cash', 'UPI', 'NEFT', 'Cheque', 'RTGS', 'Other'];
+
+type PayTab = 'Payments' | 'Invoices';
 
 export function StockistPayments() {
   const { business, user } = useBiz();
@@ -27,6 +29,8 @@ export function StockistPayments() {
   const [params] = useSearchParams();
   const highlight = params.get('invoice') ?? '';
   const paymentFocus = params.get('payment');
+  const statusParam = params.get('status') ?? '';
+  const [tab, setTab] = useState<PayTab>(() => (highlight || statusParam ? 'Invoices' : 'Payments'));
   const { items: payments, loading: paymentsLoading } = useLiveArray(
     () => db.payments.where('stockistId').equals(business.id).reverse().sortBy('createdAt'),
     [business.id],
@@ -48,8 +52,15 @@ export function StockistPayments() {
   useEffect(() => {
     if (!paymentFocus || paymentsLoading) return;
     const match = payments.find((p) => p.paymentNo === paymentFocus);
-    if (match) setReviewId(match.id);
+    if (match) {
+      setTab('Payments');
+      setReviewId(match.id);
+    }
   }, [paymentFocus, payments, paymentsLoading]);
+
+  useEffect(() => {
+    if (highlight || statusParam) setTab('Invoices');
+  }, [highlight, statusParam]);
   const [advancePrompt, setAdvancePrompt] = useState<{
     paymentId: string;
     paymentNo: string;
@@ -244,7 +255,6 @@ export function StockistPayments() {
     [invoices, highlight, dateFrom, dateTo],
   );
 
-  const statusParam = params.get('status') ?? '';
   const invList = useListControls(invScoped, {
     columns: invColumns,
     searchKeys: [(i) => `${i.invoiceNo} ${pharmacyName(i.pharmacyId)}`],
@@ -568,7 +578,6 @@ export function StockistPayments() {
                 </Button>
               ) : canReject ? (
                 <Button
-                  size="sm"
                   variant="secondary"
                   onClick={() => {
                     setHoldId(review.id);
@@ -668,113 +677,151 @@ export function StockistPayments() {
         ) : null}
       </Modal>
 
-      <h3 style={{ margin: 0, fontSize: 15 }}>Payments</h3>
-      {paymentsLoading ? (
-        <LoadingState label="Loading payments…" />
-      ) : !payments.length ? (
-        <EmptyState
-          title="No payments yet"
-          description="Pharmacy payment submissions appear here after you invoice fulfilled orders."
-          action={
-            <Link className="btn btn-primary" to="/stockist/orders">
-              Process orders
-            </Link>
-          }
-        />
-      ) : (
-        <>
-          <ListToolbar
-            query={payList.query}
-            onQuery={payList.setQuery}
-            placeholder="Search payment / pharmacy / ref"
-            dateRange={{
-              from: dateFrom,
-              to: dateTo,
-              onFrom: setDateFrom,
-              onTo: setDateTo,
-            }}
-            filters={[
-              {
-                key: 'status',
-                label: 'Status',
-                options: ['Submitted', 'UnderReview', 'OnHold', 'Approved', 'Rejected'].map((s) => ({ value: s, label: s })),
-              },
-            ]}
-            filterValues={payList.filterValues}
-            onFilter={payList.setFilter}
-            onExport={() => {
-              payList.doExport(`stockist-payments-${business.id}.csv`);
-              pushToast({ tone: 'success', title: 'Exported payments' });
-            }}
-          />
-          <DataListTable
-            loading={paymentsLoading}
-            columns={[
-              ...payColumns,
-              {
-                key: 'actions',
-                label: 'Actions',
-                getValue: () => '',
-                render: (p: (typeof payments)[0]) => (
-                  <Button size="sm" variant="secondary" onClick={() => setReviewId(p.id)}>
-                    Details
-                  </Button>
-                ),
-              },
-            ]}
-            rows={payList.pageRows}
-            sortKey={payList.sortKey}
-            sortDir={payList.sortDir}
-            onSort={payList.toggleSort}
-          />
-          <PaginationBar page={payList.page} pageCount={payList.pageCount} total={payList.total} onPage={payList.setPage} />
-        </>
-      )}
+      <Tabs
+        ariaLabel="Payments and invoices"
+        value={tab}
+        onChange={setTab}
+        items={[
+          { id: 'Payments', label: `Payments (${payments.length})` },
+          { id: 'Invoices', label: `Invoices (${invoices.length})` },
+        ]}
+      />
 
-      <h3 style={{ margin: '8px 0 0', fontSize: 15 }}>Invoices</h3>
-      {invoicesLoading ? (
-        <LoadingState label="Loading invoices…" />
-      ) : !invoices.length ? (
-        <EmptyState
-          title="No invoices yet"
-          description="Issue an invoice after packing a fulfilled order."
-          action={
-            <Link className="btn btn-primary" to="/stockist/orders">
-              Go to orders
-            </Link>
-          }
-        />
-      ) : (
-        <>
-          <ListToolbar
-            query={invList.query}
-            onQuery={invList.setQuery}
-            placeholder="Search invoice / pharmacy"
-            filters={[
-              {
-                key: 'status',
-                label: 'Status',
-                options: ['Issued', 'PartiallyPaid', 'Paid', 'Overdue', 'Void'].map((s) => ({ value: s, label: s })),
-              },
-            ]}
-            filterValues={invList.filterValues}
-            onFilter={invList.setFilter}
-            onExport={() => {
-              invList.doExport(`stockist-invoices-${business.id}.csv`);
-              pushToast({ tone: 'success', title: 'Exported invoices' });
-            }}
-          />
-          <DataListTable
-            loading={invoicesLoading}
-            columns={invColumns}
-            rows={invList.pageRows}
-            sortKey={invList.sortKey}
-            sortDir={invList.sortDir}
-            onSort={invList.toggleSort}
-          />
-          <PaginationBar page={invList.page} pageCount={invList.pageCount} total={invList.total} onPage={invList.setPage} />
-        </>
-      )}
+      <TabPanel id="Payments" active={tab === 'Payments'}>
+        <div className="stack">
+          {paymentsLoading ? (
+            <LoadingState label="Loading payments…" />
+          ) : !payments.length ? (
+            <EmptyState
+              title="No payments yet"
+              description="Pharmacy payment submissions appear here after you invoice fulfilled orders."
+              action={
+                <Link className="btn btn-primary" to="/stockist/orders">
+                  Process orders
+                </Link>
+              }
+            />
+          ) : (
+            <>
+              <ListToolbar
+                query={payList.query}
+                onQuery={payList.setQuery}
+                placeholder="Search payment / pharmacy / ref"
+                dateRange={{
+                  from: dateFrom,
+                  to: dateTo,
+                  onFrom: setDateFrom,
+                  onTo: setDateTo,
+                }}
+                filters={[
+                  {
+                    key: 'status',
+                    label: 'Status',
+                    options: ['Submitted', 'UnderReview', 'OnHold', 'Approved', 'Rejected'].map((s) => ({
+                      value: s,
+                      label: s,
+                    })),
+                  },
+                ]}
+                filterValues={payList.filterValues}
+                onFilter={payList.setFilter}
+                onExport={() => {
+                  payList.doExport(`stockist-payments-${business.id}.csv`);
+                  pushToast({ tone: 'success', title: 'Exported payments' });
+                }}
+              />
+              <DataListTable
+                loading={paymentsLoading}
+                columns={[
+                  ...payColumns,
+                  {
+                    key: 'actions',
+                    label: 'Actions',
+                    getValue: () => '',
+                    render: (p: (typeof payments)[0]) => (
+                      <Button size="sm" variant="secondary" onClick={() => setReviewId(p.id)}>
+                        Details
+                      </Button>
+                    ),
+                  },
+                ]}
+                rows={payList.pageRows}
+                sortKey={payList.sortKey}
+                sortDir={payList.sortDir}
+                onSort={payList.toggleSort}
+              />
+              <PaginationBar
+                page={payList.page}
+                pageCount={payList.pageCount}
+                total={payList.total}
+                onPage={payList.setPage}
+              />
+            </>
+          )}
+        </div>
+      </TabPanel>
+
+      <TabPanel id="Invoices" active={tab === 'Invoices'}>
+        <div className="stack">
+          {invoicesLoading ? (
+            <LoadingState label="Loading invoices…" />
+          ) : !invoices.length ? (
+            <EmptyState
+              title="No invoices yet"
+              description="Issue an invoice after packing a fulfilled order."
+              action={
+                <Link className="btn btn-primary" to="/stockist/orders">
+                  Go to orders
+                </Link>
+              }
+            />
+          ) : (
+            <>
+              <ListToolbar
+                query={invList.query}
+                onQuery={invList.setQuery}
+                placeholder="Search invoice / pharmacy"
+                dateRange={{
+                  from: dateFrom,
+                  to: dateTo,
+                  onFrom: setDateFrom,
+                  onTo: setDateTo,
+                }}
+                filters={[
+                  {
+                    key: 'status',
+                    label: 'Status',
+                    options: ['Issued', 'PartiallyPaid', 'Paid', 'Overdue', 'Void'].map((s) => ({
+                      value: s,
+                      label: s,
+                    })),
+                  },
+                ]}
+                filterValues={invList.filterValues}
+                onFilter={invList.setFilter}
+                onExport={() => {
+                  invList.doExport(`stockist-invoices-${business.id}.csv`);
+                  pushToast({ tone: 'success', title: 'Exported invoices' });
+                }}
+              />
+              <DataListTable
+                loading={invoicesLoading}
+                columns={invColumns}
+                rows={invList.pageRows}
+                sortKey={invList.sortKey}
+                sortDir={invList.sortDir}
+                onSort={invList.toggleSort}
+              />
+              <PaginationBar
+                page={invList.page}
+                pageCount={invList.pageCount}
+                total={invList.total}
+                onPage={invList.setPage}
+              />
+            </>
+          )}
+        </div>
+      </TabPanel>
     </div>
   );
 }

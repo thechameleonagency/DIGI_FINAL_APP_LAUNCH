@@ -255,8 +255,8 @@ export function GlobalSearch({ portal }: { portal: 'pharmacy' | 'stockist' | 'ad
       >
         <Search size={16} />
       </button>
-      <div className="row global-search-field" style={{ gap: 6 }}>
-        <Search size={14} style={{ color: 'var(--muted)' }} aria-hidden />
+      <div className="row global-search-field">
+        <Search className="global-search-icon" size={14} aria-hidden />
         <Input
           ref={inputRef}
           aria-label="Global search"

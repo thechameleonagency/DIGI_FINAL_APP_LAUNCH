@@ -15,6 +15,7 @@ import {
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequirePermission } from '../../app/guards';
 import { AnnouncementsArchivePage } from '../../ui/components/AnnouncementsArchivePage';
+import { AppearancePage } from '../../ui/components/AppearanceControls';
 import { NotFoundPage } from '../../ui/components/NotFoundPage';
 import { AppShell } from '../../ui/layout/AppShell';
 import { ProfileSecurityPage } from '../../ui/components/ProfileSecurityPage';
@@ -54,7 +55,7 @@ const nav = [
   { to: '/admin/counterfeit', label: 'Counterfeit', icon: AlertTriangle, section: 'Governance', requires: 'counterfeit.review' as const },
   { to: '/admin/announcements', label: 'Announcements', icon: Megaphone, section: 'Content', requires: 'announcement.manage' as const },
   { to: '/admin/staff', label: 'Staff', icon: Users, section: 'Content', requires: 'staff.manage' as const },
-  { to: '/admin/settings', label: 'Settings', icon: Settings, section: 'Content', requires: 'settings.manage' as const },
+  { to: '/admin/settings', label: 'Settings & data', icon: Settings, sticky: true, requires: 'settings.manage' as const },
 ];
 
 const mobileNav = [
@@ -108,6 +109,7 @@ export function AdminApp() {
         </Route>
         <Route element={<RequirePermission action="settings.manage" />}>
           <Route path="settings" element={<AdminSettings />} />
+          <Route path="appearance" element={<AppearancePage />} />
         </Route>
         <Route element={<RequirePermission action="staff.manage" />}>
           <Route path="staff" element={<AdminStaff />} />

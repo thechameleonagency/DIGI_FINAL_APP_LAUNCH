@@ -9,6 +9,7 @@ import { pharmacyAnalytics, type AnalyticsBundle } from '../../../services/analy
 import { saveReportPreset } from '../../../services/planService';
 import { useSession } from '../../../store/session';
 import { useUi } from '../../../store/ui';
+import { PaginationBar, usePagedRows } from '../../../ui/components/ListToolkit';
 import { Button, EmptyState, Field, Input, Kpi, Money, PageHeader, Select } from '../../../ui/components/primitives';
 import { chartColors } from '../../../ui/chartTheme';
 import { useBiz } from './useBiz';
@@ -77,6 +78,7 @@ export function PharmacyAnalytics() {
     }
     return [...map.values()].sort((a, b) => b.gmv - a.gmv);
   }, [periodOrders, stockists]);
+  const supplierList = usePagedRows(supplierPerf, 7, days);
 
   const aging = useMemo(() => {
     const buckets = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
@@ -123,15 +125,21 @@ export function PharmacyAnalytics() {
         title="Pharmacy analytics"
         subtitle="Period KPIs, supplier performance, payables aging"
         actions={
-          <div className="row">
-            <Field label="Period">
-              <Select value={period} onChange={(e) => setPeriod(e.target.value as PeriodKey)}>
+          <div className="page-header-controls">
+            <div className="header-period">
+              <label htmlFor="pharmacy-analytics-period">Period</label>
+              <Select
+                id="pharmacy-analytics-period"
+                className="select-sm"
+                value={period}
+                onChange={(e) => setPeriod(e.target.value as PeriodKey)}
+              >
                 <option value="7">Last 7 days</option>
                 <option value="14">Last 14 days</option>
                 <option value="30">Last 30 days</option>
                 <option value="90">Last 90 days</option>
               </Select>
-            </Field>
+            </div>
             <Button variant="secondary" size="sm" onClick={exportCsv}>
               Export CSV
             </Button>
@@ -177,28 +185,36 @@ export function PharmacyAnalytics() {
         {!supplierPerf.length ? (
           <EmptyState title="No supplier trade in period" description="Place orders to see supplier KPIs." />
         ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Stockist</th>
-                  <th>Orders</th>
-                  <th>GMV</th>
-                </tr>
-              </thead>
-              <tbody>
-                {supplierPerf.map((s) => (
-                  <tr key={s.name}>
-                    <td>{s.name}</td>
-                    <td>{s.orders}</td>
-                    <td>
-                      <Money value={s.gmv} />
-                    </td>
+          <>
+            <div className="table-wrap queue-responsive">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Stockist</th>
+                    <th>Orders</th>
+                    <th>GMV</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {supplierList.pageRows.map((s) => (
+                    <tr key={s.name}>
+                      <td data-label="Stockist">{s.name}</td>
+                      <td data-label="Orders">{s.orders}</td>
+                      <td data-label="GMV">
+                        <Money value={s.gmv} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <PaginationBar
+              page={supplierList.page}
+              pageCount={supplierList.pageCount}
+              total={supplierList.total}
+              onPage={supplierList.setPage}
+            />
+          </>
         )}
       </section>
 

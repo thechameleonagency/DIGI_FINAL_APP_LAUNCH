@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { productAvailableSellable } from '../../../domain/calc';
@@ -13,7 +13,6 @@ export function PharmacyProductDetail() {
   const { productId } = useParams();
   const { business, user } = useBiz();
   const { pushToast } = useUi();
-  const navigate = useNavigate();
   const product = useLiveQuery(() => (productId ? db.products.get(productId) : undefined), [productId]);
   const settings = useLiveQuery(() => db.platformSettings.get('platform'));
   const stockist = useLiveQuery(() => (product ? db.businesses.get(product.stockistId) : undefined), [product?.stockistId]);
@@ -46,15 +45,12 @@ export function PharmacyProductDetail() {
       <PageHeader
         title={product.name}
         subtitle={`${product.brand} · ${product.sku} · ${stockist?.name ?? 'Stockist'}`}
+        backTo={`/pharmacy/buy/${product.stockistId}`}
+        backLabel="Back to catalogue"
         actions={
-          <>
-            <Link className="btn btn-secondary btn-sm" to={`/pharmacy/compare?productId=${product.id}`}>
-              Compare prices
-            </Link>
-            <Button size="sm" variant="ghost" onClick={() => navigate(-1)}>
-              Back
-            </Button>
-          </>
+          <Link className="btn btn-secondary btn-sm" to={`/pharmacy/compare?productId=${product.id}`}>
+            Compare prices
+          </Link>
         }
       />
       <div className="grid-2">

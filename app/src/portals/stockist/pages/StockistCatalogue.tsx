@@ -18,7 +18,7 @@ import { useCan } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { ConfirmDialog } from '../../../ui/components/ConfirmDialog';
 import { DataListTable, ListToolbar, PaginationBar, useListControls } from '../../../ui/components/ListToolkit';
-import { Button, EmptyState, Field, Input, Modal, Money, PageHeader, Select, StatusBadge, Textarea } from '../../../ui/components/primitives';
+import { Button, DeleteButton, EmptyState, Field, Input, Modal, Money, PageHeader, Select, StatusBadge, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 const emptyForm = {
@@ -117,7 +117,7 @@ export function StockistCatalogue() {
       { key: 'name', label: 'Name', getValue: (p: (typeof products)[0]) => p.name },
       { key: 'sku', label: 'SKU', getValue: (p: (typeof products)[0]) => p.sku },
       { key: 'category', label: 'Category', getValue: (p: (typeof products)[0]) => p.category },
-      { key: 'ptr', label: 'PTR', getValue: (p: (typeof products)[0]) => p.ptr, render: (p: (typeof products)[0]) => <Money value={p.ptr} /> },
+      { key: 'ptr', label: 'PTR', getValue: (p: (typeof products)[0]) => p.ptr, render: (p: (typeof products)[0]) => <span className="cell-num"><Money value={p.ptr} /></span> },
       {
         key: 'pricingClass',
         label: 'Class',
@@ -142,7 +142,7 @@ export function StockistCatalogue() {
               label: 'Actions',
               getValue: () => '',
               render: (p: (typeof products)[0]) => (
-                <div className="row">
+                <div className="table-row-actions">
                   <Button
                     size="sm"
                     variant="secondary"
@@ -178,7 +178,7 @@ export function StockistCatalogue() {
                   {p.status === 'Active' ? (
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="secondary"
                       onClick={async () => {
                         const res = await setProductStatus({
                           actor: user,
@@ -195,7 +195,7 @@ export function StockistCatalogue() {
                   {p.status === 'Inactive' || p.status === 'Discontinued' ? (
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="secondary"
                       onClick={async () => {
                         const res = await setProductStatus({
                           actor: user,
@@ -210,9 +210,9 @@ export function StockistCatalogue() {
                     </Button>
                   ) : null}
                   {p.status !== 'Discontinued' ? (
-                    <Button size="sm" variant="danger" onClick={() => setDiscontinueId(p.id)}>
+                    <DeleteButton size="sm" showIcon={false} onClick={() => setDiscontinueId(p.id)}>
                       Discontinue
-                    </Button>
+                    </DeleteButton>
                   ) : null}
                 </div>
               ),
@@ -392,21 +392,6 @@ export function StockistCatalogue() {
             <a className="btn btn-secondary btn-sm" href={`/catalogue-share/${business.id}`} target="_blank" rel="noreferrer">
               Open share
             </a>
-            {canManage && catalogue ? (
-              <Select
-                value={catalogue.status}
-                onChange={(e) => {
-                  const next = e.target.value as 'Active' | 'Maintenance' | 'Inactive';
-                  if (next === catalogue.status) return;
-                  setPendingCatalogueStatus(next);
-                }}
-                style={{ maxWidth: 160 }}
-              >
-                <option value="Active">Active</option>
-                <option value="Maintenance">Maintenance</option>
-                <option value="Inactive">Inactive</option>
-              </Select>
-            ) : null}
           </div>
         }
       />
@@ -457,6 +442,26 @@ export function StockistCatalogue() {
           list.doExport(`catalogue-${business.id}.csv`);
           pushToast({ tone: 'success', title: 'Catalogue exported' });
         }}
+        right={
+          canManage && catalogue ? (
+            <div className="list-toolbar-filter">
+              <label className="list-toolbar-label">Catalogue</label>
+              <Select
+                value={catalogue.status}
+                onChange={(e) => {
+                  const next = e.target.value as 'Active' | 'Maintenance' | 'Inactive';
+                  if (next === catalogue.status) return;
+                  setPendingCatalogueStatus(next);
+                }}
+                style={{ minWidth: 140 }}
+              >
+                <option value="Active">Active</option>
+                <option value="Maintenance">Maintenance</option>
+                <option value="Inactive">Inactive</option>
+              </Select>
+            </div>
+          ) : null
+        }
       />
       <DataListTable
         columns={columns}

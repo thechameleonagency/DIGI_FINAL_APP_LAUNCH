@@ -13,7 +13,7 @@ import { useSession } from '../../../store/session';
 import { useUi } from '../../../store/ui';
 import { useBusyAction } from '../../../ui/hooks/useBusyAction';
 import { FileLink } from '../../../ui/components/FileUpload';
-import { Button, EmptyState, Field, Input, PageHeader, StatusBadge, Tabs, Textarea } from '../../../ui/components/primitives';
+import { Button, DeleteButton, EmptyState, Field, Input, PageHeader, StatusBadge, Tabs, Textarea } from '../../../ui/components/primitives';
 import { useBiz } from './useBiz';
 
 type Tab = 'Queue' | 'Plan copy' | 'Premium list';
@@ -226,9 +226,15 @@ export function AdminPlans() {
                         onChange={(e) => setRevokeReason((m) => ({ ...m, [b.id]: e.target.value }))}
                       />
                     </Field>
-                    <Button type="button" variant="danger" disabled={busy} onClick={() => void revoke(b.id)}>
+                    <DeleteButton
+                      type="button"
+                      size="sm"
+                      showIcon={false}
+                      disabled={busy}
+                      onClick={() => void revoke(b.id)}
+                    >
                       Revoke Premium
-                    </Button>
+                    </DeleteButton>
                   </>
                 ) : null}
               </div>

@@ -12,8 +12,10 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
+import { Trash2 } from 'lucide-react';
 import { formatINR } from '../../domain/utils/money';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { BackLink } from '../navigation/BackLink';
 
 export function Button({
   variant = 'primary',
@@ -24,12 +26,28 @@ export function Button({
   return <button className={`btn btn-${variant} ${size === 'sm' ? 'btn-sm' : ''} ${className}`} {...props} />;
 }
 
+/** Text-style destructive control — red label + optional trash icon, bordered, no fill. */
+export function DeleteButton({
+  size,
+  className = '',
+  children = 'Delete',
+  showIcon = true,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { size?: 'sm'; showIcon?: boolean }) {
+  return (
+    <button type="button" className={`btn btn-delete ${size === 'sm' ? 'btn-sm' : ''} ${className}`} {...props}>
+      {showIcon ? <Trash2 size={size === 'sm' ? 14 : 16} aria-hidden /> : null}
+      {children}
+    </button>
+  );
+}
+
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
   return <input ref={ref} className="input" {...props} />;
 });
 
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className="select" {...props} />;
+export function Select({ className = '', ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select className={`select ${className}`.trim()} {...props} />;
 }
 
 export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -275,14 +293,28 @@ export function LoadingState({ label = 'Loading…' }: { label?: string }) {
   );
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+  backTo,
+  backLabel = 'Back',
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+  /** Canonical parent path for deep detail pages. */
+  backTo?: string;
+  backLabel?: string;
+}) {
   return (
     <div className="page-header">
-      <div>
+      <div className="page-header-main">
+        {backTo ? <BackLink to={backTo} label={backLabel} /> : null}
         <h1>{title}</h1>
         {subtitle ? <p>{subtitle}</p> : null}
       </div>
-      {actions ? <div className="row">{actions}</div> : null}
+      {actions ? <div className="row page-header-actions">{actions}</div> : null}
     </div>
   );
 }
@@ -292,7 +324,7 @@ export function Kpi({ label, value, sub }: { label: string; value: ReactNode; su
     <div className="card kpi">
       <div className="label">{label}</div>
       <div className="value">{value}</div>
-      {sub ? <div className="sub">{sub}</div> : null}
+      <div className="sub">{sub || '\u00A0'}</div>
     </div>
   );
 }

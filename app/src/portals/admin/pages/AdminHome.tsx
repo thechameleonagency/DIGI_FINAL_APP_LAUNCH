@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { BadgeCheck, Building2, LifeBuoy, Megaphone, ShieldAlert, Wallet } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../../data/db';
 import { AnnouncementStrip } from '../../../ui/components/AnnouncementStrip';
 import { BannerStrip } from '../../../ui/components/BannerStrip';
+import { QuickActions } from '../../../ui/components/QuickActions';
 import { Kpi, Money, PageHeader, StatusBadge } from '../../../ui/components/primitives';
 
 function daysPending(iso?: string): number {
@@ -68,7 +70,7 @@ export function AdminHome() {
     <div className="stack">
       <PageHeader title="Platform home" subtitle="Verification, governance, support — click a KPI to drill down" />
       <BannerStrip placement="Admin Home" />
-      <AnnouncementStrip audience="Admin" placement="Admin Home" archivePath="/admin/announcements-archive" />
+      <AnnouncementStrip audience="Admin" placement="Admin Home" />
       <div className="card card-pad stack">
         <strong>Today&apos;s work</strong>
         <div className="row gap" style={{ flexWrap: 'wrap' }}>
@@ -86,20 +88,47 @@ export function AdminHome() {
           </Link>
         </div>
       </div>
-      <div className="card card-pad stack">
-        <strong>Quick actions</strong>
-        <div className="row gap" style={{ flexWrap: 'wrap' }}>
-          <Link className="btn btn-primary btn-sm" to="/admin/verifications">
-            Review verification
-          </Link>
-          <Link className="btn btn-secondary btn-sm" to="/admin/announcements">
-            Post announcement
-          </Link>
-          <Link className="btn btn-secondary btn-sm" to="/admin/support">
-            Open tickets ({openTickets.length})
-          </Link>
-        </div>
-      </div>
+      <QuickActions
+        items={[
+          {
+            to: '/admin/verifications',
+            title: 'Review verification',
+            description: 'Approve or request documents',
+            icon: BadgeCheck,
+            primary: true,
+          },
+          {
+            to: '/admin/announcements',
+            title: 'Post announcement',
+            description: 'Publish a platform notice',
+            icon: Megaphone,
+          },
+          {
+            to: '/admin/support',
+            title: 'Open tickets',
+            description: `${openTickets.length} active support threads`,
+            icon: LifeBuoy,
+          },
+          {
+            to: '/admin/payments',
+            title: 'Monitor payments',
+            description: 'Track disputed or held settlements',
+            icon: Wallet,
+          },
+          {
+            to: '/admin/network',
+            title: 'Network',
+            description: 'Browse pharmacies and stockists',
+            icon: Building2,
+          },
+          {
+            to: '/admin/counterfeit',
+            title: 'Counterfeit queue',
+            description: 'Investigate filed reports',
+            icon: ShieldAlert,
+          },
+        ]}
+      />
       <div className="kpi-grid">
         <Link to="/admin/verifications" className="kpi-link">
           <Kpi label="Pending verifications" value={pendingVer.length} sub="Submitted / Under review" />
